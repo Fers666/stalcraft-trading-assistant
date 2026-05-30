@@ -6,6 +6,7 @@ from app.api.v1.endpoints.auth import router as auth_router
 from app.api.v1.endpoints.watchlist import router as watchlist_router
 from app.api.v1.endpoints.items import router as items_router
 from app.api.v1.endpoints.lots import router as lots_router
+from app.api.v1.endpoints.monitoring import router as monitoring_router
 
 app = FastAPI(
     title="Stalcraft Trading Assistant",
@@ -25,6 +26,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(watchlist_router, prefix="/api/v1")
 app.include_router(items_router, prefix="/api/v1")
 app.include_router(lots_router, prefix="/api/v1")
+app.include_router(monitoring_router, prefix="/api/v1")
 
 
 @app.get("/health")
