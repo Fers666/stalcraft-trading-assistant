@@ -8,6 +8,7 @@ import {
 import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
 import api from '../api/client'
+import { translateCategory } from '../utils/i18n'
 
 interface Item {
   id: number
@@ -72,8 +73,8 @@ export default function CatalogPage() {
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           size="small"
           sx={{ flexGrow: 1 }}
-          InputProps={{
-            startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
+          slotProps={{
+            input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> },
           }}
         />
         <FormControl size="small" sx={{ minWidth: 100 }}>
@@ -101,7 +102,6 @@ export default function CatalogPage() {
                 <TableHead>
                   <TableRow>
                     <TableCell>Название</TableCell>
-                    <TableCell>ID</TableCell>
                     <TableCell>Категория</TableCell>
                     <TableCell>Пачки</TableCell>
                     <TableCell align="right"></TableCell>
@@ -111,16 +111,17 @@ export default function CatalogPage() {
                   {items.map((item) => (
                     <TableRow key={item.id} hover>
                       <TableCell>
-                        <Typography variant="body2" fontWeight={500}>{item.name_ru}</Typography>
-                        <Typography variant="caption" color="text.secondary">{item.name_en}</Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'primary.main' }}>
-                          {item.item_id}
+                        <Typography variant="body2" fontWeight={500}>
+                          {item.name_ru || item.name_en}
                         </Typography>
+                        {item.name_en && item.name_ru && (
+                          <Typography variant="caption" color="text.secondary">{item.name_en}</Typography>
+                        )}
                       </TableCell>
                       <TableCell>
-                        <Typography variant="caption" color="text.secondary">{item.category}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {translateCategory(item.category)}
+                        </Typography>
                       </TableCell>
                       <TableCell>
                         {item.can_be_batch_traded

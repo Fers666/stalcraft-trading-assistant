@@ -4,6 +4,9 @@
     "[python]": {
         "editor.defaultFormatter": "ms-python.black-formatter"
     },
+    "terminal.integrated.env.windows": {
+        "PATH": "C:\\tools\\node-v22.16.0-win-x64;${env:PATH}"
+    },
     "sqltools.connections": [
         {
             "previewLimit": 50,

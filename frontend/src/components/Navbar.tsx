@@ -11,10 +11,10 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import { useAuthStore } from '../store/authStore'
 
 const navItems = [
-  { label: 'Мониторинг', path: '/monitoring', icon: <MonitorHeartIcon fontSize="small" /> },
-  { label: 'Каталог',    path: '/catalog',    icon: <MenuBookIcon    fontSize="small" /> },
-  { label: 'Лоты',       path: '/lots',       icon: <SearchIcon      fontSize="small" /> },
-  { label: 'Склад',      path: '/inventory',  icon: <InventoryIcon   fontSize="small" /> },
+  { label: 'Избранное', path: '/monitoring', icon: <MonitorHeartIcon fontSize="small" /> },
+  { label: 'Каталог',   path: '/catalog',    icon: <MenuBookIcon    fontSize="small" /> },
+  { label: 'Лоты',      path: '/lots',       icon: <SearchIcon      fontSize="small" /> },
+  { label: 'Склад',     path: '/inventory',  icon: <InventoryIcon   fontSize="small" /> },
 ]
 
 export default function Navbar() {
