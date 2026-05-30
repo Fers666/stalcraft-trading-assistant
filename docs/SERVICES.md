@@ -4,12 +4,52 @@
 
 ## Celery задачи (расписание)
 
-| Задача | Расписание | Модуль |
-|--------|-----------|--------|
-| `collect_all_active_lots` | каждые 5 минут | `app.tasks.collectors` |
-| `collect_all_history` | раз в час (minute=0) | `app.tasks.collectors` |
-| `calculate_all_market_stats` | раз в час (minute=5) | `app.tasks.analyzers` |
-| `delete_old_data` | каждую ночь в 3:00 | `app.tasks.cleanup` |
+| Задача | Расписание | Модуль | Описание |
+|--------|-----------|--------|----------|
+| `collect_watchlist_lots` | каждые 5 мин | `app.tasks.collectors` | Уникальные пары из всех watchlist, 1 запрос/пару |
+| `collect_watchlist_history` | раз в час (мин. 0) | `app.tasks.collectors` | История для watchlist предметов |
+| `calculate_all_market_stats` | раз в час (мин. 5) | `app.tasks.analyzers` | Пересчёт market_statistics |
+| `run_global_feed_batch` | раз в час (мин. 30) | `app.tasks.global_scanner` | ~93 предмета вне watchlist, скользящий цикл |
+| `delete_old_data` | ежедневно 03:00 | `app.tasks.cleanup` | Данные старше 120 дней |
+
+### Логика дедупликации watchlist
+
+```python
+# Вместо: for entry in all_watchlist_entries → api_call(entry.user_id, entry.item_id)
+# Делаем: уникальные пары → 1 вызов на пару
+
+unique_pairs = {(e.item_id, e.region) for e in all_active_watchlist}
+for item_id, region in unique_pairs:
+    data = api.get_lots(item_id, region)
+    save_to_collected_data(user_id=None, item_id=item_id, region=region, data=data)
+    cache.set_lots(region, item_id, data)  # Redis кэш
+```
+
+Результат: 100 пользователей следят за одним товаром → **1 API запрос**.
+
+### Логика глобального сканера (run_global_feed_batch)
+
+```python
+# Каждый час в минуту 30:
+watchlist_pairs = {(e.item_id, e.region) for e in all_active_watchlist}
+all_items = master_items.query(region=DEFAULT_REGION)
+
+# Исключаем watchlist предметы — они уже собираются каждые 5 мин
+feed_items = [i for i in all_items if (i.item_id, region) not in watchlist_pairs]
+
+# Берём следующий батч из скользящего указателя
+cursor = redis.get("global_scan:cursor") or 0
+batch = feed_items[cursor : cursor + BATCH_SIZE]  # ~93 предмета
+redis.set("global_scan:cursor", (cursor + BATCH_SIZE) % len(feed_items))
+
+# Лёгкий сбор — только /lots, без raw_lots
+for item in batch:
+    data = api.get_lots(item.item_id, region)
+    upsert_global_item_scan(item_id, region, metrics_only(data))
+```
+
+Полный цикл по всем предметам ≈ 24 часа.
+Захватывает прайм-тайм естественно — данные актуальны в любое время суток.
 
 ---
 

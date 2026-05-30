@@ -266,6 +266,59 @@ UNIQUE по `(user_id, item_id, region)` — одна запись на пред
 
 ---
 
+### `global_item_scan` — лёгкий скан всех предметов вне watchlist
+
+Заполняется глобальным сканером (слой 2). Содержит только агрегированные метрики —
+без `raw_lots` и детального анализа. Одна запись на пару `(item_id, region)`, обновляется при каждом проходе.
+
+**Почему отдельная таблица, а не `collected_data`:**
+`collected_data` хранит подробные снэпшоты с `raw_lots` JSON и buyout detection —
+это тяжело и нужно только для watchlist-предметов. Для 2000+ предметов глобального скана
+достаточно 7 числовых полей.
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `id` | integer PK | |
+| `item_id` | varchar(50) FK | Ссылка на `master_items.item_id` |
+| `region` | varchar(10) | Регион аукциона |
+| `scanned_at` | timestamptz | Время последнего скана |
+| `lot_count` | integer | Число активных лотов |
+| `liquid_lot_count` | integer | Лотов с остатком ≥ 2ч (ликвидные) |
+| `best_price` | bigint | Лучшая цена выкупа за штуку |
+| `avg_price` | numeric(12,2) | Средняя цена за штуку |
+| `total_volume` | integer | Суммарное кол-во единиц во всех лотах |
+| `prev_best_price` | bigint | Лучшая цена предыдущего скана (для расчёта изменения) |
+| `price_change_pct` | numeric(5,2) | Изменение лучшей цены с прошлого скана, % |
+| `tradability_score` | numeric(8,2) | Скор торгуемости (см. ниже) |
+
+**UNIQUE:** `(item_id, region)` — одна актуальная запись, перезаписывается при каждом скане.
+
+**Формула tradability_score:**
+```
+price_spread_pct = (max_price - min_price) / min_price × 100
+tradability_score = liquid_lot_count × total_volume / (1 + price_spread_pct)
+```
+Смысл: чем больше ликвидных лотов и объёма, тем выше скор.
+Чем больше разброс цен (нестабильный рынок) — тем ниже.
+
+---
+
+### Изменения в существующих таблицах (миграции 0005–0006)
+
+**`collected_data.user_id`** — становится nullable:
+- `NULL` = глобальный снэпшот (из watchlist коллектора, один на пару item/region)
+- `<user_id>` = ручной refresh конкретного пользователя
+
+**`market_statistics.user_id`** — становится nullable:
+- `NULL` = глобальная статистика (одна на пару item/region)
+- Все пользователи читают одну запись, применяют личные фильтры на уровне API
+
+**Почему это важно:**
+До изменения — 100 пользователей с одним товаром = 100 API запросов каждые 5 минут.
+После — 1 API запрос, 1 запись в БД, все 100 пользователей читают её.
+
+---
+
 ## Миграции
 
 | Файл | Что делает |
@@ -274,6 +327,9 @@ UNIQUE по `(user_id, item_id, region)` — одна запись на пред
 | `0002_add_is_admin.py` | Добавляет `users.is_admin` |
 | `0003_collected_data_liquid_fields.py` | Добавляет поля ликвидности в `collected_data` |
 | `0004_market_stats_sell_options.py` | Добавляет `sell_options` в `market_statistics` |
+| `0005_collected_data_user_nullable.py` | `collected_data.user_id` → nullable (глобальный сбор) |
+| `0006_market_stats_user_nullable.py` | `market_statistics.user_id` → nullable |
+| `0007_global_item_scan.py` | Новая таблица `global_item_scan` |
 
 ---
 
