@@ -112,8 +112,9 @@ async def _collect_lots_for_item(db, entry):
     client_region = stalcraft_client.region
     stalcraft_client.region = entry.region
 
-    EXPIRY_THRESHOLD_HOURS = 2      # лот считается неликвидным если < 2ч до конца
-    BUYOUT_BUFFER_MINUTES = 10      # буфер: лот точно выкуплен если исчез за N мин до endTime
+    EXPIRY_THRESHOLD_HOURS  = 2     # лот считается неликвидным если < 2ч до конца
+    BUYOUT_BUFFER_MINUTES   = 10    # буфер: лот точно выкуплен если исчез за N мин до endTime
+    RELIST_PRICE_THRESHOLD  = 1.20  # лот дороже рынка на 20%+ → вероятно перевыставление
 
     try:
         now = datetime.now(timezone.utc)
@@ -188,11 +189,22 @@ async def _collect_lots_for_item(db, entry):
                 end_time = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
                 # Лот исчез ДО истечения (с буфером) → выкупили
                 if now < end_time - timedelta(minutes=BUYOUT_BUFFER_MINUTES):
-                    detected_buyouts += 1
                     buyout_price = prev_lot.get("buyoutPrice", 0)
                     amount = prev_lot.get("amount", 1)
                     price_per_unit = buyout_price // amount if amount > 0 else buyout_price
 
+                    # Фильтр перевыставлений: если цена пропавшего лота была на 20%+
+                    # выше текущего ликвидного минимума — скорее всего продавец
+                    # снял лот и перевыставил по рыночной цене, а не продал
+                    current_min = min(liquid_prices) if liquid_prices else None
+                    if current_min and price_per_unit > current_min * RELIST_PRICE_THRESHOLD:
+                        logger.debug(
+                            f"Skipping probable relist: {entry.item_id} price={price_per_unit} "
+                            f"vs market={current_min} ({price_per_unit/current_min:.0%})"
+                        )
+                        continue
+
+                    detected_buyouts += 1
                     if price_per_unit > 0:
                         db.add(SalesHistory(
                             user_id=entry.user_id,
