@@ -1,0 +1,134 @@
+# Сервисы и задачи — описание
+
+---
+
+## Celery задачи (расписание)
+
+| Задача | Расписание | Модуль |
+|--------|-----------|--------|
+| `collect_all_active_lots` | каждые 5 минут | `app.tasks.collectors` |
+| `collect_all_history` | раз в час (minute=0) | `app.tasks.collectors` |
+| `calculate_all_market_stats` | раз в час (minute=5) | `app.tasks.analyzers` |
+| `delete_old_data` | каждую ночь в 3:00 | `app.tasks.cleanup` |
+
+---
+
+## app/services/collector/client.py — StalcraftClient
+
+HTTP клиент для Stalcraft API. Все запросы проходят через rate limiter.
+
+**Методы:**
+- `get_auction_lots(item_id, offset, limit)` — активные лоты предмета
+- `get_auction_history(item_id, offset, limit)` — история продаж
+- `get_emission()` — статус радиационного выброса
+
+При ответе `401` автоматически обновляет OAuth токен и повторяет запрос.  
+При ответе `429` ждёт 60 секунд.
+
+---
+
+## app/services/auth/token_manager.py — TokenManager
+
+OAuth2 Client Credentials flow для Stalcraft API.
+
+**Поток:**
+1. POST `https://exbo.net/oauth/token` → получаем `access_token`
+2. Токен кешируется в Redis (`stalcraft:access_token`, TTL = expires_in - 60s)
+3. При каждом запросе к API берём токен из кэша
+
+**Методы:**
+- `get_token()` — возвращает валидный токен (из Redis или запрашивает новый)
+- `invalidate()` — сбрасывает кэш (вызывается при 401)
+
+---
+
+## app/services/catalog/github_parser.py — sync_catalog
+
+Синхронизирует каталог предметов с GitHub репозиторием EXBO-Studio/stalcraft-database.
+
+**Источник:** `https://raw.githubusercontent.com/EXBO-Studio/stalcraft-database/main/ru/listing.json`
+
+**Логика:**
+- Скачивает listing.json (~2236 предметов)
+- Парсит item_id из пути (`/items/artefact/biochemical/04yr.json` → `04yr`)
+- Определяет category из пути (`artefact/biochemical`)
+- `can_be_batch_traded = False` для weapon, armor, attachment, weapon_modules, backpacks
+- Делает UPSERT по `item_id` (обновляет если уже есть)
+
+---
+
+## app/services/analytics/market_stats.py — calculate_market_stats
+
+Пересчитывает `market_statistics` для одного предмета одного пользователя.
+
+**Входные данные:**
+- `sales_history` за последние 30 дней
+- `collected_data` снэпшоты
+
+**Что рассчитывается:**
+- Ценовая статистика за 24ч и 7 дней
+- Волатильность цены (stdev / mean * 100)
+- Лучший час и день продажи (по объёму сделок)
+- Бонус выходного дня (средняя цена сб+вс vs будни)
+- Среднее время продажи из выкупов (`avg_sell_time_hours`)
+- `sell_options` — 3 ценовых варианта с прогнозом времени
+
+**Алгоритм sell_options:**
+
+Три ценовые точки:
+- **Быстро**: `текущий_лучший_ликвидный * 0.99` — чуть ниже рынка
+- **Нормально**: `медиана_7д * 0.97` — рыночная цена
+- **Выгодно**: `медиана_7д * 1.03` — выше рынка
+
+Прогноз времени:
+- Если выкупов ≥ 5 → берём реальные данные (интерполяция по цене)
+- Если выкупов 2-4 → масштабируем среднее время по тиру
+- Если выкупов < 2 → эвристика: fast=3ч, normal=18ч, premium=60ч
+
+`confidence`: `low` (<2 выкупов), `medium` (2-4), `high` (≥5).
+
+---
+
+## app/tasks/collectors.py — логика сбора
+
+### `_collect_lots_for_item(db, entry)`
+
+1. Запрашивает активные лоты через API
+2. Разделяет на **ликвидные** (endTime > now + 2ч) и **истекающие** (< 2ч)
+3. Рассчитывает цены только по ликвидным лотам (`best_liquid_price_per_unit`)
+4. Сравнивает с предыдущим снэпшотом для **детектирования выкупов**:
+   - Лот исчез ДО истечения (с буфером 10 мин) → лот выкупили
+   - Создаёт запись в `sales_history` с `source=buyout_detection`
+5. Сохраняет снэпшот в `collected_data`
+
+### `_collect_history_for_item(db, entry)`
+
+Запрашивает историю продаж из API и сохраняет в `sales_history`.  
+`price` из API — это итоговая цена за весь лот, `price_per_unit = price // amount`.
+
+---
+
+## app/core/rate_limiter.py — TokenBucketRateLimiter
+
+Token Bucket алгоритм для соблюдения лимита Stalcraft API (100 токенов/мин).
+
+**Хранение в Redis:**
+- Ключ: `stalcraft:rate_limit`
+- Поля: `tokens` (текущий остаток), `last_refill` (unix timestamp)
+- TTL: 120 секунд
+
+**Lua скрипт** обеспечивает атомарность: проверка и списание токенов в одной операции — нет гонки при нескольких воркерах.
+
+При недоступности Redis переключается на **in-memory fallback** (один процесс, без гарантий при нескольких воркерах).
+
+---
+
+## Правило обновления документации
+
+При каждом изменении схемы БД:
+1. Обновить `docs/DATABASE.md` (добавить поле в нужную таблицу)
+2. Добавить строку в таблицу Миграции
+
+При добавлении нового сервиса или Celery задачи:
+1. Добавить раздел в `docs/SERVICES.md`
+2. Если задача по расписанию — обновить таблицу расписания
