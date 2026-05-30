@@ -6,7 +6,12 @@ celery_app = Celery(
     "stalcraft",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.collectors", "app.tasks.cleanup", "app.tasks.analyzers"],
+    include=[
+        "app.tasks.collectors",
+        "app.tasks.cleanup",
+        "app.tasks.analyzers",
+        "app.tasks.global_scanner",
+    ],
 )
 
 celery_app.conf.update(
@@ -37,6 +42,11 @@ celery_app.conf.update(
         "calculate-market-stats": {
             "task": "app.tasks.analyzers.calculate_all_market_stats",
             "schedule": crontab(minute="5"),
+        },
+        # Глобальный скан предметов вне watchlist (скользящий батч ~93 предмета/час)
+        "global-feed-batch": {
+            "task": "app.tasks.global_scanner.run_global_feed_batch",
+            "schedule": crontab(minute="30"),
         },
         # "process-notification-queue": {
         #     "task": "app.tasks.notifications.process_queue",

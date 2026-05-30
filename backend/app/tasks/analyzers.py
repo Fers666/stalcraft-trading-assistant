@@ -32,24 +32,25 @@ def calculate_all_market_stats(self):
                 select(UserWatchlist).where(UserWatchlist.is_active == True)
             )).scalars().all()
 
-            logger.info(f"Calculating market stats for {len(watchlist)} items")
+            # Дедупликация: считаем статистику один раз на пару (item_id, region)
+            unique_pairs = {(e.item_id, e.region) for e in watchlist}
+            logger.info(f"Calculating market stats for {len(unique_pairs)} unique pairs")
 
-            for entry in watchlist:
+            for item_id, region in unique_pairs:
                 try:
                     result = await calculate_market_stats(
                         db=db,
-                        user_id=entry.user_id,
-                        item_id=entry.item_id,
-                        region=entry.region,
+                        item_id=item_id,
+                        region=region,
                     )
                     if result:
                         opts = result.sell_options or []
                         logger.info(
-                            f"Stats calculated for {entry.item_id} | "
+                            f"Stats calculated for {item_id}/{region} | "
                             f"sell_options={len(opts)} variants"
                         )
                 except Exception as e:
-                    logger.error(f"Failed to calculate stats for {entry.item_id}: {e}")
+                    logger.error(f"Failed to calculate stats for {item_id}/{region}: {e}")
 
     try:
         run_async(_run())

@@ -99,7 +99,9 @@ class CollectedData(Base):
     __tablename__ = "collected_data"
 
     id                      = Column(Integer, primary_key=True)
-    user_id                 = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # NULL = глобальный снэпшот (дедуплицированный по item_id/region)
+    # <id> = ручной refresh конкретного пользователя
+    user_id                 = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     item_id                 = Column(String(50), nullable=False)
     region                  = Column(String(10), nullable=False)
     collect_time            = Column(DateTime(timezone=True), nullable=False)
@@ -159,7 +161,8 @@ class MarketStatistics(Base):
     __tablename__ = "market_statistics"
 
     id                  = Column(Integer, primary_key=True)
-    user_id             = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # NULL = глобальная статистика (одна на пару item_id/region, читается всеми)
+    user_id             = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     item_id             = Column(String(50), nullable=False)
     region              = Column(String(10), nullable=False)
     avg_price_24h       = Column(Numeric(12, 2))
@@ -285,3 +288,33 @@ class NotificationQueue(Base):
     next_attempt_at   = Column(DateTime(timezone=True))
     status            = Column(String(20), default="pending")  # pending | sent | failed
     created_at        = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ─── Глобальный скан предметов вне watchlist ─────────────────────────────────
+
+class GlobalItemScan(Base):
+    """
+    Лёгкие метрики для предметов НЕ состоящих в чьём-либо watchlist.
+    Заполняется скользящим сканером (~93 предмета/час, полный цикл ≈ 24ч).
+    Одна запись на пару (item_id, region) — перезаписывается при каждом скане.
+    """
+    __tablename__ = "global_item_scan"
+
+    id                 = Column(Integer, primary_key=True)
+    item_id            = Column(String(50), ForeignKey("master_items.item_id"), nullable=False)
+    region             = Column(String(10), nullable=False)
+    scanned_at         = Column(DateTime(timezone=True), nullable=False)
+    lot_count          = Column(Integer)
+    liquid_lot_count   = Column(Integer)
+    best_price         = Column(BigInteger)
+    avg_price          = Column(Numeric(12, 2))
+    total_volume       = Column(Integer)
+    prev_best_price    = Column(BigInteger)       # цена прошлого скана
+    price_change_pct   = Column(Numeric(5, 2))   # изменение в %
+    tradability_score  = Column(Numeric(8, 2))    # скор торгуемости
+
+    __table_args__ = (
+        Index("uq_global_scan_item_region", "item_id", "region", unique=True),
+        Index("ix_global_scan_score", "tradability_score"),
+        Index("ix_global_scan_scanned_at", "scanned_at"),
+    )

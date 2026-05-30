@@ -20,7 +20,13 @@ def run_async(coro):
 
 @celery_app.task(name="app.tasks.collectors.collect_all_active_lots", bind=True, max_retries=3)
 def collect_all_active_lots(self):
-    """Собирает активные лоты для всех активных watchlist записей."""
+    """
+    Собирает активные лоты для всех watchlist записей.
+
+    Ключевая оптимизация: дедупликация по (item_id, region).
+    100 пользователей следят за одним товаром → 1 API запрос, не 100.
+    Данные сохраняются с user_id=NULL (глобальный снэпшот).
+    """
 
     async def _run():
         from app.db.session import get_db_session
@@ -32,16 +38,31 @@ def collect_all_active_lots(self):
                 select(UserWatchlist).where(UserWatchlist.is_active == True)
             )).scalars().all()
 
-            logger.info(f"Collecting lots for {len(watchlist)} watchlist items")
-
+            # Дедупликация: собираем уникальные пары (item_id, region)
+            unique_pairs = {}
             for entry in watchlist:
+                key = (entry.item_id, entry.region)
+                if key not in unique_pairs:
+                    unique_pairs[key] = entry  # берём первую запись как шаблон
+
+            logger.info(
+                f"Collecting lots: {len(watchlist)} watchlist entries → "
+                f"{len(unique_pairs)} unique (item_id, region) pairs"
+            )
+
+            for entry in unique_pairs.values():
                 try:
                     await _collect_lots_for_item(db, entry)
                 except Exception as e:
-                    logger.error(f"Failed to collect lots for {entry.item_id}: {e}")
-                    # Обновляем статус ошибки
+                    logger.error(f"Failed to collect lots for {entry.item_id}/{entry.region}: {e}")
                     entry.error_status = str(e)
                     await db.commit()
+
+            # Обновляем last_successful_check для ВСЕХ watchlist записей этой пары
+            for entry in watchlist:
+                if entry.error_status is None:
+                    entry.last_successful_check = datetime.now(timezone.utc)
+            await db.commit()
 
     try:
         run_async(_run())
@@ -161,11 +182,11 @@ async def _collect_lots_for_item(db, entry):
         amounts = [lot.get("amount", 1) for lot in lots]
 
         # ── Детектирование выкупов ───────────────────────────────────────────
-        # Берём предыдущий снэпшот и сравниваем по startTime лота
+        # Берём предыдущий глобальный снэпшот (user_id IS NULL) для сравнения
         prev_snapshot = (await db.execute(
             select(CollectedData)
             .where(
-                CollectedData.user_id == entry.user_id,
+                CollectedData.user_id == None,
                 CollectedData.item_id == entry.item_id,
                 CollectedData.region == entry.region,
             )
@@ -221,7 +242,7 @@ async def _collect_lots_for_item(db, entry):
                         ))
 
         snapshot = CollectedData(
-            user_id=entry.user_id,
+            user_id=None,   # глобальный снэпшот — общий для всех пользователей
             item_id=entry.item_id,
             region=entry.region,
             collect_time=now,

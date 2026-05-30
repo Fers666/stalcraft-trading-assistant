@@ -33,23 +33,24 @@ MIN_BUYOUTS_FOR_TIME_MODEL = 5
 
 async def calculate_market_stats(
     db: AsyncSession,
-    user_id: int,
     item_id: str,
     region: str,
+    user_id: int | None = None,
 ) -> MarketStatistics | None:
     """
-    Пересчитывает market_statistics для одного товара одного пользователя.
-    Возвращает объект MarketStatistics (не сохранённый в БД).
+    Пересчитывает market_statistics для пары (item_id, region).
+
+    user_id=None → глобальная статистика (читается всеми пользователями).
+    user_id=<id> → оставлено для совместимости, не используется в основном потоке.
     """
     now = datetime.now(timezone.utc)
     cutoff_24h = now - timedelta(hours=24)
     cutoff_7d  = now - timedelta(days=7)
     cutoff_30d = now - timedelta(days=30)
 
-    # ── 1. История продаж ─────────────────────────────────────────────────────
+    # ── 1. История продаж (глобальная — user_id не фильтруем) ────────────────
     sales_30d = (await db.execute(
         select(SalesHistory).where(
-            SalesHistory.user_id == user_id,
             SalesHistory.item_id == item_id,
             SalesHistory.region  == region,
             SalesHistory.sale_time >= cutoff_30d,
@@ -135,10 +136,9 @@ async def calculate_market_stats(
     # ── 5. Среднее время продажи из выкупов ──────────────────────────────────
     avg_sell_time = _avg_sell_time_from_buyouts(sales_30d)
 
-    # ── 6. Upsert в market_statistics ────────────────────────────────────────
+    # ── 6. Upsert в market_statistics (глобальная запись, user_id=None) ────────
     existing = (await db.execute(
         select(MarketStatistics).where(
-            MarketStatistics.user_id == user_id,
             MarketStatistics.item_id == item_id,
             MarketStatistics.region  == region,
         )
@@ -146,7 +146,7 @@ async def calculate_market_stats(
 
     if existing is None:
         existing = MarketStatistics(
-            user_id=user_id, item_id=item_id, region=region,
+            user_id=None, item_id=item_id, region=region,
         )
         db.add(existing)
 
