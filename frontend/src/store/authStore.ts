@@ -1,0 +1,51 @@
+import { create } from 'zustand'
+import api from '../api/client'
+
+interface User {
+  id: number
+  username: string
+  email: string
+  telegram_username: string | null
+}
+
+interface AuthState {
+  user: User | null
+  isLoading: boolean
+  login: (email: string, password: string) => Promise<void>
+  register: (username: string, email: string, password: string) => Promise<void>
+  logout: () => void
+  fetchMe: () => Promise<void>
+}
+
+export const useAuthStore = create<AuthState>((set) => ({
+  user: null,
+  isLoading: false,
+
+  login: async (email, password) => {
+    const { data } = await api.post('/auth/login', { email, password })
+    localStorage.setItem('access_token', data.access_token)
+    const me = await api.get('/auth/me')
+    set({ user: me.data })
+  },
+
+  register: async (username, email, password) => {
+    const { data } = await api.post('/auth/register', { username, email, password })
+    localStorage.setItem('access_token', data.access_token)
+    const me = await api.get('/auth/me')
+    set({ user: me.data })
+  },
+
+  logout: () => {
+    localStorage.removeItem('access_token')
+    set({ user: null })
+  },
+
+  fetchMe: async () => {
+    try {
+      const { data } = await api.get('/auth/me')
+      set({ user: data })
+    } catch {
+      set({ user: null })
+    }
+  },
+}))

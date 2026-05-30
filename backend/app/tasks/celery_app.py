@@ -6,7 +6,7 @@ celery_app = Celery(
     "stalcraft",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.collectors", "app.tasks.cleanup"],
+    include=["app.tasks.collectors", "app.tasks.cleanup", "app.tasks.analyzers"],
 )
 
 celery_app.conf.update(
@@ -33,11 +33,11 @@ celery_app.conf.update(
             "task": "app.tasks.cleanup.delete_old_data",
             "schedule": crontab(hour=3, minute=0),
         },
-        # TODO: раскомментировать когда будут реализованы:
-        # "generate-recommendations": {
-        #     "task": "app.tasks.analyzers.generate_purchase_recommendations",
-        #     "schedule": crontab(minute="5"),
-        # },
+        # Пересчёт рыночной статистики через 5 минут после сбора истории
+        "calculate-market-stats": {
+            "task": "app.tasks.analyzers.calculate_all_market_stats",
+            "schedule": crontab(minute="5"),
+        },
         # "process-notification-queue": {
         #     "task": "app.tasks.notifications.process_queue",
         #     "schedule": crontab(minute="*/2"),

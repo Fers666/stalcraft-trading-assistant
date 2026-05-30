@@ -176,7 +176,8 @@ class MarketStatistics(Base):
     best_sell_day       = Column(String(10))        # Monday, Tuesday...
     weekend_bonus_percent = Column(Numeric(5, 2))
     avg_sell_time_hours = Column(Numeric(8, 2))
-    batch_stats         = Column(JSONB)             # статистика по пачкам
+    batch_stats         = Column(JSONB)
+    sell_options        = Column(JSONB)
     calculated_at       = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
