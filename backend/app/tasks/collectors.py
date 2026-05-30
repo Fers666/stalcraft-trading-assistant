@@ -104,6 +104,7 @@ def collect_single_item(user_id: int, item_id: str, region: str):
 async def _collect_lots_for_item(db, entry):
     """Собирает снэпшот лотов, разделяет ликвидные/неликвидные, детектирует выкупы."""
     from app.services.collector.client import stalcraft_client
+    from app.services.cache.api_cache import api_cache
     from app.models.models import CollectedData, SalesHistory
     from sqlalchemy import select
     import statistics
@@ -118,6 +119,9 @@ async def _collect_lots_for_item(db, entry):
         now = datetime.now(timezone.utc)
         data = await stalcraft_client.get_auction_lots(entry.item_id)
         lots = data.get("lots", [])
+
+        # Обновляем кэш свежими данными сразу после получения от API
+        await api_cache.set_lots(entry.region, entry.item_id, data)
 
         if not lots:
             return

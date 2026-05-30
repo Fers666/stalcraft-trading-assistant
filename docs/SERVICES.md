@@ -108,6 +108,43 @@ OAuth2 Client Credentials flow для Stalcraft API.
 
 ---
 
+## app/services/cache/api_cache.py — ApiCache
+
+Redis-кэш для ответов Stalcraft API. Снижает количество реальных запросов к API.
+
+**TTL:**
+- Активные лоты (`/lots`): 5 минут
+- История продаж (`/history`): 60 минут
+
+**Ключи Redis:**
+- `stalcraft:cache:{region}:{item_id}:lots`
+- `stalcraft:cache:{region}:{item_id}:history`
+
+**Методы:**
+- `get_or_fetch_lots(region, item_id)` — главный метод: кэш → API → кэш
+- `set_lots / set_history` — записать в кэш (вызывается worker-ом после сбора)
+- `invalidate_lots` — сбросить кэш лотов
+
+**Поток данных:**
+1. Celery worker собирает лоты → сохраняет в PostgreSQL + обновляет Redis-кэш
+2. `GET /api/v1/lots/{item_id}` → читает из Redis-кэша → если пуст, идёт в API
+
+---
+
+## app/api/v1/endpoints/lots.py — быстрый поиск лотов
+
+`GET /api/v1/lots/{item_id}?region=RU`
+
+Возвращает активные лоты без добавления товара в watchlist.  
+Данные берутся из Redis-кэша (TTL 5 мин). Поле `from_cache` в ответе показывает источник.
+
+Лоты в ответе:
+- Отсортированы: сначала ликвидные (> 2ч), потом по цене
+- Поле `is_expiring = true` если лоту осталось < 2ч
+- Поле `hours_remaining` — сколько часов осталось до истечения
+
+---
+
 ## app/core/rate_limiter.py — TokenBucketRateLimiter
 
 Token Bucket алгоритм для соблюдения лимита Stalcraft API (100 токенов/мин).
