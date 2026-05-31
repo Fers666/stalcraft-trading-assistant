@@ -11,7 +11,8 @@ const features = [
 ]
 
 export default function LandingPage() {
-  const navigate = useNavigate()
+  const navigate  = useNavigate()
+  const isLoggedIn = !!localStorage.getItem('access_token')
 
   return (
     <Box
@@ -54,14 +55,20 @@ export default function LandingPage() {
         />
 
         {/* Кнопки */}
-        <Stack direction="row" spacing={2} justifyContent="center">
-          <Button variant="contained" size="large" onClick={() => navigate('/login')}>
-            Войти
+        {isLoggedIn ? (
+          <Button variant="contained" size="large" onClick={() => navigate('/app/monitoring')}>
+            Перейти в приложение
           </Button>
-          <Button variant="outlined" size="large" onClick={() => navigate('/register')}>
-            Зарегистрироваться
-          </Button>
-        </Stack>
+        ) : (
+          <Stack direction="row" spacing={2} justifyContent="center">
+            <Button variant="contained" size="large" onClick={() => navigate('/login')}>
+              Войти
+            </Button>
+            <Button variant="outlined" size="large" onClick={() => navigate('/register')}>
+              Зарегистрироваться
+            </Button>
+          </Stack>
+        )}
       </Box>
     </Box>
   )

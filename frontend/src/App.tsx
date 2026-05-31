@@ -20,7 +20,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('access_token')
-  if (token) return <Navigate to="/monitoring" replace />
+  if (token) return <Navigate to="/app/monitoring" replace />
   return <>{children}</>
 }
 
@@ -34,8 +34,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Публичные маршруты */}
-        <Route path="/" element={<PublicOnlyRoute><LandingPage /></PublicOnlyRoute>} />
+        {/* Публичные маршруты — лендинг доступен всем */}
+        <Route path="/" element={<LandingPage />} />
+        {/* Логин/регистрация — только для незалогиненных */}
         <Route path="/login"    element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
         <Route path="/register" element={<PublicOnlyRoute><RegisterPage /></PublicOnlyRoute>} />
 
