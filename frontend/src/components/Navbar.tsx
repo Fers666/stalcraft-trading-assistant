@@ -35,14 +35,14 @@ export default function Navbar() {
         {/* Логотип */}
         <Typography
           variant="h6"
-          sx={{ mr: 4, color: 'primary.main', fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5 }}
-          onClick={() => navigate('/monitoring')}
+          sx={{ mr: 2, color: 'primary.main', fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5 }}
+          onClick={() => navigate('/app/monitoring')}
         >
           SC Trading
         </Typography>
 
         {/* Навигация */}
-        <Box sx={{ display: 'flex', gap: 0.5, flexGrow: 1 }}>
+        <Box sx={{ display: 'flex', gap: 0, flexGrow: 1, overflow: 'hidden' }}>
           {navItems.map((item) => (
             <Button
               key={item.path}
@@ -53,7 +53,9 @@ export default function Navbar() {
                 color: location.pathname === item.path ? 'primary.main' : 'text.secondary',
                 borderBottom: location.pathname === item.path ? '2px solid' : '2px solid transparent',
                 borderRadius: 0,
-                px: 2,
+                px: 1.5,
+                minWidth: 0,
+                whiteSpace: 'nowrap',
               }}
             >
               {item.label}
@@ -66,7 +68,7 @@ export default function Navbar() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Chip label={user.username} size="small" variant="outlined" sx={{ color: 'text.secondary' }} />
             <Tooltip title="Настройки">
-              <IconButton size="small" onClick={() => navigate('/settings')} sx={{ color: 'text.secondary' }}>
+              <IconButton size="small" onClick={() => navigate('/app/settings')} sx={{ color: 'text.secondary' }}>
                 <SettingsIcon fontSize="small" />
               </IconButton>
             </Tooltip>
