@@ -53,7 +53,7 @@ export default function Navbar() {
   const { user, logout } = useAuthStore()
 
   return (
-    <AppBar position="fixed" elevation={0}>
+    <AppBar position="fixed" elevation={0} color="inherit">
       <Toolbar sx={{ minHeight: '56px !important', px: 3, gap: 2 }}>
 
         {/* Логотип */}
@@ -91,19 +91,20 @@ export default function Navbar() {
                 onClick={() => navigate(item.path)}
                 size="small"
                 disableRipple={!active}
+                // inline style guarantees color wins over any MUI class cascade
+                style={{ color: active ? G3 : T1 }}
                 sx={{
                   fontFamily: '"Rajdhani", sans-serif',
                   fontWeight: active ? 700 : 500,
                   fontSize: '0.8rem',
                   letterSpacing: '0.06em',
-                  color: active ? G3 : T1,
                   px: 1.5,
                   height: 34,
                   borderRadius: '8px',
                   background: active ? alpha(G2, 0.1) : 'transparent',
                   border: active ? `1px solid ${alpha(G2, 0.25)}` : '1px solid transparent',
                   transition: 'all 0.2s',
-                  '& .MuiButton-startIcon': { mr: '4px' },
+                  '& .MuiButton-startIcon': { mr: '4px', color: active ? G3 : T1 },
                   '&:hover': {
                     color: '#F5F5F5',
                     background: alpha(G2, 0.05),
@@ -126,19 +127,21 @@ export default function Navbar() {
               borderRadius: '8px',
               background: alpha('#fff', 0.02),
             }}>
-              <Typography sx={{ fontSize: '0.72rem', color: T2, letterSpacing: '0.05em' }}>
+              <Typography style={{ color: T2 }} sx={{ fontSize: '0.72rem', letterSpacing: '0.05em' }}>
                 {user.username}
               </Typography>
             </Box>
             <Tooltip title="Настройки">
               <IconButton size="small" onClick={() => navigate('/app/settings')}
-                sx={{ color: T2, borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.08) } }}>
+                style={{ color: T2 }}
+                sx={{ borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.08) } }}>
                 <SettingsIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </Tooltip>
             <Tooltip title="Выйти">
               <IconButton size="small" onClick={() => { logout(); navigate('/') }}
-                sx={{ color: T2, borderRadius: '8px', '&:hover': { color: '#FF5A5A', background: alpha('#FF5A5A', 0.1) } }}>
+                style={{ color: T2 }}
+                sx={{ borderRadius: '8px', '&:hover': { color: '#FF5A5A', background: alpha('#FF5A5A', 0.1) } }}>
                 <LogoutIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </Tooltip>
