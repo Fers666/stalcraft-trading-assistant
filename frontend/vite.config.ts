@@ -8,5 +8,10 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8000',
     },
+    // Polling нужен для Docker на Windows — inotify события не пробрасываются
+    watch: {
+      usePolling: true,
+      interval: 1000,
+    },
   },
 })
