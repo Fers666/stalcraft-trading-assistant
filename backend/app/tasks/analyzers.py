@@ -22,12 +22,12 @@ def calculate_all_market_stats(self):
     """Пересчитывает market_statistics для всех активных watchlist записей."""
 
     async def _run():
-        from app.db.session import get_db_session
+        from app.db.session import get_celery_db_session
         from app.models.models import UserWatchlist
         from app.services.analytics.market_stats import calculate_market_stats
         from sqlalchemy import select
 
-        async with get_db_session() as db:
+        async with get_celery_db_session() as db:
             watchlist = (await db.execute(
                 select(UserWatchlist).where(UserWatchlist.is_active == True)
             )).scalars().all()

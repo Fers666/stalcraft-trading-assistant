@@ -123,7 +123,6 @@ async def calculate_market_stats(
     # ── 4. Прогноз времени продажи (sell_options) ─────────────────────────────
     sell_options = await _calculate_sell_options(
         db=db,
-        user_id=user_id,
         item_id=item_id,
         region=region,
         sales_30d=sales_30d,
@@ -194,7 +193,6 @@ def _avg_sell_time_from_buyouts(sales: list) -> float | None:
 
 async def _calculate_sell_options(
     db: AsyncSession,
-    user_id: int,
     item_id: str,
     region: str,
     sales_30d: list,
@@ -234,10 +232,10 @@ async def _calculate_sell_options(
         except Exception:
             continue
 
-    # Текущий лучший ликвидный лот из последнего снэпшота
+    # Берём последний глобальный снэпшот (user_id=None)
     last_snapshot = (await db.execute(
         select(CollectedData).where(
-            CollectedData.user_id == user_id,
+            CollectedData.user_id == None,
             CollectedData.item_id == item_id,
             CollectedData.region  == region,
         ).order_by(CollectedData.collect_time.desc()).limit(1)

@@ -41,7 +41,7 @@ def run_global_feed_batch(self):
     """
 
     async def _run():
-        from app.db.session import get_db_session
+        from app.db.session import get_celery_db_session as get_db_session
         from app.models.models import MasterItem, UserWatchlist, GlobalItemScan
         from app.services.collector.client import stalcraft_client
         from sqlalchemy import select

@@ -29,7 +29,7 @@ def collect_all_active_lots(self):
     """
 
     async def _run():
-        from app.db.session import get_db_session
+        from app.db.session import get_celery_db_session as get_db_session
         from app.models.models import UserWatchlist
         from sqlalchemy import select
 
@@ -75,7 +75,7 @@ def collect_all_history(self):
     """Собирает историю продаж (раз в час)."""
 
     async def _run():
-        from app.db.session import get_db_session
+        from app.db.session import get_celery_db_session as get_db_session
         from app.models.models import UserWatchlist
         from sqlalchemy import select
 
@@ -103,7 +103,7 @@ def collect_single_item(user_id: int, item_id: str, region: str):
     Вызывается из API — не чаще раза в 2 минуты (throttle в Redis).
     """
     async def _run():
-        from app.db.session import get_db_session
+        from app.db.session import get_celery_db_session as get_db_session
         from app.models.models import UserWatchlist
         from sqlalchemy import select
 

@@ -19,7 +19,7 @@ def delete_old_data():
     """Удаляет данные старше 120 дней (запускается в 3:00 по МСК)."""
 
     async def _run():
-        from app.db.session import get_db_session
+        from app.db.session import get_celery_db_session as get_db_session
         from app.models.models import SalesHistory, CollectedData, PurchaseRecommendation
         from sqlalchemy import delete
 

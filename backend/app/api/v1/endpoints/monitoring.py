@@ -38,9 +38,10 @@ async def get_item_stats(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Глобальная статистика хранится с user_id=None — одна запись на пару (item_id, region)
     stats = (await db.execute(
         select(MarketStatistics).where(
-            MarketStatistics.user_id == current_user.id,
+            MarketStatistics.user_id == None,
             MarketStatistics.item_id == item_id,
             MarketStatistics.region == region.upper(),
         )
