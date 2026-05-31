@@ -37,6 +37,9 @@ interface MarketStats {
 interface WatchlistEntry {
   id: number
   item_id: string
+  name_ru: string | null
+  name_en: string | null
+  icon_path: string | null
   region: string
   is_active: boolean
   last_successful_check: string | null
@@ -106,8 +109,13 @@ function ItemCard({ entry, stats, onRefresh, onDelete }: {
       <CardContent>
         {/* Заголовок */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
-          <Box>
-            <Typography variant="subtitle1" fontWeight={700}>{entry.item_id}</Typography>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" fontWeight={700} noWrap>
+              {entry.name_ru || entry.name_en || entry.item_id}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+              {entry.item_id}
+            </Typography>
             <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
               <Chip label={entry.region} size="small" variant="outlined" />
               {risk && (

@@ -32,6 +32,9 @@ class WatchlistUpdate(BaseModel):
 class WatchlistResponse(BaseModel):
     id: int
     item_id: str
+    name_ru: Optional[str] = None
+    name_en: Optional[str] = None
+    icon_path: Optional[str] = None
     region: str
     tracked_batch_sizes: List[int]
     is_active: bool
@@ -40,7 +43,7 @@ class WatchlistResponse(BaseModel):
     created_at: datetime
 
     class Config:
-        from_attributes = True
+        from_attributes = False
 
 
 @router.get("/", response_model=List[WatchlistResponse])
@@ -48,10 +51,33 @@ async def get_watchlist(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    items = (await db.execute(
-        select(UserWatchlist).where(UserWatchlist.user_id == current_user.id)
-    )).scalars().all()
-    return items
+    rows = (await db.execute(
+        select(
+            UserWatchlist,
+            MasterItem.name_ru,
+            MasterItem.name_en,
+            MasterItem.icon_path,
+        )
+        .outerjoin(MasterItem, MasterItem.item_id == UserWatchlist.item_id)
+        .where(UserWatchlist.user_id == current_user.id)
+    )).all()
+
+    return [
+        WatchlistResponse(
+            id=row.UserWatchlist.id,
+            item_id=row.UserWatchlist.item_id,
+            name_ru=row.name_ru,
+            name_en=row.name_en,
+            icon_path=row.icon_path,
+            region=row.UserWatchlist.region,
+            tracked_batch_sizes=row.UserWatchlist.tracked_batch_sizes or [],
+            is_active=row.UserWatchlist.is_active,
+            last_successful_check=row.UserWatchlist.last_successful_check,
+            error_status=row.UserWatchlist.error_status,
+            created_at=row.UserWatchlist.created_at,
+        )
+        for row in rows
+    ]
 
 
 @router.post("/", response_model=WatchlistResponse, status_code=201)

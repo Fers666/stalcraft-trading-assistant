@@ -86,12 +86,18 @@ class TokenBucketRateLimiter:
         self._fallback_last_refill = time.monotonic()
 
     async def _get_redis(self) -> aioredis.Redis:
-        if self._redis is None:
-            self._redis = await aioredis.from_url(
-                settings.redis_url,
-                encoding="utf-8",
-                decode_responses=True,
-            )
+        if self._redis is not None:
+            try:
+                await self._redis.ping()
+                return self._redis
+            except Exception:
+                self._redis = None
+                self._script_sha = None
+        self._redis = await aioredis.from_url(
+            settings.redis_url,
+            encoding="utf-8",
+            decode_responses=True,
+        )
         return self._redis
 
     async def _load_script(self, r: aioredis.Redis) -> str:
