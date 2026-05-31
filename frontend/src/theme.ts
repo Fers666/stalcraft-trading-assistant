@@ -1,47 +1,49 @@
 import { createTheme, alpha } from '@mui/material/styles'
 
-const GOLD   = '#c9922a'   // насыщенное золото как на референсе
-const GREEN  = '#3d9e6e'   // приглушённый зелёный для прибыли
-const BLACK  = '#000000'   // чистый чёрный фон
-const CARD   = '#0d0d0d'   // карточки — почти чёрные
-const BORDER = '#1e1e1e'   // едва заметные разделители
+const VIOLET  = '#7c3aed'   // основной фиолетовый
+const V_LIGHT = '#a78bfa'   // светлый фиолетовый для текста
+const V_DARK  = '#5b21b6'   // тёмный фиолетовый
+const GREEN   = '#10b981'   // зелёный — прибыль
+const BG      = '#080b18'   // тёмно-синий фон
+const CARD    = '#0d1129'   // карточки — чуть светлее фона
+const CARD2   = '#111638'   // вложенные карточки
+const BORDER  = '#1e2445'   // разделители с синеватым оттенком
 
 const theme = createTheme({
   palette: {
     mode: 'dark',
-    primary:   { main: GOLD,  light: '#e8b84b', dark: '#a0731a' },
-    secondary: { main: GREEN, light: '#5abf8a', dark: '#2d7a52' },
-    error:     { main: '#c0392b' },
-    background: {
-      default: BLACK,
-      paper:   CARD,
-    },
+    primary:   { main: VIOLET, light: V_LIGHT, dark: V_DARK },
+    secondary: { main: GREEN, light: '#34d399', dark: '#059669' },
+    error:     { main: '#ef4444' },
+    warning:   { main: '#f59e0b' },
+    background: { default: BG, paper: CARD },
     divider: BORDER,
     text: {
-      primary:   '#f0f0f0',
-      secondary: '#888888',
-      disabled:  '#444444',
+      primary:   '#e2e8f0',
+      secondary: '#94a3b8',
+      disabled:  '#334155',
     },
   },
 
   typography: {
     fontFamily: '"Inter", "Roboto", sans-serif',
-    h3: { fontWeight: 800, letterSpacing: '-0.02em' },
-    h4: { fontWeight: 700 },
+    h3: { fontWeight: 800, letterSpacing: '-0.03em' },
+    h4: { fontWeight: 700, letterSpacing: '-0.02em' },
     h5: { fontWeight: 700 },
     h6: { fontWeight: 600 },
     subtitle1: { fontWeight: 600 },
-    subtitle2: { fontWeight: 600, color: '#888888' },
-    caption:   { color: '#666666' },
+    subtitle2: { fontWeight: 500, color: '#94a3b8' },
+    caption:   { color: '#64748b' },
+    body2:     { color: '#cbd5e1' },
   },
 
-  shape: { borderRadius: 4 },  // менее скруглённые углы — лаконичнее
+  shape: { borderRadius: 12 },
 
   components: {
     MuiCssBaseline: {
       styleOverrides: {
         body: {
-          background: BLACK,
+          background: BG,
           scrollbarWidth: 'thin',
           scrollbarColor: `${BORDER} transparent`,
         },
@@ -51,9 +53,10 @@ const theme = createTheme({
     MuiAppBar: {
       styleOverrides: {
         root: {
-          background: 'rgba(0,0,0,0.92)',
-          backdropFilter: 'blur(12px)',
+          background: alpha(BG, 0.85),
+          backdropFilter: 'blur(20px)',
           borderBottom: `1px solid ${BORDER}`,
+          boxShadow: 'none',
         },
       },
     },
@@ -64,33 +67,72 @@ const theme = createTheme({
           backgroundImage: 'none',
           backgroundColor: CARD,
           border: `1px solid ${BORDER}`,
-          boxShadow: 'none',
-          transition: 'border-color 0.2s',
+          boxShadow: `0 4px 24px ${alpha('#000', 0.4)}`,
+          transition: 'border-color 0.25s, box-shadow 0.25s',
           '&:hover': {
-            borderColor: alpha(GOLD, 0.3),
+            borderColor: alpha(VIOLET, 0.5),
+            boxShadow: `0 4px 32px ${alpha(VIOLET, 0.12)}`,
           },
+        },
+      },
+    },
+
+    MuiCardContent: {
+      styleOverrides: {
+        root: {
+          '&:last-child': { paddingBottom: 16 },
         },
       },
     },
 
     MuiButton: {
       styleOverrides: {
+        root: {
+          textTransform: 'none',
+          fontWeight: 600,
+          borderRadius: 8,
+        },
         containedPrimary: {
-          background: `linear-gradient(135deg, ${GOLD} 0%, #a0731a 100%)`,
-          color: '#000',
-          fontWeight: 700,
-          letterSpacing: '0.05em',
+          background: `linear-gradient(135deg, ${VIOLET} 0%, ${V_DARK} 100%)`,
+          boxShadow: `0 4px 14px ${alpha(VIOLET, 0.4)}`,
           '&:hover': {
-            background: `linear-gradient(135deg, #e8b84b 0%, ${GOLD} 100%)`,
+            background: `linear-gradient(135deg, ${V_LIGHT} 0%, ${VIOLET} 100%)`,
+            boxShadow: `0 6px 20px ${alpha(VIOLET, 0.5)}`,
           },
         },
         outlinedPrimary: {
-          borderColor: alpha(GOLD, 0.5),
-          color: GOLD,
+          borderColor: alpha(VIOLET, 0.5),
+          color: V_LIGHT,
           '&:hover': {
-            borderColor: GOLD,
-            background: alpha(GOLD, 0.08),
+            borderColor: VIOLET,
+            background: alpha(VIOLET, 0.08),
           },
+        },
+      },
+    },
+
+    MuiChip: {
+      styleOverrides: {
+        root: { fontWeight: 500, borderRadius: 6 },
+        colorPrimary: {
+          background: alpha(VIOLET, 0.15),
+          color: V_LIGHT,
+          border: `1px solid ${alpha(VIOLET, 0.3)}`,
+        },
+        colorSuccess: {
+          background: alpha(GREEN, 0.12),
+          color: '#34d399',
+          border: `1px solid ${alpha(GREEN, 0.3)}`,
+        },
+        colorWarning: {
+          background: alpha('#f59e0b', 0.12),
+          color: '#fbbf24',
+          border: `1px solid ${alpha('#f59e0b', 0.3)}`,
+        },
+        colorError: {
+          background: alpha('#ef4444', 0.12),
+          color: '#f87171',
+          border: `1px solid ${alpha('#ef4444', 0.3)}`,
         },
       },
     },
@@ -98,15 +140,27 @@ const theme = createTheme({
     MuiTableCell: {
       styleOverrides: {
         head: {
-          color: '#555555',
+          color: '#475569',
           fontWeight: 600,
           fontSize: '0.7rem',
-          letterSpacing: '0.08em',
+          letterSpacing: '0.06em',
           textTransform: 'uppercase',
           borderBottom: `1px solid ${BORDER}`,
+          background: CARD,
         },
         body: {
           borderBottom: `1px solid ${BORDER}`,
+          color: '#cbd5e1',
+        },
+      },
+    },
+
+    MuiTableRow: {
+      styleOverrides: {
+        root: {
+          '&:hover td': {
+            background: alpha(VIOLET, 0.04),
+          },
         },
       },
     },
@@ -117,20 +171,25 @@ const theme = createTheme({
       },
     },
 
-    MuiChip: {
-      styleOverrides: {
-        root: { fontWeight: 500, borderRadius: 4 },
-      },
-    },
-
     MuiTextField: {
       styleOverrides: {
         root: {
           '& .MuiOutlinedInput-root': {
+            borderRadius: 8,
+            background: alpha('#fff', 0.02),
             '& fieldset': { borderColor: BORDER },
-            '&:hover fieldset': { borderColor: alpha(GOLD, 0.4) },
-            '&.Mui-focused fieldset': { borderColor: GOLD },
+            '&:hover fieldset': { borderColor: alpha(VIOLET, 0.5) },
+            '&.Mui-focused fieldset': { borderColor: VIOLET },
           },
+          '& .MuiInputLabel-root.Mui-focused': { color: V_LIGHT },
+        },
+      },
+    },
+
+    MuiSelect: {
+      styleOverrides: {
+        outlined: {
+          borderRadius: 8,
         },
       },
     },
@@ -139,11 +198,50 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           borderColor: BORDER,
-          color: '#555',
+          color: '#475569',
+          borderRadius: '6px !important',
           '&.Mui-selected': {
-            color: GOLD,
-            borderColor: alpha(GOLD, 0.5),
-            background: alpha(GOLD, 0.08),
+            color: V_LIGHT,
+            borderColor: alpha(VIOLET, 0.6),
+            background: alpha(VIOLET, 0.15),
+          },
+        },
+      },
+    },
+
+    MuiAlert: {
+      styleOverrides: {
+        root: { borderRadius: 8 },
+      },
+    },
+
+    MuiPaper: {
+      styleOverrides: {
+        root: {
+          backgroundImage: 'none',
+          backgroundColor: CARD2,
+          border: `1px solid ${BORDER}`,
+        },
+      },
+    },
+
+    MuiDialog: {
+      styleOverrides: {
+        paper: {
+          background: CARD,
+          border: `1px solid ${BORDER}`,
+        },
+      },
+    },
+
+    MuiSwitch: {
+      styleOverrides: {
+        switchBase: {
+          '&.Mui-checked': {
+            color: V_LIGHT,
+            '& + .MuiSwitch-track': {
+              backgroundColor: VIOLET,
+            },
           },
         },
       },

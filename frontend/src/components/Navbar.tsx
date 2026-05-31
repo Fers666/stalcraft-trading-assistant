@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { AppBar, Toolbar, Typography, Button, Box, IconButton, Tooltip } from '@mui/material'
+import { AppBar, Toolbar, Typography, Button, Box, IconButton, Tooltip, alpha } from '@mui/material'
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart'
 import SearchIcon from '@mui/icons-material/Search'
 import InventoryIcon from '@mui/icons-material/Inventory'
@@ -9,23 +9,21 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
 import { useAuthStore } from '../store/authStore'
 
+const VIOLET = '#7c3aed'
+const V_LIGHT = '#a78bfa'
+
 const navItems = [
-  { label: 'Избранное', path: '/app/monitoring', icon: <MonitorHeartIcon sx={{ fontSize: 16 }} /> },
-  { label: 'Каталог',   path: '/app/catalog',    icon: <MenuBookIcon    sx={{ fontSize: 16 }} /> },
-  { label: 'Лоты',      path: '/app/lots',       icon: <SearchIcon      sx={{ fontSize: 16 }} /> },
-  { label: 'Лента',     path: '/app/feed',       icon: <TrendingUpIcon  sx={{ fontSize: 16 }} /> },
-  { label: 'Склад',     path: '/app/inventory',  icon: <InventoryIcon   sx={{ fontSize: 16 }} /> },
+  { label: 'Избранное', path: '/app/monitoring', icon: <MonitorHeartIcon sx={{ fontSize: 15 }} /> },
+  { label: 'Каталог',   path: '/app/catalog',    icon: <MenuBookIcon    sx={{ fontSize: 15 }} /> },
+  { label: 'Лоты',      path: '/app/lots',       icon: <SearchIcon      sx={{ fontSize: 15 }} /> },
+  { label: 'Лента',     path: '/app/feed',       icon: <TrendingUpIcon  sx={{ fontSize: 15 }} /> },
+  { label: 'Склад',     path: '/app/inventory',  icon: <InventoryIcon   sx={{ fontSize: 15 }} /> },
 ]
 
 export default function Navbar() {
-  const navigate  = useNavigate()
-  const location  = useLocation()
+  const navigate = useNavigate()
+  const location = useLocation()
   const { user, logout } = useAuthStore()
-
-  const handleLogout = () => {
-    logout()
-    navigate('/')
-  }
 
   return (
     <AppBar position="fixed" elevation={0}>
@@ -34,27 +32,23 @@ export default function Navbar() {
         {/* Логотип */}
         <Box
           onClick={() => navigate('/app/monitoring')}
-          sx={{ display: 'flex', alignItems: 'center', gap: 1, mr: 5, cursor: 'pointer' }}
+          sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mr: 4, cursor: 'pointer', flexShrink: 0 }}
         >
-          {/* Иконка-ромб */}
           <Box sx={{
-            width: 22, height: 22,
-            background: 'linear-gradient(135deg, #c9922a 0%, #a0731a 100%)',
-            clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
-          }} />
-          <Typography sx={{
-            fontWeight: 800,
-            fontSize: '0.95rem',
-            letterSpacing: '0.12em',
-            color: '#f0f0f0',
-            textTransform: 'uppercase',
+            width: 28, height: 28, borderRadius: '8px',
+            background: `linear-gradient(135deg, ${VIOLET} 0%, #5b21b6 100%)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: `0 0 12px ${alpha(VIOLET, 0.5)}`,
           }}>
-            SC Trading
+            <Typography sx={{ fontWeight: 900, fontSize: '0.7rem', color: '#fff', letterSpacing: '-0.02em' }}>SC</Typography>
+          </Box>
+          <Typography sx={{ fontWeight: 700, fontSize: '0.9rem', color: '#e2e8f0', letterSpacing: '-0.01em' }}>
+            Trading
           </Typography>
         </Box>
 
         {/* Навигация */}
-        <Box sx={{ display: 'flex', flexGrow: 1 }}>
+        <Box sx={{ display: 'flex', flexGrow: 1, gap: 0.5 }}>
           {navItems.map((item) => {
             const active = location.pathname === item.path
             return (
@@ -62,24 +56,23 @@ export default function Navbar() {
                 key={item.path}
                 startIcon={item.icon}
                 onClick={() => navigate(item.path)}
-                disableRipple={!active}
+                size="small"
                 sx={{
-                  color: active ? '#c9922a' : '#555555',
-                  fontSize: '0.75rem',
+                  color: active ? V_LIGHT : '#475569',
+                  fontSize: '0.8rem',
                   fontWeight: active ? 600 : 400,
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase',
                   px: 1.5,
-                  py: 0,
-                  minHeight: 56,
-                  borderRadius: 0,
-                  borderBottom: active ? '2px solid #c9922a' : '2px solid transparent',
-                  transition: 'color 0.2s, border-color 0.2s',
+                  py: 0.5,
+                  borderRadius: '8px',
+                  background: active ? alpha(VIOLET, 0.12) : 'transparent',
+                  border: active ? `1px solid ${alpha(VIOLET, 0.3)}` : '1px solid transparent',
+                  transition: 'all 0.2s',
                   '&:hover': {
-                    color: '#888',
-                    background: 'transparent',
-                    borderBottomColor: '#333',
+                    background: alpha(VIOLET, 0.08),
+                    color: '#94a3b8',
+                    border: `1px solid ${alpha(VIOLET, 0.15)}`,
                   },
+                  '& .MuiButton-startIcon': { marginRight: '4px' },
                 }}
               >
                 {item.label}
@@ -91,25 +84,24 @@ export default function Navbar() {
         {/* Пользователь */}
         {user && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Typography sx={{ fontSize: '0.75rem', color: '#444', mr: 1, letterSpacing: '0.05em' }}>
+            <Typography sx={{
+              fontSize: '0.78rem', color: '#475569', mr: 1,
+              px: 1.5, py: 0.5,
+              border: '1px solid #1e2445',
+              borderRadius: '6px',
+            }}>
               {user.username}
             </Typography>
             <Tooltip title="Настройки">
-              <IconButton
-                size="small"
-                onClick={() => navigate('/app/settings')}
-                sx={{ color: '#444', '&:hover': { color: '#c9922a' } }}
-              >
-                <SettingsIcon sx={{ fontSize: 18 }} />
+              <IconButton size="small" onClick={() => navigate('/app/settings')}
+                sx={{ color: '#334155', '&:hover': { color: V_LIGHT, background: alpha(VIOLET, 0.1) } }}>
+                <SettingsIcon sx={{ fontSize: 17 }} />
               </IconButton>
             </Tooltip>
             <Tooltip title="Выйти">
-              <IconButton
-                size="small"
-                onClick={handleLogout}
-                sx={{ color: '#444', '&:hover': { color: '#c0392b' } }}
-              >
-                <LogoutIcon sx={{ fontSize: 18 }} />
+              <IconButton size="small" onClick={() => { logout(); navigate('/') }}
+                sx={{ color: '#334155', '&:hover': { color: '#f87171', background: alpha('#ef4444', 0.1) } }}>
+                <LogoutIcon sx={{ fontSize: 17 }} />
               </IconButton>
             </Tooltip>
           </Box>
