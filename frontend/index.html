@@ -3,7 +3,70 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Stalcraft Trading Assistant</title>
+    <title>SC Trading — Аукцион Stalcraft X</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+
+      :root {
+        --bg-primary:   #0B0812;
+        --bg-secondary: #120A1E;
+        --bg-elevated:  #171022;
+        --bg-card:      #1B1328;
+        --purple:       #6F2BFF;
+        --purple-bright:#8A4DFF;
+        --purple-soft:  #B38CFF;
+        --success:      #2EEA8B;
+        --warning:      #FFB84D;
+        --danger:       #FF5C72;
+        --info:         #53B7FF;
+        --text-primary: #F2F2F5;
+        --text-secondary:#B6B2C7;
+        --text-muted:   #7D7695;
+        --border:       rgba(255,255,255,0.06);
+      }
+
+      html, body, #root {
+        margin: 0; padding: 0;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        min-height: 100vh;
+        font-family: 'Inter', sans-serif;
+      }
+
+      /* Кастомный скроллбар */
+      ::-webkit-scrollbar { width: 4px; height: 4px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(111,43,255,0.3); border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(138,77,255,0.5); }
+
+      /* Hexagonal texture overlay (subtle) */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background-image:
+          radial-gradient(ellipse 80% 50% at 50% -20%, rgba(111,43,255,0.12) 0%, transparent 60%);
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      #root { position: relative; z-index: 1; }
+
+      /* Anomaly glow pulse animation */
+      @keyframes anomaly-pulse {
+        0%, 100% { opacity: 0.4; transform: scale(1); }
+        50% { opacity: 0.8; transform: scale(1.05); }
+      }
+
+      /* Scan line animation */
+      @keyframes scan {
+        0% { transform: translateY(-100%); }
+        100% { transform: translateY(100vh); }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

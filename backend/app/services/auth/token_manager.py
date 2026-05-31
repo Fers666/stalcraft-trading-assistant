@@ -28,10 +28,15 @@ class TokenManager:
         self._redis: aioredis.Redis | None = None
 
     async def _get_redis(self) -> aioredis.Redis:
-        if self._redis is None:
-            self._redis = await aioredis.from_url(
-                settings.redis_url, encoding="utf-8", decode_responses=True
-            )
+        if self._redis is not None:
+            try:
+                await self._redis.ping()
+                return self._redis
+            except Exception:
+                self._redis = None
+        self._redis = await aioredis.from_url(
+            settings.redis_url, encoding="utf-8", decode_responses=True
+        )
         return self._redis
 
     async def _fetch_new_token(self) -> tuple[str, int]:
