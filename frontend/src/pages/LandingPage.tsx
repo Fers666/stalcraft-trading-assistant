@@ -139,10 +139,20 @@ export default function LandingPage() {
             </Typography>
           </Box>
         </Box>
-        {!isLoggedIn && (
-          <Button variant="outlined" size="small" onClick={() => navigate('/login')}>
-            Войти в систему
+        {isLoggedIn ? (
+          <Button variant="outlined" size="small" onClick={() => navigate('/app/monitoring')}>
+            Войти в терминал
           </Button>
+        ) : (
+          <Stack direction="row" spacing={1}>
+            <Button variant="text" size="small" onClick={() => navigate('/register')}
+              sx={{ color: T2, '&:hover': { color: '#F5F5F5' } }}>
+              Регистрация
+            </Button>
+            <Button variant="outlined" size="small" onClick={() => navigate('/login')}>
+              Войти
+            </Button>
+          </Stack>
         )}
       </Box>
 
