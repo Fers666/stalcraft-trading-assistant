@@ -10,7 +10,7 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import { useAuthStore } from '../store/authStore'
 import { tokens } from '../theme'
 
-const { gold: G2, goldAccent: G3, text2: T2, border: BORDER } = tokens
+const { gold: G2, goldAccent: G3, text1: T1, text2: T2, border: BORDER } = tokens
 
 const navItems = [
   { label: 'Избранное', path: '/app/monitoring', icon: <MonitorHeartIcon sx={{ fontSize: 14 }} /> },
@@ -96,16 +96,16 @@ export default function Navbar() {
                   fontWeight: active ? 700 : 500,
                   fontSize: '0.8rem',
                   letterSpacing: '0.06em',
-                  color: active ? G3 : T2,
+                  color: active ? G3 : T1,
                   px: 1.5,
                   height: 34,
                   borderRadius: '8px',
                   background: active ? alpha(G2, 0.1) : 'transparent',
                   border: active ? `1px solid ${alpha(G2, 0.25)}` : '1px solid transparent',
                   transition: 'all 0.2s',
-                  '& .MuiButton-startIcon': { mr: '4px', opacity: active ? 1 : 0.5 },
+                  '& .MuiButton-startIcon': { mr: '4px' },
                   '&:hover': {
-                    color: '#B8B8B8',
+                    color: '#F5F5F5',
                     background: alpha(G2, 0.05),
                     border: `1px solid ${alpha(G2, 0.1)}`,
                   },

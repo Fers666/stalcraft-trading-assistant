@@ -109,8 +109,11 @@ const theme = createTheme({
           WebkitBackdropFilter: 'blur(24px) saturate(180%)',
           borderBottom: `1px solid ${BORDER}`,
           boxShadow: `0 1px 0 ${BORDER}`,
-          // Fix: primary.contrastText is #080808 (dark) — prevent it from
-          // cascading into nav items as invisible black text on dark bg
+          color: T0,
+        },
+        // colorPrimary class is applied by MUI and overrides root color —
+        // explicitly reset it so nav text stays white, not contrastText #080808
+        colorPrimary: {
           color: T0,
         },
       },
