@@ -16,11 +16,6 @@
 
 ## Задачи в очереди
 
-### Баги — исправить в первую очередь
-- [ ] `monitoring.py` — читает `MarketStatistics` с `user_id == current_user.id` вместо `IS NULL`
-- [ ] `market_stats.py` — `_calculate_sell_options` читает `CollectedData` с `user_id == user_id` вместо `IS NULL`
-- [ ] `watchlist.py` POST — при добавлении вызывает `collect_single_item(user_id, ...)` с устаревшей сигнатурой
-
 ### Backend
 - [ ] `GET /feed` — топ предметов по `tradability_score` из `global_item_scan`
 - [ ] `GET /monitoring/history/{item_id}` — история цен для графика (из `collected_data`)
