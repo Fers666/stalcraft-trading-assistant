@@ -48,3 +48,11 @@ export function formatPrice(n: number | null | undefined): string {
   if (n == null) return '—'
   return n.toLocaleString('ru-RU') + ' ₽'
 }
+
+const ICON_BASE = 'https://raw.githubusercontent.com/EXBO-Studio/stalcraft-database/main/ru'
+
+/** Возвращает полный URL иконки предмета */
+export function iconUrl(iconPath: string | null | undefined): string | null {
+  if (!iconPath) return null
+  return `${ICON_BASE}${iconPath}`
+}

@@ -17,7 +17,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await login(email, password)
-      navigate('/monitoring')
+      navigate('/app/monitoring')
     } catch {
       setError('Неверный email или пароль')
     } finally {

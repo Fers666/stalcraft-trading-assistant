@@ -3,12 +3,12 @@ import {
   Box, Typography, TextField, InputAdornment, Card, CardContent,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Button, Chip, CircularProgress, MenuItem, Select, FormControl,
-  InputLabel, Alert,
+  InputLabel, Alert, Avatar,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
 import api from '../api/client'
-import { translateCategory } from '../utils/i18n'
+import { translateCategory, iconUrl } from '../utils/i18n'
 
 interface Item {
   id: number
@@ -16,6 +16,7 @@ interface Item {
   name_ru: string | null
   name_en: string | null
   category: string | null
+  icon_path: string | null
   can_be_batch_traded: boolean
 }
 
@@ -111,12 +112,23 @@ export default function CatalogPage() {
                   {items.map((item) => (
                     <TableRow key={item.id} hover>
                       <TableCell>
-                        <Typography variant="body2" fontWeight={500}>
-                          {item.name_ru || item.name_en}
-                        </Typography>
-                        {item.name_en && item.name_ru && (
-                          <Typography variant="caption" color="text.secondary">{item.name_en}</Typography>
-                        )}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Avatar
+                            src={iconUrl(item.icon_path) ?? undefined}
+                            variant="rounded"
+                            sx={{ width: 28, height: 28, bgcolor: 'background.default', flexShrink: 0 }}
+                          >
+                            {!item.icon_path && (item.name_ru?.[0] ?? '?')}
+                          </Avatar>
+                          <Box>
+                            <Typography variant="body2" fontWeight={500}>
+                              {item.name_ru || item.name_en}
+                            </Typography>
+                            {item.name_en && item.name_ru && (
+                              <Typography variant="caption" color="text.secondary">{item.name_en}</Typography>
+                            )}
+                          </Box>
+                        </Box>
                       </TableCell>
                       <TableCell>
                         <Typography variant="caption" color="text.secondary">

@@ -18,6 +18,7 @@ class ItemResponse(BaseModel):
     name_ru: str | None
     name_en: str | None
     category: str | None
+    icon_path: str | None
     can_be_batch_traded: bool
     last_updated: datetime | None
 

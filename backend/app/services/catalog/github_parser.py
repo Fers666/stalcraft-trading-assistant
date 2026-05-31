@@ -50,12 +50,14 @@ def _parse_item(entry: dict) -> dict | None:
     name_en = lines.get("en") or name_ru
 
     can_batch = top_category not in _SINGLE_CATEGORIES
+    icon_path = entry.get("icon")  # "/icons/medicine/9mmq.png"
 
     return {
         "item_id": item_id,
         "name_ru": name_ru,
         "name_en": name_en,
         "category": category,
+        "icon_path": icon_path,
         "can_be_batch_traded": can_batch,
     }
 
@@ -92,6 +94,7 @@ async def sync_catalog(db: AsyncSession) -> dict:
             "name_ru": stmt.excluded.name_ru,
             "name_en": stmt.excluded.name_en,
             "category": stmt.excluded.category,
+            "icon_path": stmt.excluded.icon_path,
             "can_be_batch_traded": stmt.excluded.can_be_batch_traded,
             "last_updated": stmt.excluded.last_updated,
         },

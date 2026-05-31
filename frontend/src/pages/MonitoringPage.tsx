@@ -11,6 +11,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import api from '../api/client'
 import { formatPrice } from '../utils/i18n'
 import { useRefreshCooldown } from '../hooks/useRefreshCooldown'
+import PriceChart from '../components/PriceChart'
 
 interface SellOption {
   label: 'fast' | 'normal' | 'premium'
@@ -223,6 +224,14 @@ function ItemCard({ entry, stats, onRefresh, onDelete }: {
           <Typography variant="body2" color="text.secondary">
             Данных пока нет — первый сбор идёт автоматически каждые 5 мин
           </Typography>
+        )}
+
+        {/* График истории цен */}
+        {stats && (
+          <>
+            <Divider sx={{ my: 1.5 }} />
+            <PriceChart itemId={entry.item_id} region={entry.region} />
+          </>
         )}
 
         {entry.last_successful_check && (

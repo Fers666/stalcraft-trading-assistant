@@ -54,6 +54,7 @@ class MasterItem(Base):
     name_ru             = Column(String(200))
     name_en             = Column(String(200))
     category            = Column(String(50))
+    icon_path           = Column(String(200))   # путь вида /icons/medicine/9mmq.png
     can_be_batch_traded = Column(Boolean, default=True)
     last_updated        = Column(DateTime(timezone=True), server_default=func.now())
 

@@ -6,15 +6,17 @@ import MonitorHeartIcon from '@mui/icons-material/MonitorHeart'
 import SearchIcon from '@mui/icons-material/Search'
 import InventoryIcon from '@mui/icons-material/Inventory'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
+import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
 import { useAuthStore } from '../store/authStore'
 
 const navItems = [
-  { label: 'Избранное', path: '/monitoring', icon: <MonitorHeartIcon fontSize="small" /> },
-  { label: 'Каталог',   path: '/catalog',    icon: <MenuBookIcon    fontSize="small" /> },
-  { label: 'Лоты',      path: '/lots',       icon: <SearchIcon      fontSize="small" /> },
-  { label: 'Склад',     path: '/inventory',  icon: <InventoryIcon   fontSize="small" /> },
+  { label: 'Избранное', path: '/app/monitoring', icon: <MonitorHeartIcon fontSize="small" /> },
+  { label: 'Каталог',   path: '/app/catalog',    icon: <MenuBookIcon    fontSize="small" /> },
+  { label: 'Лоты',      path: '/app/lots',       icon: <SearchIcon      fontSize="small" /> },
+  { label: 'Лента',     path: '/app/feed',       icon: <TrendingUpIcon  fontSize="small" /> },
+  { label: 'Склад',     path: '/app/inventory',  icon: <InventoryIcon   fontSize="small" /> },
 ]
 
 export default function Navbar() {
