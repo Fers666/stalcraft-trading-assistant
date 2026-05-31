@@ -1,39 +1,44 @@
 import { createTheme, alpha } from '@mui/material/styles'
 
 // ─── SC TRADING Design System ─────────────────────────────────────────────────
-// Post-apocalyptic fintech dashboard — STALCRAFT / STALKER universe aesthetic
+// ANOMALY → DATA → PROFIT
+// Bloomberg Terminal built for the Zone — luxury fintech + tactical military UI
 
-const P  = '#6F2BFF'   // Primary Purple
-const PB = '#8A4DFF'   // Bright Purple
-const PS = '#B38CFF'   // Soft Purple
-const PD = '#3D1A7A'   // Dark Purple
+// Gold Palette
+const G1 = '#B78A2A'   // Soft Gold
+const G2 = '#D9AF37'   // Primary Gold
+const G3 = '#F2C94C'   // Accent Gold
+const G4 = '#FFB800'   // Highlight Gold
 
-const BG0 = '#0B0812'  // Primary Background
-const BG1 = '#120A1E'  // Secondary Background
-const BG2 = '#171022'  // Elevated Surface
-const BG3 = '#1B1328'  // Card Surface
+// Backgrounds
+const BG0 = '#080808'  // Primary Background
+const BG1 = '#11151A'  // Secondary Background
+const BG2 = '#1A1F26'  // Card Surface
+const BG3 = '#202633'  // Elevated Surface
 
-const T0  = '#F2F2F5'  // Primary Text
-const T1  = '#B6B2C7'  // Secondary Text
-const T2  = '#7D7695'  // Muted Text
+// Text
+const T0  = '#F5F5F5'  // Primary Text
+const T1  = '#B8B8B8'  // Secondary Text
+const T2  = '#7C7C7C'  // Muted Text
 
-const SUCCESS = '#2EEA8B'
-const WARNING = '#FFB84D'
-const DANGER  = '#FF5C72'
+// Status
+const SUCCESS = '#3ED598'
+const WARNING = '#F5B74F'
+const DANGER  = '#FF5A5A'
 const INFO    = '#53B7FF'
 
-const BORDER  = 'rgba(255,255,255,0.06)'
-const GLOW    = `rgba(138,77,255,0.15)`
+const BORDER  = 'rgba(255,255,255,0.08)'
+const GLOW    = 'rgba(217,175,55,0.10)'
 
 const theme = createTheme({
   palette: {
     mode: 'dark',
-    primary:   { main: P,       light: PB,      dark: PD,    contrastText: '#fff' },
-    secondary: { main: SUCCESS, light: '#5af7ae',dark: '#1ab867' },
+    primary:   { main: G2, light: G3, dark: G1, contrastText: '#080808' },
+    secondary: { main: SUCCESS, light: '#6affc0', dark: '#1ab867' },
     error:     { main: DANGER  },
     warning:   { main: WARNING },
     info:      { main: INFO    },
-    background: { default: BG0, paper: BG3 },
+    background: { default: BG0, paper: BG2 },
     divider: BORDER,
     text: { primary: T0, secondary: T1, disabled: T2 },
   },
@@ -45,41 +50,41 @@ const theme = createTheme({
       fontFamily: '"Rajdhani", "Inter", sans-serif',
       fontWeight: 700,
       fontSize: '3.5rem',
-      letterSpacing: '0.04em',
+      letterSpacing: '0.08em',
       lineHeight: 1.1,
     },
     h2: {
       fontFamily: '"Rajdhani", "Inter", sans-serif',
       fontWeight: 700,
       fontSize: '2.625rem',
-      letterSpacing: '0.04em',
+      letterSpacing: '0.08em',
     },
     h3: {
       fontFamily: '"Rajdhani", "Inter", sans-serif',
       fontWeight: 700,
       fontSize: '2rem',
-      letterSpacing: '0.04em',
+      letterSpacing: '0.08em',
     },
     h4: {
       fontFamily: '"Rajdhani", "Inter", sans-serif',
       fontWeight: 700,
       fontSize: '1.5rem',
-      letterSpacing: '0.03em',
+      letterSpacing: '0.06em',
     },
     h5: {
       fontFamily: '"Rajdhani", "Inter", sans-serif',
       fontWeight: 600,
       fontSize: '1.25rem',
-      letterSpacing: '0.03em',
+      letterSpacing: '0.06em',
     },
     h6: {
       fontFamily: '"Rajdhani", "Inter", sans-serif',
       fontWeight: 600,
       fontSize: '1.1rem',
-      letterSpacing: '0.03em',
+      letterSpacing: '0.06em',
     },
     subtitle1: { fontWeight: 600, color: T0 },
-    subtitle2: { fontWeight: 500, color: T1, fontSize: '0.8rem', letterSpacing: '0.06em' },
+    subtitle2: { fontWeight: 500, color: T1, fontSize: '0.8rem', letterSpacing: '0.08em' },
     body1:     { color: T1, lineHeight: 1.6 },
     body2:     { color: T1, fontSize: '0.875rem' },
     caption:   { color: T2, fontSize: '0.8125rem' },
@@ -99,7 +104,7 @@ const theme = createTheme({
     MuiAppBar: {
       styleOverrides: {
         root: {
-          background: alpha(BG1, 0.88),
+          background: alpha(BG1, 0.92),
           backdropFilter: 'blur(24px) saturate(180%)',
           WebkitBackdropFilter: 'blur(24px) saturate(180%)',
           borderBottom: `1px solid ${BORDER}`,
@@ -113,14 +118,13 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           backgroundImage: 'none',
-          backgroundColor: BG3,
+          backgroundColor: BG2,
           border: `1px solid ${BORDER}`,
           borderRadius: 18,
-          boxShadow: `0 4px 32px rgba(0,0,0,0.5), inset 0 0 0 1px ${BORDER}`,
-          transition: 'border-color 0.3s, box-shadow 0.3s',
+          boxShadow: `0 4px 24px rgba(0,0,0,0.4)`,
+          transition: 'border-color 0.3s',
           '&:hover': {
-            borderColor: alpha(P, 0.35),
-            boxShadow: `0 8px 40px rgba(0,0,0,0.6), 0 0 32px ${GLOW}, inset 0 0 0 1px ${alpha(P, 0.2)}`,
+            borderColor: alpha(G2, 0.25),
           },
         },
       },
@@ -139,37 +143,38 @@ const theme = createTheme({
           textTransform: 'none',
           fontWeight: 600,
           height: 44,
-          borderRadius: 18,
+          borderRadius: 12,
           fontSize: '0.875rem',
           transition: 'all 0.2s',
+          letterSpacing: '0.04em',
         },
-        sizeSmall: { height: 32, borderRadius: 12, fontSize: '0.8rem', px: 1.5 },
-        sizeLarge: { height: 52, borderRadius: 18, fontSize: '1rem' },
+        sizeSmall: { height: 32, borderRadius: 8, fontSize: '0.8rem' },
+        sizeLarge: { height: 48, borderRadius: 12, fontSize: '1rem' },
         containedPrimary: {
-          background: `linear-gradient(135deg, ${PB} 0%, ${P} 60%, ${PD} 100%)`,
-          boxShadow: `0 4px 16px ${alpha(P, 0.45)}`,
+          background: `linear-gradient(90deg, ${G1} 0%, ${G2} 50%, ${G3} 100%)`,
+          color: '#080808',
+          boxShadow: 'none',
           '&:hover': {
-            background: `linear-gradient(135deg, ${PS} 0%, ${PB} 60%, ${P} 100%)`,
-            boxShadow: `0 6px 24px ${alpha(P, 0.6)}`,
+            filter: 'brightness(1.1)',
+            boxShadow: 'none',
             transform: 'translateY(-1px)',
           },
           '&:active': { transform: 'translateY(0)' },
         },
         outlinedPrimary: {
-          borderColor: alpha(P, 0.4),
-          color: PS,
-          background: alpha(P, 0.04),
+          borderColor: alpha(G2, 0.4),
+          color: G3,
+          background: 'transparent',
           '&:hover': {
-            borderColor: PB,
-            background: alpha(P, 0.1),
-            boxShadow: `0 0 16px ${alpha(P, 0.2)}`,
+            borderColor: G2,
+            background: alpha(G2, 0.08),
           },
         },
         text: {
-          color: PS,
+          color: T0,
           '&:hover': {
-            background: alpha(P, 0.08),
-            boxShadow: `0 0 12px ${alpha(P, 0.15)}`,
+            color: G3,
+            background: 'transparent',
           },
         },
       },
@@ -185,14 +190,14 @@ const theme = createTheme({
           letterSpacing: '0.03em',
         },
         colorDefault: {
-          background: alpha('#fff', 0.05),
+          background: alpha('#fff', 0.04),
           border: `1px solid ${BORDER}`,
           color: T1,
         },
         colorPrimary: {
-          background: alpha(P, 0.15),
-          border: `1px solid ${alpha(P, 0.35)}`,
-          color: PS,
+          background: alpha(G2, 0.12),
+          border: `1px solid ${alpha(G2, 0.3)}`,
+          color: G3,
         },
         colorSuccess: {
           background: alpha(SUCCESS, 0.12),
@@ -221,7 +226,7 @@ const theme = createTheme({
     MuiTableCell: {
       styleOverrides: {
         head: {
-          background: BG2,
+          background: BG1,
           color: T2,
           fontWeight: 600,
           fontSize: '0.7rem',
@@ -240,7 +245,7 @@ const theme = createTheme({
     MuiTableRow: {
       styleOverrides: {
         root: {
-          '&:hover td': { background: alpha(P, 0.04) },
+          '&:hover td': { background: alpha(G2, 0.04) },
           '&:last-child td': { borderBottom: 'none' },
         },
       },
@@ -252,16 +257,17 @@ const theme = createTheme({
         root: {
           '& .MuiOutlinedInput-root': {
             borderRadius: 12,
-            background: alpha('#fff', 0.025),
+            background: BG1,
+            height: 48,
             '& fieldset': { borderColor: BORDER },
-            '&:hover fieldset': { borderColor: alpha(P, 0.5) },
+            '&:hover fieldset': { borderColor: alpha(G2, 0.4) },
             '&.Mui-focused fieldset': {
-              borderColor: PB,
-              boxShadow: `0 0 0 3px ${alpha(P, 0.15)}`,
+              borderColor: G2,
+              borderWidth: '1px',
             },
           },
           '& .MuiInputLabel-root': { color: T2 },
-          '& .MuiInputLabel-root.Mui-focused': { color: PS },
+          '& .MuiInputLabel-root.Mui-focused': { color: G3 },
           '& .MuiInputBase-input': { color: T0 },
         },
       },
@@ -280,7 +286,7 @@ const theme = createTheme({
           background: BG2,
           border: `1px solid ${BORDER}`,
           borderRadius: 12,
-          boxShadow: `0 16px 48px rgba(0,0,0,0.6), 0 0 32px ${GLOW}`,
+          boxShadow: `0 16px 48px rgba(0,0,0,0.6)`,
         },
       },
     },
@@ -290,8 +296,8 @@ const theme = createTheme({
         root: {
           color: T1,
           fontSize: '0.875rem',
-          '&:hover': { background: alpha(P, 0.08) },
-          '&.Mui-selected': { background: alpha(P, 0.15), color: PS },
+          '&:hover': { background: alpha(G2, 0.06) },
+          '&.Mui-selected': { background: alpha(G2, 0.12), color: G3 },
         },
       },
     },
@@ -320,9 +326,9 @@ const theme = createTheme({
       styleOverrides: {
         paper: {
           background: BG2,
-          border: `1px solid ${alpha(P, 0.2)}`,
+          border: `1px solid ${alpha(G2, 0.2)}`,
           borderRadius: 24,
-          boxShadow: `0 24px 80px rgba(0,0,0,0.7), 0 0 48px ${GLOW}`,
+          boxShadow: `0 24px 80px rgba(0,0,0,0.7)`,
         },
       },
     },
@@ -332,7 +338,7 @@ const theme = createTheme({
         root: {
           fontFamily: '"Rajdhani", sans-serif',
           fontWeight: 700,
-          letterSpacing: '0.04em',
+          letterSpacing: '0.08em',
           fontSize: '1.3rem',
           color: T0,
         },
@@ -376,11 +382,11 @@ const theme = createTheme({
           fontSize: '0.78rem',
           fontWeight: 500,
           '&.Mui-selected': {
-            color: PS,
-            borderColor: alpha(P, 0.5),
-            background: alpha(P, 0.15),
+            color: G3,
+            borderColor: alpha(G2, 0.5),
+            background: alpha(G2, 0.12),
           },
-          '&:hover': { background: alpha(P, 0.06) },
+          '&:hover': { background: alpha(G2, 0.05) },
         },
       },
     },
@@ -390,8 +396,8 @@ const theme = createTheme({
       styleOverrides: {
         switchBase: {
           '&.Mui-checked': {
-            color: PB,
-            '& + .MuiSwitch-track': { backgroundColor: P, opacity: 0.7 },
+            color: G3,
+            '& + .MuiSwitch-track': { backgroundColor: G2, opacity: 0.7 },
           },
         },
         track: { backgroundColor: alpha('#fff', 0.1) },
@@ -402,9 +408,9 @@ const theme = createTheme({
     MuiAvatar: {
       styleOverrides: {
         root: {
-          background: alpha(P, 0.2),
-          color: PS,
-          border: `1px solid ${alpha(P, 0.3)}`,
+          background: alpha(G2, 0.15),
+          color: G3,
+          border: `1px solid ${alpha(G2, 0.3)}`,
         },
       },
     },
@@ -429,9 +435,16 @@ export default theme
 
 // Export design tokens for direct use in components
 export const tokens = {
-  purple: P, purpleBright: PB, purpleSoft: PS, purpleDark: PD,
+  // Gold palette (primary brand colors)
+  gold: G2, goldAccent: G3, goldHighlight: G4, goldSoft: G1,
+  // Legacy aliases — kept for backward compat with existing page components
+  purple: G2, purpleBright: G3, purpleSoft: G3, purpleDark: G1,
+  // Backgrounds
   bg0: BG0, bg1: BG1, bg2: BG2, bg3: BG3,
+  // Text
   text0: T0, text1: T1, text2: T2,
+  // Status
   success: SUCCESS, warning: WARNING, danger: DANGER, info: INFO,
+  // Misc
   border: BORDER, glow: GLOW,
 }

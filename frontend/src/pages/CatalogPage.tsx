@@ -64,7 +64,12 @@ export default function CatalogPage() {
 
   return (
     <Box>
-      <Typography variant="h5" fontWeight={700} sx={{ mb: 3 }}>Каталог предметов</Typography>
+      <Box sx={{ mb: 3 }}>
+        <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.14em', fontWeight: 600, mb: 0.5 }}>
+          ITEM DATABASE // 2 236+ ENTRIES
+        </Typography>
+        <Typography variant="h5" fontWeight={700}>Каталог предметов</Typography>
+      </Box>
 
       <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
         <TextField

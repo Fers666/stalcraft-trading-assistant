@@ -51,6 +51,9 @@ export default function FeedPage() {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
         <Box>
+          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.14em', fontWeight: 600, mb: 0.5 }}>
+            MARKET FEED // TOP BY TRADABILITY
+          </Typography>
           <Typography variant="h5" fontWeight={700}>Лента предметов</Typography>
           <Typography variant="caption" color="text.secondary">
             Топ по торгуемости — предметы вне Избранного, обновляется раз в час
@@ -129,7 +132,8 @@ export default function FeedPage() {
                           size="small"
                           label={`★ ${item.tradability_score?.toFixed(0) ?? 0}`}
                           variant="outlined"
-                          sx={{ height: 20, fontSize: 11, color: 'text.secondary' }}
+                          color="primary"
+                          sx={{ height: 20, fontSize: 11 }}
                         />
                       </Tooltip>
                     </Box>

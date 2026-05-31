@@ -95,17 +95,18 @@ export default function PriceChart({ itemId, region }: Props) {
       {!loading && chartData.length > 0 && (
         <ResponsiveContainer width="100%" height={160}>
           <LineChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2a2d3a" />
-            <XAxis dataKey="t" tick={{ fontSize: 10, fill: '#666' }} interval="preserveStartEnd" />
-            <YAxis tickFormatter={fmtPrice} tick={{ fontSize: 10, fill: '#666' }} width={48} />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+            <XAxis dataKey="t" tick={{ fontSize: 10, fill: '#7C7C7C' }} interval="preserveStartEnd" />
+            <YAxis tickFormatter={fmtPrice} tick={{ fontSize: 10, fill: '#7C7C7C' }} width={48} />
             <ChartTooltip
-              contentStyle={{ background: '#1a1d27', border: '1px solid #2a2d3a', fontSize: 12 }}
-              formatter={(v: number) => v?.toLocaleString('ru-RU') + ' ₽'}
+              contentStyle={{ background: '#1A1F26', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 12 }}
+              labelStyle={{ color: '#B8B8B8' }}
+              formatter={(v: number) => [v?.toLocaleString('ru-RU') + ' ₽', '']}
             />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Line type="monotone" dataKey="Ликвидная" stroke="#e8a020" dot={false} strokeWidth={2} />
-            <Line type="monotone" dataKey="Лучшая"    stroke="#4caf84" dot={false} strokeWidth={1} strokeDasharray="4 2" />
-            <Line type="monotone" dataKey="Средняя"   stroke="#7c8db0" dot={false} strokeWidth={1} />
+            <Line type="monotone" dataKey="Ликвидная" stroke="#D9AF37" dot={false} strokeWidth={2} />
+            <Line type="monotone" dataKey="Лучшая"    stroke="#3ED598" dot={false} strokeWidth={1} strokeDasharray="4 2" />
+            <Line type="monotone" dataKey="Средняя"   stroke="#7C7C7C" dot={false} strokeWidth={1} />
           </LineChart>
         </ResponsiveContainer>
       )}

@@ -68,7 +68,7 @@ const SELL_OPTION_TOOLTIPS: Record<string, string> = {
 }
 
 const sellOptionColor = (label: string) =>
-  ({ fast: '#4caf84', normal: '#e8a020', premium: '#ef5350' }[label] ?? '#fff')
+  ({ fast: '#3ED598', normal: '#D9AF37', premium: '#F5B74F' }[label] ?? '#F5F5F5')
 
 function volatilityRisk(v: number | null): keyof typeof RISK_LABELS {
   if (v == null) return 'low'
@@ -95,6 +95,14 @@ function ItemCard({ entry, stats, onRefresh, onDelete }: {
 
   return (
     <Card>
+      {/* Золотая полоска сверху на активных карточках */}
+      {!entry.error_status && (
+        <Box sx={{
+          height: 2,
+          background: 'linear-gradient(90deg, #B78A2A 0%, #D9AF37 50%, #F2C94C 100%)',
+          borderRadius: '18px 18px 0 0',
+        }} />
+      )}
       <CardContent>
         {/* Заголовок */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
@@ -148,7 +156,9 @@ function ItemCard({ entry, stats, onRefresh, onDelete }: {
             <Grid2 container spacing={1} sx={{ mb: 1.5 }}>
               <Grid2 size={{ xs: 6 }}>
                 <Typography variant="caption" color="text.secondary">Медиана 7д</Typography>
-                <Typography variant="body2" fontWeight={600}>{formatPrice(stats.median_price_7d)}</Typography>
+                <Typography variant="body2" fontWeight={700} sx={{ color: 'primary.main' }}>
+                  {formatPrice(stats.median_price_7d)}
+                </Typography>
               </Grid2>
               <Grid2 size={{ xs: 6 }}>
                 <Typography variant="caption" color="text.secondary">Продаж за 7д</Typography>
@@ -174,10 +184,10 @@ function ItemCard({ entry, stats, onRefresh, onDelete }: {
             {stats.sell_options && stats.sell_options.length > 0 && (
               <>
                 <Divider sx={{ my: 1.5 }} />
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-                  <TrendingUpIcon sx={{ fontSize: 14, color: 'primary.main' }} />
-                  <Typography variant="caption" color="text.secondary" fontWeight={600}>
-                    Варианты продажи
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+                  <TrendingUpIcon sx={{ fontSize: 13, color: 'primary.main' }} />
+                  <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
+                    ВАРИАНТЫ ПРОДАЖИ
                   </Typography>
                   <Tooltip title={CONFIDENCE_TOOLTIPS[stats.sell_options[0].confidence]}>
                     <Chip
@@ -189,33 +199,33 @@ function ItemCard({ entry, stats, onRefresh, onDelete }: {
                   </Tooltip>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1 }}>
-                  {stats.sell_options.map((opt) => (
-                    <Tooltip key={opt.label} title={SELL_OPTION_TOOLTIPS[opt.label]}>
-                      <Box
-                        sx={{
-                          flex: 1,
-                          p: 1,
-                          borderRadius: 1,
-                          border: '1px solid',
-                          borderColor: 'divider',
+                  {stats.sell_options.map((opt) => {
+                    const c = sellOptionColor(opt.label)
+                    return (
+                      <Tooltip key={opt.label} title={SELL_OPTION_TOOLTIPS[opt.label]}>
+                        <Box sx={{
+                          flex: 1, p: 1.25,
+                          borderRadius: '10px',
+                          border: '1px solid rgba(255,255,255,0.06)',
+                          background: 'rgba(255,255,255,0.02)',
                           textAlign: 'center',
                           cursor: 'help',
-                        }}
-                      >
-                        <Typography variant="caption" sx={{ color: sellOptionColor(opt.label), fontWeight: 600, display: 'block' }}>
-                          {opt.label_ru}
-                        </Typography>
-                        <Typography variant="body2" fontWeight={700} sx={{ my: 0.25 }}>
-                          {formatPrice(opt.price_per_unit)}
-                        </Typography>
-                        <Tooltip title="Прогноз: сколько обычно висит лот по такой цене до выкупа">
-                          <Typography variant="caption" color="text.secondary" sx={{ cursor: 'help' }}>
+                          transition: 'border-color 0.2s',
+                          '&:hover': { borderColor: `${c}44` },
+                        }}>
+                          <Typography sx={{ fontSize: '0.62rem', color: c, fontWeight: 700, display: 'block', letterSpacing: '0.06em', mb: 0.5 }}>
+                            {opt.label_ru.toUpperCase()}
+                          </Typography>
+                          <Typography variant="body2" fontWeight={700} sx={{ my: 0.25, color: 'text.primary' }}>
+                            {formatPrice(opt.price_per_unit)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
                             {opt.estimated_hours_display}
                           </Typography>
-                        </Tooltip>
-                      </Box>
-                    </Tooltip>
-                  ))}
+                        </Box>
+                      </Tooltip>
+                    )
+                  })}
                 </Box>
               </>
             )}
@@ -291,10 +301,16 @@ export default function MonitoringPage() {
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+            <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.14em', fontWeight: 600 }}>
+              WATCHLIST
+            </Typography>
+            <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: 'success.main', opacity: 0.8 }} />
+            <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.1em' }}>
+              AUTO-UPDATE 5 MIN
+            </Typography>
+          </Box>
           <Typography variant="h5" fontWeight={700}>Избранное</Typography>
-          <Typography variant="caption" color="text.secondary">
-            Данные обновляются автоматически каждые 5 минут
-          </Typography>
         </Box>
         <Button startIcon={<RefreshIcon />} onClick={loadAll} size="small">Обновить список</Button>
       </Box>

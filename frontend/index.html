@@ -11,21 +11,22 @@
       *, *::before, *::after { box-sizing: border-box; }
 
       :root {
-        --bg-primary:   #0B0812;
-        --bg-secondary: #120A1E;
-        --bg-elevated:  #171022;
-        --bg-card:      #1B1328;
-        --purple:       #6F2BFF;
-        --purple-bright:#8A4DFF;
-        --purple-soft:  #B38CFF;
-        --success:      #2EEA8B;
-        --warning:      #FFB84D;
-        --danger:       #FF5C72;
-        --info:         #53B7FF;
-        --text-primary: #F2F2F5;
-        --text-secondary:#B6B2C7;
-        --text-muted:   #7D7695;
-        --border:       rgba(255,255,255,0.06);
+        --bg-primary:    #080808;
+        --bg-secondary:  #11151A;
+        --bg-card:       #1A1F26;
+        --bg-elevated:   #202633;
+        --gold:          #D9AF37;
+        --gold-accent:   #F2C94C;
+        --gold-highlight:#FFB800;
+        --gold-soft:     #B78A2A;
+        --success:       #3ED598;
+        --warning:       #F5B74F;
+        --danger:        #FF5A5A;
+        --info:          #53B7FF;
+        --text-primary:  #F5F5F5;
+        --text-secondary:#B8B8B8;
+        --text-muted:    #7C7C7C;
+        --border:        rgba(255,255,255,0.08);
       }
 
       html, body, #root {
@@ -36,35 +37,18 @@
         font-family: 'Inter', sans-serif;
       }
 
-      /* Кастомный скроллбар */
+      /* Custom scrollbar */
       ::-webkit-scrollbar { width: 4px; height: 4px; }
       ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: rgba(111,43,255,0.3); border-radius: 4px; }
-      ::-webkit-scrollbar-thumb:hover { background: rgba(138,77,255,0.5); }
-
-      /* Hexagonal texture overlay (subtle) */
-      body::before {
-        content: '';
-        position: fixed;
-        inset: 0;
-        background-image:
-          radial-gradient(ellipse 80% 50% at 50% -20%, rgba(111,43,255,0.12) 0%, transparent 60%);
-        pointer-events: none;
-        z-index: 0;
-      }
+      ::-webkit-scrollbar-thumb { background: rgba(217,175,55,0.25); border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(242,201,76,0.4); }
 
       #root { position: relative; z-index: 1; }
 
-      /* Anomaly glow pulse animation */
+      /* Anomaly pulse for status dot */
       @keyframes anomaly-pulse {
-        0%, 100% { opacity: 0.4; transform: scale(1); }
-        50% { opacity: 0.8; transform: scale(1.05); }
-      }
-
-      /* Scan line animation */
-      @keyframes scan {
-        0% { transform: translateY(-100%); }
-        100% { transform: translateY(100vh); }
+        0%, 100% { opacity: 0.5; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.15); }
       }
     </style>
   </head>
