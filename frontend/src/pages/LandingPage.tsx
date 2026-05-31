@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Box, Typography, Button, Stack, alpha } from '@mui/material'
 import { tokens } from '../theme'
@@ -76,8 +77,12 @@ function HeroLogo() {
 }
 
 export default function LandingPage() {
-  const navigate   = useNavigate()
-  const isLoggedIn = !!localStorage.getItem('access_token')
+  const navigate    = useNavigate()
+  const featuresRef = useRef<HTMLDivElement>(null)
+  const isLoggedIn  = !!localStorage.getItem('access_token')
+
+  const scrollToFeatures = () =>
+    featuresRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
   return (
     <Box sx={{
@@ -224,21 +229,20 @@ export default function LandingPage() {
 
         {/* CTA buttons */}
         {isLoggedIn ? (
-          <Button
-            variant="contained"
-            size="large"
-            onClick={() => navigate('/app/monitoring')}
-            sx={{ px: 6 }}
-          >
+          <Button variant="contained" size="large" onClick={() => navigate('/app/monitoring')} sx={{ px: 6 }}>
             Войти в терминал
           </Button>
         ) : (
-          <Stack direction="row" spacing={2}>
+          <Stack direction="row" spacing={2} alignItems="center">
             <Button variant="contained" size="large" onClick={() => navigate('/login')} sx={{ px: 6 }}>
               Войти
             </Button>
-            <Button variant="outlined" size="large" onClick={() => navigate('/register')} sx={{ px: 6 }}>
+            <Button variant="outlined" size="large" onClick={() => navigate('/register')} sx={{ px: 4 }}>
               Регистрация
+            </Button>
+            <Button variant="text" size="large" onClick={scrollToFeatures}
+              sx={{ px: 2, color: T2, '&:hover': { color: '#F5F5F5', background: 'transparent' } }}>
+              Посмотреть ↓
             </Button>
           </Stack>
         )}
@@ -284,7 +288,7 @@ export default function LandingPage() {
       </Box>
 
       {/* ── Features ───────────────────────────────────────────────────────── */}
-      <Box sx={{ px: 5, pb: 8, position: 'relative', zIndex: 1 }}>
+      <Box ref={featuresRef} sx={{ px: 5, pb: 8, position: 'relative', zIndex: 1 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
           {features.map((f) => (
             <Box

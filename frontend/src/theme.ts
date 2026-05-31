@@ -109,6 +109,9 @@ const theme = createTheme({
           WebkitBackdropFilter: 'blur(24px) saturate(180%)',
           borderBottom: `1px solid ${BORDER}`,
           boxShadow: `0 1px 0 ${BORDER}`,
+          // Fix: primary.contrastText is #080808 (dark) — prevent it from
+          // cascading into nav items as invisible black text on dark bg
+          color: T0,
         },
       },
     },
@@ -258,13 +261,16 @@ const theme = createTheme({
           '& .MuiOutlinedInput-root': {
             borderRadius: 12,
             background: BG1,
-            height: 48,
             '& fieldset': { borderColor: BORDER },
             '&:hover fieldset': { borderColor: alpha(G2, 0.4) },
             '&.Mui-focused fieldset': {
               borderColor: G2,
               borderWidth: '1px',
             },
+          },
+          // Standard size — 48px height
+          '& .MuiOutlinedInput-root:not(.MuiInputBase-sizeSmall)': {
+            height: 48,
           },
           '& .MuiInputLabel-root': { color: T2 },
           '& .MuiInputLabel-root.Mui-focused': { color: G3 },
