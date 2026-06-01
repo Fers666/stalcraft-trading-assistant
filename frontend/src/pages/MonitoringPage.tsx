@@ -311,8 +311,8 @@ function ItemCard({ entry, stats, onDelete }: {
           </Box>
         </Box>
 
-        {stats ? (
-          <>
+        {stats && (
+          <Box>
 
             {/* Выгодные лоты для покупки */}
             {lotsLoaded && (
@@ -459,8 +459,8 @@ function ItemCard({ entry, stats, onDelete }: {
                 </Box>
               </>
             )}
-          </>
-        ) : null}
+          </Box>
+        )}
 
         {/* График истории цен */}
         {stats && (
