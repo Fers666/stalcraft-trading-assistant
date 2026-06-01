@@ -176,10 +176,12 @@ class MarketStatistics(Base):
     max_price_7d        = Column(BigInteger)
     sales_volume_7d     = Column(Integer)
     price_volatility_7d = Column(Numeric(5, 2))
-    best_sell_hour      = Column(Integer)           # 0-23 MSK
-    best_sell_day       = Column(String(10))        # Monday, Tuesday...
-    best_buy_hour       = Column(Integer)           # 0-23 MSK — час когда цена лотов минимальна
-    best_buy_day        = Column(String(10))        # день недели когда цена лотов минимальна
+    best_sell_hour      = Column(Integer)           # 0-23 MSK — лучший час продажи (вся неделя)
+    best_sell_day       = Column(String(10))        # лучший день продажи
+    best_buy_hour       = Column(Integer)           # 0-23 MSK — лучший час покупки (вся неделя)
+    best_buy_day        = Column(String(10))        # лучший день покупки
+    sell_hours_by_day   = Column(JSONB)             # {"Monday": 20, "Tuesday": 19, ...}
+    buy_hours_by_day    = Column(JSONB)             # {"Monday": 2, "Tuesday": 3, ...}
     weekend_bonus_percent = Column(Numeric(5, 2))
     avg_sell_time_hours = Column(Numeric(8, 2))
     batch_stats         = Column(JSONB)

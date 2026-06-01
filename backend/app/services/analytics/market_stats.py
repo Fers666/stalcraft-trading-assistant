@@ -94,9 +94,13 @@ async def calculate_market_stats(
     WEIGHT_PRICE  = 0.6
     WEIGHT_VOLUME = 0.4
 
-    best_sell_hour = None
-    best_sell_day = None
-    weekend_bonus = None
+    best_sell_hour    = None
+    best_sell_day     = None
+    sell_hours_by_day = {}
+    best_buy_hour     = None
+    best_buy_day      = None
+    buy_hours_by_day  = {}
+    weekend_bonus     = None
 
     if len(sales_30d) >= MIN_SALES_FOR_STATS:
         by_hour: dict[int, list] = {}
@@ -131,6 +135,21 @@ async def calculate_market_stats(
 
         best_sell_hour = weighted_score(by_hour)
         best_sell_day  = weighted_score(by_day)
+
+        # Лучший час продажи для каждого дня отдельно
+        # by_day_hour[day][hour] = [prices]
+        by_day_hour: dict[str, dict[int, list]] = {}
+        for s in sales_30d:
+            sale_local = s.sale_time.astimezone(timezone(timedelta(hours=3)))
+            d = sale_local.strftime("%A")
+            h = sale_local.hour
+            by_day_hour.setdefault(d, {}).setdefault(h, []).append(s.price_per_unit)
+
+        sell_hours_by_day = {
+            day: weighted_score(hours_map)
+            for day, hours_map in by_day_hour.items()
+            if len(hours_map) >= 1
+        }
 
         # Бонус выходного дня
         weekday_sales = [
@@ -181,6 +200,22 @@ async def calculate_market_stats(
         if buy_by_day:
             best_buy_day = min(buy_by_day, key=lambda d: statistics.mean(buy_by_day[d]))
 
+        # Лучший час покупки для каждого дня отдельно
+        buy_by_day_hour: dict[str, dict[int, list]] = {}
+        for snap in snapshots_30d:
+            snap_local = snap.collect_time.astimezone(timezone(timedelta(hours=3)))
+            d = snap_local.strftime("%A")
+            h = snap_local.hour
+            buy_by_day_hour.setdefault(d, {}).setdefault(h, []).append(
+                snap.best_liquid_price_per_unit
+            )
+
+        buy_hours_by_day = {
+            day: min(hours_map, key=lambda h: statistics.mean(hours_map[h]))
+            for day, hours_map in buy_by_day_hour.items()
+            if len(hours_map) >= 1
+        }
+
     # ── 4. Прогноз времени продажи (sell_options) ─────────────────────────────
     sell_options = await _calculate_sell_options(
         db=db,
@@ -224,6 +259,8 @@ async def calculate_market_stats(
     existing.best_sell_day       = best_sell_day
     existing.best_buy_hour       = best_buy_hour
     existing.best_buy_day        = best_buy_day
+    existing.sell_hours_by_day   = sell_hours_by_day or None
+    existing.buy_hours_by_day    = buy_hours_by_day or None
     existing.weekend_bonus_percent = weekend_bonus
     existing.avg_sell_time_hours = avg_sell_time
     existing.sell_options        = sell_options

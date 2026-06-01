@@ -24,6 +24,8 @@ class MonitoringItemResponse(BaseModel):
     best_sell_day: str | None
     best_buy_hour: int | None
     best_buy_day: str | None
+    sell_hours_by_day: dict | None
+    buy_hours_by_day: dict | None
     weekend_bonus_percent: float | None
     avg_sell_time_hours: float | None
     sell_options: list | None

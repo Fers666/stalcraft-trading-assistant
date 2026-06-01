@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import {
   Box, Typography, Card, CardContent, Grid2, Chip, CircularProgress,
   IconButton, Tooltip, Divider, Alert, Avatar,
+  ToggleButtonGroup, ToggleButton,
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
@@ -32,6 +33,8 @@ interface MarketStats {
   best_sell_day: string | null
   best_buy_hour: number | null
   best_buy_day: string | null
+  sell_hours_by_day: Record<string, number> | null
+  buy_hours_by_day: Record<string, number> | null
   price_volatility_7d: number | null
   sell_options: SellOption[] | null
 }
@@ -82,12 +85,26 @@ function volatilityRisk(v: number | null): keyof typeof RISK_LABELS {
   return 'low'
 }
 
+// Текущий день недели на английском (как в БД)
+const TODAY_EN = new Date().toLocaleDateString('en-US', { weekday: 'long' })
+
 function ItemCard({ entry, stats, onDelete }: {
   entry: WatchlistEntry
   stats: MarketStats | null
   onDelete: () => void
 }) {
+  const [timeMode, setTimeMode] = useState<'week' | 'today'>('week')
   const risk = stats ? RISK_LABELS[volatilityRisk(stats.price_volatility_7d)] : null
+
+  // Часы продажи/покупки в зависимости от режима
+  const sellHour = timeMode === 'today'
+    ? (stats?.sell_hours_by_day?.[TODAY_EN] ?? stats?.best_sell_hour)
+    : stats?.best_sell_hour
+  const buyHour = timeMode === 'today'
+    ? (stats?.buy_hours_by_day?.[TODAY_EN] ?? stats?.best_buy_hour)
+    : stats?.best_buy_hour
+  const sellDay = timeMode === 'week' ? stats?.best_sell_day : null
+  const buyDay  = timeMode === 'week' ? stats?.best_buy_day  : null
 
   return (
     <Card>
@@ -143,30 +160,54 @@ function ItemCard({ entry, stats, onDelete }: {
                   <Typography variant="caption" color="text.secondary">Продаж за 7д</Typography>
                   <Typography variant="body2" fontWeight={600}>{stats.sales_volume_7d ?? '—'}</Typography>
                 </Grid2>
-                {stats.best_sell_hour != null && (
+                {(sellHour != null || buyHour != null) && (
                   <Grid2 size={{ xs: 12 }}>
-                    <Tooltip title="Час и день недели с наилучшим соотношением цены и объёма продаж (60% цена + 40% объём). Выставляй лот за 1–2 часа до этого момента.">
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}>
-                        <AccessTimeIcon sx={{ fontSize: 13, color: 'secondary.main' }} />
-                        <Typography variant="caption" sx={{ color: 'secondary.main' }}>
-                          Продавать: {stats.best_sell_hour}:00
-                          {stats.best_sell_day && ` · ${DAYS_RU[stats.best_sell_day] ?? stats.best_sell_day}`}
-                        </Typography>
-                      </Box>
-                    </Tooltip>
-                  </Grid2>
-                )}
-                {stats.best_buy_hour != null && (
-                  <Grid2 size={{ xs: 12 }}>
-                    <Tooltip title="Час и день недели когда минимальная цена лотов на аукционе исторически наименьшая — выгодное время для покупки.">
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}>
-                        <AccessTimeIcon sx={{ fontSize: 13, color: 'info.main' }} />
-                        <Typography variant="caption" sx={{ color: 'info.main' }}>
-                          Покупать: {stats.best_buy_hour}:00
-                          {stats.best_buy_day && ` · ${DAYS_RU[stats.best_buy_day] ?? stats.best_buy_day}`}
-                        </Typography>
-                      </Box>
-                    </Tooltip>
+                    {/* Toggle неделя / сегодня */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
+                      <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.08em', fontWeight: 600 }}>
+                        ВРЕМЯ
+                      </Typography>
+                      <ToggleButtonGroup
+                        value={timeMode}
+                        exclusive
+                        onChange={(_, v) => v && setTimeMode(v)}
+                        size="small"
+                      >
+                        <ToggleButton value="week" sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>
+                          Неделя
+                        </ToggleButton>
+                        <ToggleButton value="today" sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>
+                          Сегодня
+                        </ToggleButton>
+                      </ToggleButtonGroup>
+                    </Box>
+
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                      {sellHour != null && (
+                        <Tooltip title="Лучший час выставить лот: высокая цена + активный рынок. Выставляй за 1–2 часа до этого момента.">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}>
+                            <AccessTimeIcon sx={{ fontSize: 13, color: 'secondary.main' }} />
+                            <Typography variant="caption" sx={{ color: 'secondary.main' }}>
+                              Продавать: {sellHour}:00
+                              {sellDay && ` · ${DAYS_RU[sellDay] ?? sellDay}`}
+                              {timeMode === 'today' && ` · ${DAYS_RU[TODAY_EN] ?? TODAY_EN}`}
+                            </Typography>
+                          </Box>
+                        </Tooltip>
+                      )}
+                      {buyHour != null && (
+                        <Tooltip title="Лучший час для покупки: исторически минимальные цены лотов.">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}>
+                            <AccessTimeIcon sx={{ fontSize: 13, color: 'info.main' }} />
+                            <Typography variant="caption" sx={{ color: 'info.main' }}>
+                              Покупать: {buyHour}:00
+                              {buyDay && ` · ${DAYS_RU[buyDay] ?? buyDay}`}
+                              {timeMode === 'today' && ` · ${DAYS_RU[TODAY_EN] ?? TODAY_EN}`}
+                            </Typography>
+                          </Box>
+                        </Tooltip>
+                      )}
+                    </Box>
                   </Grid2>
                 )}
               </Grid2>
@@ -267,11 +308,7 @@ function ItemCard({ entry, stats, onDelete }: {
               </>
             )}
           </>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            Данных пока нет — первый сбор идёт автоматически каждые 5 мин
-          </Typography>
-        )}
+        ) : null}
 
         {/* График истории цен */}
         {stats && (
