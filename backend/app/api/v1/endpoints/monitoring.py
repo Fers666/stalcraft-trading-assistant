@@ -22,6 +22,8 @@ class MonitoringItemResponse(BaseModel):
     price_volatility_7d: float | None
     best_sell_hour: int | None
     best_sell_day: str | None
+    best_buy_hour: int | None
+    best_buy_day: str | None
     weekend_bonus_percent: float | None
     avg_sell_time_hours: float | None
     sell_options: list | None

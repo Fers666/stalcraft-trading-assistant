@@ -146,6 +146,41 @@ async def calculate_market_stats(
             avg_we = statistics.mean(weekend_sales)
             weekend_bonus = round((avg_we / avg_wd - 1) * 100, 2) if avg_wd > 0 else None
 
+    # ── Лучшее время покупки ──────────────────────────────────────────────────
+    # Источник: снэпшоты collected_data (каждые 5 мин).
+    # Берём best_liquid_price_per_unit — минимальную цену ликвидных лотов.
+    # Группируем по часу/дню и ищем когда средний минимум НАИМЕНЬШИЙ.
+    best_buy_hour = None
+    best_buy_day  = None
+
+    snapshots_30d = (await db.execute(
+        select(CollectedData).where(
+            CollectedData.user_id == None,
+            CollectedData.item_id == item_id,
+            CollectedData.region  == region,
+            CollectedData.collect_time >= cutoff_30d,
+            CollectedData.best_liquid_price_per_unit.isnot(None),
+        )
+    )).scalars().all()
+
+    if len(snapshots_30d) >= 6:   # минимум ~30 минут данных
+        buy_by_hour: dict[int, list] = {}
+        buy_by_day:  dict[str, list] = {}
+
+        for snap in snapshots_30d:
+            snap_local = snap.collect_time.astimezone(timezone(timedelta(hours=3)))
+            h = snap_local.hour
+            d = snap_local.strftime("%A")
+            price = snap.best_liquid_price_per_unit
+            buy_by_hour.setdefault(h, []).append(price)
+            buy_by_day.setdefault(d, []).append(price)
+
+        # Час/день где средняя минимальная цена наименьшая
+        if buy_by_hour:
+            best_buy_hour = min(buy_by_hour, key=lambda h: statistics.mean(buy_by_hour[h]))
+        if buy_by_day:
+            best_buy_day = min(buy_by_day, key=lambda d: statistics.mean(buy_by_day[d]))
+
     # ── 4. Прогноз времени продажи (sell_options) ─────────────────────────────
     sell_options = await _calculate_sell_options(
         db=db,
@@ -187,6 +222,8 @@ async def calculate_market_stats(
     existing.price_volatility_7d = volatility_7d
     existing.best_sell_hour      = best_sell_hour
     existing.best_sell_day       = best_sell_day
+    existing.best_buy_hour       = best_buy_hour
+    existing.best_buy_day        = best_buy_day
     existing.weekend_bonus_percent = weekend_bonus
     existing.avg_sell_time_hours = avg_sell_time
     existing.sell_options        = sell_options

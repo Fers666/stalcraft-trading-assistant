@@ -30,6 +30,8 @@ interface MarketStats {
   avg_sell_time_hours: number | null
   best_sell_hour: number | null
   best_sell_day: string | null
+  best_buy_hour: number | null
+  best_buy_day: string | null
   price_volatility_7d: number | null
   sell_options: SellOption[] | null
 }
@@ -143,14 +145,26 @@ function ItemCard({ entry, stats, onDelete }: {
                 </Grid2>
                 {stats.best_sell_hour != null && (
                   <Grid2 size={{ xs: 12 }}>
-                    <Tooltip title="В этот час и день недели обычно больше всего покупок — выгоднее выставить лот заранее">
+                    <Tooltip title="Час и день недели с наилучшим соотношением цены и объёма продаж (60% цена + 40% объём). Выставляй лот за 1–2 часа до этого момента.">
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}>
-                        <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                        <Typography variant="caption" color="text.secondary">
-                          Лучшее время: {stats.best_sell_hour}:00
+                        <AccessTimeIcon sx={{ fontSize: 13, color: 'secondary.main' }} />
+                        <Typography variant="caption" sx={{ color: 'secondary.main' }}>
+                          Продавать: {stats.best_sell_hour}:00
                           {stats.best_sell_day && ` · ${DAYS_RU[stats.best_sell_day] ?? stats.best_sell_day}`}
                         </Typography>
-                        <InfoOutlinedIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
+                      </Box>
+                    </Tooltip>
+                  </Grid2>
+                )}
+                {stats.best_buy_hour != null && (
+                  <Grid2 size={{ xs: 12 }}>
+                    <Tooltip title="Час и день недели когда минимальная цена лотов на аукционе исторически наименьшая — выгодное время для покупки.">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}>
+                        <AccessTimeIcon sx={{ fontSize: 13, color: 'info.main' }} />
+                        <Typography variant="caption" sx={{ color: 'info.main' }}>
+                          Покупать: {stats.best_buy_hour}:00
+                          {stats.best_buy_day && ` · ${DAYS_RU[stats.best_buy_day] ?? stats.best_buy_day}`}
+                        </Typography>
                       </Box>
                     </Tooltip>
                   </Grid2>
