@@ -172,19 +172,20 @@ async def calculate_market_stats(
 
 
 def _avg_sell_time_from_buyouts(sales: list) -> float | None:
-    """Среднее время продажи в часах из детектированных выкупов."""
+    """
+    Среднее время продажи в часах.
+    Использует продажи где lot_start восстановлен при матчинге снэпшот→история.
+    """
     times = []
     for s in sales:
         info = s.additional_info or {}
-        if info.get("source") != "buyout_detection":
-            continue
         lot_start_str = info.get("lot_start")
         if not lot_start_str:
             continue
         try:
             lot_start = datetime.fromisoformat(lot_start_str.replace("Z", "+00:00"))
             hours = (s.sale_time - lot_start).total_seconds() / 3600
-            if 0 < hours < 48 * 7:  # исключаем аномалии
+            if 0 < hours < 48 * 7:
                 times.append(hours)
         except Exception:
             continue
@@ -204,35 +205,27 @@ async def _calculate_sell_options(
     """
     Возвращает 3 варианта цены продажи с прогнозом времени.
 
-    Каждый вариант:
-    {
-        "label": "fast" | "normal" | "premium",
-        "label_ru": "Быстро" | "Нормально" | "Выгодно",
-        "price_per_unit": int,
-        "estimated_hours": float,
-        "estimated_hours_display": "~2ч" | "~12ч" | "~2-3 дня",
-        "confidence": "high" | "medium" | "low",
-        "data_points": int,
-    }
+    Источники прогноза времени (от лучшего к худшему):
+    1. Реальные пары (price, time_on_market) из sales_history где есть lot_start
+       (lot_start восстанавливается при матчинге снэпшот-лота с продажей из API /history)
+    2. Объём продаж за 7 дней — косвенный показатель активности рынка
     """
-    # Собираем данные о времени продажи из выкупов
+    # ── 1. Реальные данные о времени продажи ─────────────────────────────────
     time_price_pairs: list[tuple[float, int]] = []
     for s in sales_30d:
         info = s.additional_info or {}
-        if info.get("source") != "buyout_detection":
-            continue
         lot_start_str = info.get("lot_start")
         if not lot_start_str:
             continue
         try:
             lot_start = datetime.fromisoformat(lot_start_str.replace("Z", "+00:00"))
             hours = (s.sale_time - lot_start).total_seconds() / 3600
-            if 0 < hours < 48 * 7:
+            if 0 < hours < 48 * 7:  # исключаем аномалии
                 time_price_pairs.append((hours, s.price_per_unit))
         except Exception:
             continue
 
-    # Берём последний глобальный снэпшот (user_id=None)
+    # ── 2. Текущий минимум ликвидных лотов ───────────────────────────────────
     last_snapshot = (await db.execute(
         select(CollectedData).where(
             CollectedData.user_id == None,
@@ -245,25 +238,48 @@ async def _calculate_sell_options(
         last_snapshot.best_liquid_price_per_unit or last_snapshot.best_price_per_unit
     ) if last_snapshot else None
 
-    median_7d = s7d.get("median")
-    avg_7d    = s7d.get("avg")
+    median_7d      = s7d.get("median")
+    sales_volume_7d = s7d.get("count", 0) or 0
 
     if not median_7d and not current_min_liquid:
         return []
 
-    # Базовые ценовые точки
-    base = int(median_7d or current_min_liquid)
-    fast_price    = int((current_min_liquid or base) * 0.99)   # чуть ниже текущего минимума
-    normal_price  = int(base * 0.97)                            # около медианы с запасом
-    premium_price = int(base * 1.03)                            # выше медианы
+    # ── 3. Три ценовые точки ──────────────────────────────────────────────────
+    base          = int(median_7d or current_min_liquid)
+    fast_price    = int((current_min_liquid or base) * 0.99)
+    normal_price  = int(base * 0.97)
+    premium_price = int(base * 1.03)
 
-    confidence = "high" if len(time_price_pairs) >= MIN_BUYOUTS_FOR_TIME_MODEL else \
-                 "medium" if len(time_price_pairs) >= 2 else "low"
+    # ── 4. Прогноз времени ────────────────────────────────────────────────────
+    if len(time_price_pairs) >= MIN_BUYOUTS_FOR_TIME_MODEL:
+        # Уровень 1: реальные данные (lot_start известен)
+        confidence  = "high"
+        fast_hours    = _estimate_hours(fast_price,    time_price_pairs, "fast")
+        normal_hours  = _estimate_hours(normal_price,  time_price_pairs, "normal")
+        premium_hours = _estimate_hours(premium_price, time_price_pairs, "premium")
 
-    # Рассчитываем время для каждой ценовой точки
-    fast_hours    = _estimate_hours(fast_price,    time_price_pairs, "fast")
-    normal_hours  = _estimate_hours(normal_price,  time_price_pairs, "normal")
-    premium_hours = _estimate_hours(premium_price, time_price_pairs, "premium")
+    elif len(time_price_pairs) >= 2:
+        # Уровень 2: мало реальных данных — среднее × коэффициент тира
+        confidence = "medium"
+        avg_time = statistics.mean(t for t, _ in time_price_pairs)
+        fast_hours    = round(avg_time * 0.4, 1)
+        normal_hours  = round(avg_time * 1.0, 1)
+        premium_hours = round(avg_time * 2.5, 1)
+
+    else:
+        # Уровень 3: нет реальных данных — оцениваем по объёму продаж за 7д
+        # sales_per_day показывает насколько активен рынок
+        confidence    = "low"
+        sales_per_day = sales_volume_7d / 7.0
+
+        if sales_per_day >= 5:        # активный рынок (≥5 продаж/день)
+            fast_hours, normal_hours, premium_hours = 2.0, 8.0, 24.0
+        elif sales_per_day >= 1:      # умеренный (1–5 продаж/день)
+            fast_hours, normal_hours, premium_hours = 8.0, 24.0, 72.0
+        elif sales_per_day >= 0.14:   # редкий (~1 продажа в неделю)
+            fast_hours, normal_hours, premium_hours = 24.0, 72.0, 168.0
+        else:                          # очень редкий (<1 в неделю)
+            fast_hours, normal_hours, premium_hours = 72.0, 168.0, 336.0
 
     return [
         {
