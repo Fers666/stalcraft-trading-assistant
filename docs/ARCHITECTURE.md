@@ -20,7 +20,7 @@
 
 **Кто:** объединение уникальных `(item_id, region)` пар из watchlist **всех** пользователей.
 **Как часто:** каждые 5 минут.
-**Что собирает:** полный снэпшот лотов — raw_lots, buyout detection, liquid/expiring split.
+**Что собирает:** полный снэпшот лотов — raw_lots, liquid/expiring split, snapshot-history matching.
 **Где хранит:** `collected_data` с `user_id = NULL` (глобальная запись).
 **Эффект:** 100 пользователей следят за одним товаром → **1 API запрос**, не 100.
 
