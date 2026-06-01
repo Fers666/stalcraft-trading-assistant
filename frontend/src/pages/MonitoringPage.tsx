@@ -106,9 +106,8 @@ function ItemCard({ entry, stats, onDelete }: {
   const [lotsLoaded, setLotsLoaded] = useState(false)
   const risk = stats ? RISK_LABELS[volatilityRisk(stats.price_volatility_7d)] : null
 
-  // Загружаем лоты при появлении stats
+  // Загружаем лоты независимо от наличия stats
   useEffect(() => {
-    if (!stats) return
     setLotsLoaded(false)
     api.get(`/lots/${entry.item_id}`, { params: { region: entry.region } })
       .then(({ data }) => { setLots(data.lots || []); setLotsLoaded(true) })
@@ -311,6 +310,15 @@ function ItemCard({ entry, stats, onDelete }: {
           </Box>
         </Box>
 
+        {!stats && lotsLoaded && (
+          <>
+            <Divider sx={{ my: 1.5 }} />
+            <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'center', py: 0.5 }}>
+              Статистика рассчитывается — обновится автоматически через ~1 мин
+            </Typography>
+          </>
+        )}
+
         {stats && (
           <Box>
 
@@ -459,16 +467,16 @@ function ItemCard({ entry, stats, onDelete }: {
                 </Box>
               </>
             )}
+              </>
+            )}
           </Box>
         )}
 
-        {/* График истории цен */}
-        {stats && (
-          <>
-            <Divider sx={{ my: 1.5 }} />
-            <PriceChart itemId={entry.item_id} region={entry.region} />
-          </>
-        )}
+        {/* График истории цен — показываем всегда (данные есть после первого сбора) */}
+        <>
+          <Divider sx={{ my: 1.5 }} />
+          <PriceChart itemId={entry.item_id} region={entry.region} />
+        </>
 
       </CardContent>
     </Card>
@@ -505,7 +513,11 @@ export default function MonitoringPage() {
     setWatchlist((prev) => prev.filter((e) => e.id !== id))
   }
 
-  useEffect(() => { loadAll() }, [loadAll])
+  useEffect(() => {
+    loadAll()
+    const interval = setInterval(loadAll, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [loadAll])
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}><CircularProgress /></Box>
 

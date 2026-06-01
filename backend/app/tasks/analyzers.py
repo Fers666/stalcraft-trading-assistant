@@ -17,6 +17,22 @@ def run_async(coro):
         loop.close()
 
 
+@celery_app.task(name="app.tasks.analyzers.calculate_stats_single")
+def calculate_stats_single(item_id: str, region: str):
+    """
+    Пересчёт статистики для одного предмета.
+    Вызывается сразу после сбора истории при добавлении в watchlist.
+    """
+    async def _run():
+        from app.db.session import get_celery_db_session
+        from app.services.analytics.market_stats import calculate_market_stats
+
+        async with get_celery_db_session() as db:
+            await calculate_market_stats(db=db, item_id=item_id, region=region)
+
+    run_async(_run())
+
+
 @celery_app.task(name="app.tasks.analyzers.calculate_all_market_stats", bind=True, max_retries=3)
 def calculate_all_market_stats(self):
     """Пересчитывает market_statistics для всех активных watchlist записей."""

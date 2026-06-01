@@ -154,10 +154,18 @@ OAuth2 Client Credentials flow для Stalcraft API.
 3. Рассчитывает цены только по ликвидным лотам (`best_liquid_price_per_unit`)
 4. Сохраняет снэпшот в `collected_data` с `user_id=None` (глобальный)
 
+### `collect_history_single(user_id, item_id, region)` (Celery task)
+
+Разовый сбор истории для одного предмета. Запускается сразу после добавления товара в watchlist, чтобы не ждать ближайшего планового запуска `collect_all_history`.
+
 ### `_collect_history_for_item(db, entry)`
 
 Запрашивает историю продаж из API и сохраняет в `sales_history`.  
 `price` из API — итоговая цена за весь лот, `price_per_unit = price // amount`.
+
+**user_id:** записи сохраняются с `user_id = entry.user_id` (пользователь, чей watchlist вызвал сбор).  
+`sales_history.user_id NOT NULL` — в отличие от `collected_data` и `market_statistics`.  
+Дедупликация по `sale_time` работает **глобально** (без фильтра по user_id): первый коллектор сохраняет запись, остальные пропускают → данные не дублируются.
 
 **Snapshot-history matching** — восстанавливает `lot_start` для каждой продажи:
 - Для каждой новой продажи ищем лот в снэпшотах `collected_data` где:  
@@ -165,6 +173,35 @@ OAuth2 Client Credentials flow для Stalcraft API.
 - Лот присутствовал в снэпшоте ДО продажи и отсутствует ПОСЛЕ → выкупили
 - Найденный `lot_start` сохраняется в `sales_history.additional_info`
 - `время_на_рынке = sale_time - lot_start` — основа для прогноза времени продажи
+
+---
+
+## app/api/v1/endpoints/monitoring.py — история продаж
+
+### `GET /monitoring/sales-chart/{item_id}?region=RU&hours=N`
+
+Возвращает данные для графика истории продаж в карточке Избранного.
+
+**Режим зависит от `hours`:**
+
+| hours | mode | Что возвращает |
+|-------|------|----------------|
+| < 168 | `scatter` | Каждая продажа отдельно: `sale_time`, `price_per_unit`, `amount` |
+| ≥ 168 (7д) | `daily` | Агрегат по дням: `min_price`, `avg_price`, `max_price`, `count` |
+
+**Ответ:**
+```json
+{
+  "mode": "scatter",
+  "sales": [
+    { "sale_time": "2026-06-01T14:23:00+03:00", "price_per_unit": 4000000, "amount": 1 }
+  ],
+  "days": [],
+  "total_count": 39
+}
+```
+
+Данные берутся из `sales_history` без фильтра по `user_id` — рыночная история публична для всех пользователей.
 
 ---
 

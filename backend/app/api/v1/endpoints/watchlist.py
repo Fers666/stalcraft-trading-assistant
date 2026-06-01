@@ -114,11 +114,16 @@ async def add_to_watchlist(
     await db.commit()
     await db.refresh(entry)
 
-    # Запускаем первоначальный сбор.
-    # user_id используется только для поиска watchlist-записи в task-е.
-    # Снэпшот сохраняется глобально (user_id=None) в _collect_lots_for_item.
-    from app.tasks.collectors import collect_single_item
-    collect_single_item.delay(current_user.id, payload.item_id, payload.region)
+    # Цепочка: лоты → история → статистика.
+    # Запускаем сразу, чтобы карточка заполнилась за ~30 сек, а не через час.
+    from celery import chain
+    from app.tasks.collectors import collect_single_item, collect_history_single
+    from app.tasks.analyzers import calculate_stats_single
+    chain(
+        collect_single_item.si(current_user.id, payload.item_id, payload.region),
+        collect_history_single.si(current_user.id, payload.item_id, payload.region),
+        calculate_stats_single.si(payload.item_id, payload.region),
+    ).delay()
 
     return entry
 

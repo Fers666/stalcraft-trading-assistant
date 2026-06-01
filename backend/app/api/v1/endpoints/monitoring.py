@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from pydantic import BaseModel
 from datetime import datetime
 
 from app.db.session import get_db
-from app.models.models import User, MarketStatistics, CollectedData, GlobalItemScan, MasterItem
+from app.models.models import User, MarketStatistics, CollectedData, GlobalItemScan, MasterItem, SalesHistory
 from app.core.dependencies import get_current_user
 
 router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
@@ -101,6 +101,93 @@ async def get_price_history(
         )
         for row in rows
     ]
+
+
+class SaleRecord(BaseModel):
+    sale_time: str
+    price_per_unit: int
+    amount: int
+
+
+class DayPoint(BaseModel):
+    period_iso: str
+    min_price: int | None
+    avg_price: float | None
+    max_price: int | None
+    count: int
+
+
+class SalesChartResponse(BaseModel):
+    mode: str                    # "scatter" | "daily"
+    sales: list[SaleRecord] = []
+    days: list[DayPoint] = []
+    total_count: int
+
+
+@router.get("/sales-chart/{item_id}", response_model=SalesChartResponse)
+async def get_sales_chart(
+    item_id: str,
+    region: str = Query(default="RU"),
+    hours: int = Query(default=24, ge=1, le=720),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Продажи из sales_history: scatter (≤48ч) или min/avg/max по дням (7д)."""
+    from datetime import timezone, timedelta
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    if hours < 168:
+        rows = (await db.execute(
+            select(SalesHistory.sale_time, SalesHistory.price_per_unit, SalesHistory.amount)
+            .where(
+                SalesHistory.item_id == item_id,
+                SalesHistory.region == region.upper(),
+                SalesHistory.sale_time >= cutoff,
+            )
+            .order_by(SalesHistory.sale_time)
+        )).all()
+
+        sales = [
+            SaleRecord(
+                sale_time=r.sale_time.isoformat(),
+                price_per_unit=r.price_per_unit,
+                amount=r.amount,
+            )
+            for r in rows
+        ]
+        return SalesChartResponse(mode="scatter", sales=sales, total_count=len(sales))
+
+    else:
+        trunc_expr = func.date_trunc('day', SalesHistory.sale_time)
+        rows = (await db.execute(
+            select(
+                trunc_expr.label('period'),
+                func.min(SalesHistory.price_per_unit).label('min_price'),
+                func.avg(SalesHistory.price_per_unit).label('avg_price'),
+                func.max(SalesHistory.price_per_unit).label('max_price'),
+                func.count().label('cnt'),
+            )
+            .where(
+                SalesHistory.item_id == item_id,
+                SalesHistory.region == region.upper(),
+                SalesHistory.sale_time >= cutoff,
+            )
+            .group_by(trunc_expr)
+            .order_by(trunc_expr)
+        )).all()
+
+        days = [
+            DayPoint(
+                period_iso=r.period.isoformat() if hasattr(r.period, 'isoformat') else str(r.period),
+                min_price=r.min_price,
+                avg_price=float(r.avg_price) if r.avg_price else None,
+                max_price=r.max_price,
+                count=r.cnt,
+            )
+            for r in rows
+        ]
+        return SalesChartResponse(mode="daily", days=days, total_count=sum(d.count for d in days))
 
 
 class FeedItem(BaseModel):

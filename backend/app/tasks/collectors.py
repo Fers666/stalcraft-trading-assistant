@@ -122,6 +122,32 @@ def collect_single_item(user_id: int, item_id: str, region: str):
     run_async(_run())
 
 
+@celery_app.task(name="app.tasks.collectors.collect_history_single")
+def collect_history_single(user_id: int, item_id: str, region: str):
+    """
+    Сбор истории продаж для одного предмета.
+    Вызывается сразу после добавления в watchlist, чтобы не ждать планировщика.
+    """
+    async def _run():
+        from app.db.session import get_celery_db_session as get_db_session
+        from app.models.models import UserWatchlist
+        from sqlalchemy import select
+
+        async with get_db_session() as db:
+            entry = (await db.execute(
+                select(UserWatchlist).where(
+                    UserWatchlist.user_id == user_id,
+                    UserWatchlist.item_id == item_id,
+                    UserWatchlist.region == region,
+                )
+            )).scalar_one_or_none()
+
+            if entry:
+                await _collect_history_for_item(db, entry)
+
+    run_async(_run())
+
+
 async def _collect_lots_for_item(db, entry):
     """
     Собирает снэпшот активных лотов и разделяет их на ликвидные/истекающие.
@@ -342,7 +368,7 @@ async def _collect_history_for_item(db, entry):
                 additional["lot_start"] = lot_start
 
             db.add(SalesHistory(
-                user_id=None,
+                user_id=entry.user_id,
                 item_id=entry.item_id,
                 region=entry.region,
                 sale_time=sold_at,
