@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { AppBar, Toolbar, Box, Button, IconButton, Tooltip, Typography, alpha } from '@mui/material'
+import { AppBar, Toolbar, Box, IconButton, Tooltip, Typography, alpha } from '@mui/material'
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart'
 import SearchIcon from '@mui/icons-material/Search'
 import InventoryIcon from '@mui/icons-material/Inventory'
@@ -13,11 +13,11 @@ import { tokens } from '../theme'
 const { gold: G2, goldAccent: G3, text1: T1, text2: T2, border: BORDER } = tokens
 
 const navItems = [
-  { label: 'Избранное', path: '/app/monitoring', icon: <MonitorHeartIcon sx={{ fontSize: 14 }} /> },
-  { label: 'Каталог',   path: '/app/catalog',    icon: <MenuBookIcon    sx={{ fontSize: 14 }} /> },
-  { label: 'Лоты',      path: '/app/lots',       icon: <SearchIcon      sx={{ fontSize: 14 }} /> },
-  { label: 'Лента',     path: '/app/feed',       icon: <TrendingUpIcon  sx={{ fontSize: 14 }} /> },
-  { label: 'Склад',     path: '/app/inventory',  icon: <InventoryIcon   sx={{ fontSize: 14 }} /> },
+  { label: 'Избранное', path: '/app/monitoring', Icon: MonitorHeartIcon },
+  { label: 'Каталог',   path: '/app/catalog',    Icon: MenuBookIcon    },
+  { label: 'Лоты',      path: '/app/lots',       Icon: SearchIcon      },
+  { label: 'Лента',     path: '/app/feed',       Icon: TrendingUpIcon  },
+  { label: 'Склад',     path: '/app/inventory',  Icon: InventoryIcon   },
 ]
 
 // Diamond logo with 4 ascending bars — anomaly crater forming a market chart
@@ -81,39 +81,40 @@ export default function Navbar() {
         <Box sx={{ width: 1, height: 24, bgcolor: BORDER, flexShrink: 0 }} />
 
         {/* Навигация */}
-        <Box sx={{ display: 'flex', flexGrow: 1, gap: 0.5 }}>
-          {navItems.map((item) => {
-            const active = location.pathname === item.path
+        <Box style={{ display: 'flex', flexGrow: 1, gap: 4 }}>
+          {navItems.map(({ label, path, Icon }) => {
+            const active = location.pathname === path
+            const color = active ? G3 : T1
             return (
-              <Button
-                key={item.path}
-                startIcon={item.icon}
-                onClick={() => navigate(item.path)}
-                size="small"
-                disableRipple={!active}
-                // inline style guarantees color wins over any MUI class cascade
-                style={{ color: active ? G3 : T1 }}
-                sx={{
+              <Box
+                key={path}
+                component="button"
+                onClick={() => navigate(path)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '0 12px', height: 34, borderRadius: 8,
+                  border: active ? `1px solid ${alpha(G2, 0.25)}` : '1px solid transparent',
+                  background: active ? alpha(G2, 0.1) : 'transparent',
+                  color, cursor: 'pointer',
                   fontFamily: '"Rajdhani", sans-serif',
                   fontWeight: active ? 700 : 500,
-                  fontSize: '0.8rem',
-                  letterSpacing: '0.06em',
-                  px: 1.5,
-                  height: 34,
-                  borderRadius: '8px',
-                  background: active ? alpha(G2, 0.1) : 'transparent',
-                  border: active ? `1px solid ${alpha(G2, 0.25)}` : '1px solid transparent',
-                  transition: 'all 0.2s',
-                  '& .MuiButton-startIcon': { mr: '4px', color: active ? G3 : T1 },
-                  '&:hover': {
-                    color: '#F5F5F5',
-                    background: alpha(G2, 0.05),
-                    border: `1px solid ${alpha(G2, 0.1)}`,
-                  },
+                  fontSize: '0.8rem', letterSpacing: '0.06em',
+                  transition: 'all 0.2s', whiteSpace: 'nowrap',
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget
+                  el.style.color = '#F5F5F5'
+                  el.style.background = alpha(G2, 0.05)
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget
+                  el.style.color = color
+                  el.style.background = active ? alpha(G2, 0.1) : 'transparent'
                 }}
               >
-                {item.label}
-              </Button>
+                <Icon style={{ fontSize: 14, color }} />
+                {label}
+              </Box>
             )
           })}
         </Box>
