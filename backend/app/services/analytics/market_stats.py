@@ -26,9 +26,12 @@ from app.models.models import (
 
 logger = logging.getLogger(__name__)
 
-# Минимум продаж для достоверного расчёта
+# Минимум продаж для расчёта статистики (волатильность, лучший час/день)
 MIN_SALES_FOR_STATS = 3
-MIN_BUYOUTS_FOR_TIME_MODEL = 5
+
+# Пороги покрытия для уверенности прогноза времени продажи
+COVERAGE_HIGH   = 0.30  # ≥30% продаж с lot_start + минимум 10 точек
+COVERAGE_MEDIUM = 0.10  # 10–30% продаж с lot_start + минимум 3 точки
 
 
 async def calculate_market_stats(
@@ -251,34 +254,38 @@ async def _calculate_sell_options(
     premium_price = int(base * 1.03)
 
     # ── 4. Прогноз времени ────────────────────────────────────────────────────
-    if len(time_price_pairs) >= MIN_BUYOUTS_FOR_TIME_MODEL:
-        # Уровень 1: реальные данные (lot_start известен)
-        confidence  = "high"
+    # Уверенность определяется покрытием: какой % продаж за 30д имеет lot_start
+    total_sales_30d = len(sales_30d)
+    matched_count   = len(time_price_pairs)
+    coverage = matched_count / total_sales_30d if total_sales_30d > 0 else 0.0
+
+    if coverage >= 0.30 and matched_count >= 10:
+        # ≥30% продаж с реальным lot_start и минимум 10 точек — высокая точность
+        confidence    = "high"
         fast_hours    = _estimate_hours(fast_price,    time_price_pairs, "fast")
         normal_hours  = _estimate_hours(normal_price,  time_price_pairs, "normal")
         premium_hours = _estimate_hours(premium_price, time_price_pairs, "premium")
 
-    elif len(time_price_pairs) >= 2:
-        # Уровень 2: мало реальных данных — среднее × коэффициент тира
+    elif coverage >= 0.10 and matched_count >= 3:
+        # 10–30% покрытия — средняя точность, интерполируем из имеющихся данных
         confidence = "medium"
-        avg_time = statistics.mean(t for t, _ in time_price_pairs)
+        avg_time      = statistics.mean(t for t, _ in time_price_pairs)
         fast_hours    = round(avg_time * 0.4, 1)
         normal_hours  = round(avg_time * 1.0, 1)
         premium_hours = round(avg_time * 2.5, 1)
 
     else:
-        # Уровень 3: нет реальных данных — оцениваем по объёму продаж за 7д
-        # sales_per_day показывает насколько активен рынок
+        # <10% покрытия или нет lot_start — оценка по объёму продаж/день
         confidence    = "low"
         sales_per_day = sales_volume_7d / 7.0
 
-        if sales_per_day >= 5:        # активный рынок (≥5 продаж/день)
-            fast_hours, normal_hours, premium_hours = 2.0, 8.0, 24.0
-        elif sales_per_day >= 1:      # умеренный (1–5 продаж/день)
-            fast_hours, normal_hours, premium_hours = 8.0, 24.0, 72.0
-        elif sales_per_day >= 0.14:   # редкий (~1 продажа в неделю)
-            fast_hours, normal_hours, premium_hours = 24.0, 72.0, 168.0
-        else:                          # очень редкий (<1 в неделю)
+        if sales_per_day >= 5:       # активный рынок ≥5 продаж/день
+            fast_hours, normal_hours, premium_hours = 2.0,  8.0,   24.0
+        elif sales_per_day >= 1:     # умеренный 1–5 продаж/день
+            fast_hours, normal_hours, premium_hours = 8.0,  24.0,  72.0
+        elif sales_per_day >= 0.14:  # редкий ~1 продажа/неделю
+            fast_hours, normal_hours, premium_hours = 24.0, 72.0,  168.0
+        else:                         # очень редкий <1 продажи/неделю
             fast_hours, normal_hours, premium_hours = 72.0, 168.0, 336.0
 
     return [
