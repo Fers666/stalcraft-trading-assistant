@@ -311,34 +311,24 @@ async def _calculate_sell_options(
         else:                         # очень редкий <1 продажи/неделю
             fast_hours, normal_hours, premium_hours = 72.0, 168.0, 336.0
 
+    COMMISSION = 0.05  # комиссия аукциона 5%
+
+    def make_option(label, label_ru, price, hours):
+        return {
+            "label":            label,
+            "label_ru":         label_ru,
+            "price_per_unit":   price,                          # цена выставления
+            "net_price_per_unit": int(price * (1 - COMMISSION)),# продавец получит
+            "estimated_hours":  hours,
+            "estimated_hours_display": _format_hours(hours),
+            "confidence":       confidence,
+            "data_points":      len(time_price_pairs),
+        }
+
     return [
-        {
-            "label":    "fast",
-            "label_ru": "Быстро",
-            "price_per_unit": fast_price,
-            "estimated_hours": fast_hours,
-            "estimated_hours_display": _format_hours(fast_hours),
-            "confidence": confidence,
-            "data_points": len(time_price_pairs),
-        },
-        {
-            "label":    "normal",
-            "label_ru": "Нормально",
-            "price_per_unit": normal_price,
-            "estimated_hours": normal_hours,
-            "estimated_hours_display": _format_hours(normal_hours),
-            "confidence": confidence,
-            "data_points": len(time_price_pairs),
-        },
-        {
-            "label":    "premium",
-            "label_ru": "Выгодно",
-            "price_per_unit": premium_price,
-            "estimated_hours": premium_hours,
-            "estimated_hours_display": _format_hours(premium_hours),
-            "confidence": confidence,
-            "data_points": len(time_price_pairs),
-        },
+        make_option("fast",    "Быстро",   fast_price,    fast_hours),
+        make_option("normal",  "Нормально",normal_price,  normal_hours),
+        make_option("premium", "Выгодно",  premium_price, premium_hours),
     ]
 
 

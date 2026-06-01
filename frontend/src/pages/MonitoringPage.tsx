@@ -15,7 +15,8 @@ import PriceChart from '../components/PriceChart'
 interface SellOption {
   label: 'fast' | 'normal' | 'premium'
   label_ru: string
-  price_per_unit: number
+  price_per_unit: number        // цена выставления лота
+  net_price_per_unit: number    // продавец получит (после 5% комиссии)
   estimated_hours: number
   estimated_hours_display: string
   confidence: 'low' | 'medium' | 'high'
@@ -223,13 +224,25 @@ function ItemCard({ entry, stats, onDelete }: {
                           transition: 'border-color 0.2s',
                           '&:hover': { borderColor: `${c}44` },
                         }}>
-                          <Typography sx={{ fontSize: '0.62rem', color: c, fontWeight: 700, display: 'block', letterSpacing: '0.06em', mb: 0.5 }}>
+                          <Typography sx={{ fontSize: '0.62rem', color: c, fontWeight: 700, display: 'block', letterSpacing: '0.06em', mb: 0.75 }}>
                             {opt.label_ru.toUpperCase()}
                           </Typography>
-                          <Typography variant="body2" fontWeight={700} sx={{ my: 0.25, color: 'text.primary' }}>
+                          {/* Цена выставления */}
+                          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mb: 0.25 }}>
+                            выставить за
+                          </Typography>
+                          <Typography variant="body2" fontWeight={700} color="text.primary">
                             {formatPrice(opt.price_per_unit)}
                           </Typography>
-                          <Typography variant="caption" color="text.secondary">
+                          {/* Чистая сумма после комиссии */}
+                          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mt: 0.75, mb: 0.25 }}>
+                            получишь
+                          </Typography>
+                          <Typography variant="body2" fontWeight={700} sx={{ color: c }}>
+                            {formatPrice(opt.net_price_per_unit)}
+                          </Typography>
+                          {/* Прогноз времени */}
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
                             {opt.estimated_hours_display}
                           </Typography>
                         </Box>
