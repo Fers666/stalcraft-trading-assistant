@@ -1,55 +1,141 @@
-import { Outlet, NavLink } from 'react-router-dom'
-import { Box } from '@mui/material'
-import Navbar from './Navbar'
+import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Box, IconButton, Tooltip, Typography, alpha } from '@mui/material'
+import SettingsIcon from '@mui/icons-material/Settings'
+import LogoutIcon from '@mui/icons-material/Logout'
+import MonitorHeartIcon from '@mui/icons-material/MonitorHeart'
+import SearchIcon from '@mui/icons-material/Search'
+import InventoryIcon from '@mui/icons-material/Inventory'
+import MenuBookIcon from '@mui/icons-material/MenuBook'
+import TrendingUpIcon from '@mui/icons-material/TrendingUp'
+import { useAuthStore } from '../store/authStore'
+import { tokens } from '../theme'
 
-const NAV_LINKS = [
-  { label: 'Избранное', to: '/app/monitoring' },
-  { label: 'Каталог',   to: '/app/catalog'    },
-  { label: 'Лоты',      to: '/app/lots'       },
-  { label: 'Лента',     to: '/app/feed'        },
-  { label: 'Склад',     to: '/app/inventory'   },
+const { gold: G2, goldAccent: G3, text2: T2, border: BORDER } = tokens
+
+const NAV_ITEMS = [
+  { label: 'Избранное', to: '/app/monitoring', Icon: MonitorHeartIcon },
+  { label: 'Каталог',   to: '/app/catalog',    Icon: MenuBookIcon    },
+  { label: 'Лоты',      to: '/app/lots',       Icon: SearchIcon      },
+  { label: 'Лента',     to: '/app/feed',       Icon: TrendingUpIcon  },
+  { label: 'Склад',     to: '/app/inventory',  Icon: InventoryIcon   },
 ]
 
-function SimpleNav() {
+function AppNav() {
+  const navigate   = useNavigate()
+  const { user, logout } = useAuthStore()
+
   return (
     <div style={{
       position: 'fixed', top: 0, left: 0, right: 0, height: 56,
-      background: '#11151A', borderBottom: '1px solid rgba(255,255,255,0.08)',
-      display: 'flex', alignItems: 'center', padding: '0 24px', gap: 8,
+      background: 'rgba(17,21,26,0.92)',
+      backdropFilter: 'blur(24px)',
+      WebkitBackdropFilter: 'blur(24px)',
+      borderBottom: `1px solid ${BORDER}`,
+      display: 'flex', alignItems: 'center',
+      padding: '0 24px', gap: 8,
       zIndex: 1300,
     }}>
+
       {/* Логотип */}
-      <span style={{
-        fontFamily: '"Rajdhani", sans-serif', fontWeight: 700,
-        fontSize: 16, color: '#F5F5F5', letterSpacing: '0.08em',
-        marginRight: 16, flexShrink: 0,
-      }}>
-        SC TRADING
-      </span>
+      <div
+        onClick={() => navigate('/app/monitoring')}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flexShrink: 0, marginRight: 4 }}
+      >
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <defs>
+            <linearGradient id="nav-g" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0%" stopColor="#B78A2A" />
+              <stop offset="55%" stopColor="#D9AF37" />
+              <stop offset="100%" stopColor="#F2C94C" />
+            </linearGradient>
+            <clipPath id="nav-c">
+              <polygon points="16,1 31,16 16,31 1,16" />
+            </clipPath>
+          </defs>
+          <polygon points="16,1 31,16 16,31 1,16" stroke="url(#nav-g)" strokeWidth="1.5" fill="none" />
+          <g clipPath="url(#nav-c)">
+            <rect x="5"  y="21" width="4" height="9"  fill="url(#nav-g)" opacity="0.55" />
+            <rect x="11" y="17" width="4" height="13" fill="url(#nav-g)" opacity="0.7"  />
+            <rect x="16" y="12" width="4" height="18" fill="url(#nav-g)" opacity="0.85" />
+            <rect x="21" y="7"  width="4" height="23" fill="url(#nav-g)" />
+          </g>
+        </svg>
+        <div>
+          <div style={{
+            fontFamily: '"Rajdhani", sans-serif', fontWeight: 700,
+            fontSize: 16, color: '#F5F5F5', letterSpacing: '0.08em', lineHeight: 1,
+          }}>
+            SC TRADING
+          </div>
+          <div style={{ fontSize: 8, color: '#7C7C7C', letterSpacing: '0.14em', lineHeight: 1 }}>
+            ZONE MARKET TERMINAL
+          </div>
+        </div>
+      </div>
 
-      <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.08)', marginRight: 8 }} />
+      {/* Разделитель */}
+      <div style={{ width: 1, height: 24, background: BORDER, flexShrink: 0, marginRight: 4 }} />
 
-      {/* Ссылки */}
-      {NAV_LINKS.map(({ label, to }) => (
-        <NavLink
-          key={to}
-          to={to}
-          style={({ isActive }) => ({
-            fontFamily: '"Rajdhani", sans-serif',
-            fontWeight: isActive ? 700 : 500,
-            fontSize: 13, letterSpacing: '0.06em',
-            color: isActive ? '#F2C94C' : '#B8B8B8',
-            textDecoration: 'none',
-            padding: '6px 12px',
+      {/* Навигационные ссылки */}
+      <div style={{ display: 'flex', flexGrow: 1, gap: 4 }}>
+        {NAV_ITEMS.map(({ label, to, Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            style={({ isActive }) => ({
+              display: 'flex', alignItems: 'center', gap: 4,
+              fontFamily: '"Rajdhani", sans-serif',
+              fontWeight: isActive ? 700 : 500,
+              fontSize: 13, letterSpacing: '0.06em',
+              color: isActive ? G3 : '#B8B8B8',
+              textDecoration: 'none',
+              padding: '0 12px', height: 34, borderRadius: 8,
+              background: isActive ? alpha(G2, 0.12) : 'transparent',
+              border: isActive
+                ? `1px solid ${alpha(G2, 0.3)}`
+                : '1px solid transparent',
+              transition: 'all 0.2s',
+              flexShrink: 0,
+            })}
+          >
+            {({ isActive }) => (
+              <>
+                <Icon style={{ fontSize: 14, color: isActive ? G3 : '#B8B8B8' }} />
+                {label}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </div>
+
+      {/* Пользователь */}
+      {user && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <div style={{
+            padding: '3px 10px',
+            border: `1px solid ${BORDER}`,
             borderRadius: 8,
-            background: isActive ? 'rgba(217,175,55,0.12)' : 'transparent',
-            border: isActive ? '1px solid rgba(217,175,55,0.25)' : '1px solid transparent',
-            transition: 'all 0.2s',
-          })}
-        >
-          {label}
-        </NavLink>
-      ))}
+            background: 'rgba(255,255,255,0.02)',
+            marginRight: 4,
+          }}>
+            <Typography sx={{ fontSize: '0.72rem', color: T2, letterSpacing: '0.05em' }}>
+              {user.username}
+            </Typography>
+          </div>
+          <Tooltip title="Настройки">
+            <IconButton size="small" onClick={() => navigate('/app/settings')}
+              sx={{ color: T2, borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.1) } }}>
+              <SettingsIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Выйти">
+            <IconButton size="small" onClick={() => { logout(); navigate('/') }}
+              sx={{ color: T2, borderRadius: '8px', '&:hover': { color: '#FF5A5A', background: alpha('#FF5A5A', 0.1) } }}>
+              <LogoutIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        </div>
+      )}
     </div>
   )
 }
@@ -57,7 +143,7 @@ function SimpleNav() {
 export default function Layout() {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
-      <SimpleNav />
+      <AppNav />
       <Box component="main" sx={{ flexGrow: 1, p: 3, mt: '56px' }}>
         <Outlet />
       </Box>
