@@ -27,7 +27,7 @@ function AppNav() {
 
   return (
     <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, height: 56,
+      position: 'fixed', top: 0, left: 0, right: 0, height: 68,
       background: 'rgba(17,21,26,0.92)',
       backdropFilter: 'blur(24px)',
       WebkitBackdropFilter: 'blur(24px)',
@@ -42,7 +42,7 @@ function AppNav() {
         onClick={() => navigate('/app/monitoring')}
         style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0, marginRight: 4 }}
       >
-        <img src={logoSrc} alt="SC Trading" style={{ height: 52, width: 'auto' }} />
+        <img src={logoSrc} alt="SC Trading" style={{ height: 64, width: 'auto' }} />
       </div>
 
       {/* Разделитель */}
@@ -116,7 +116,7 @@ export default function Layout() {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppNav />
-      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: '56px' }}>
+      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: '68px' }}>
         <Outlet />
       </Box>
     </Box>
