@@ -1,16 +1,15 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Box, Typography, Card, CardContent, Grid2, Chip, CircularProgress,
-  Button, IconButton, Tooltip, Divider, Alert, Avatar,
+  IconButton, Tooltip, Divider, Alert, Avatar,
 } from '@mui/material'
-import RefreshIcon from '@mui/icons-material/Refresh'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import api from '../api/client'
 import { formatPrice, iconUrl } from '../utils/i18n'
-import { useRefreshCooldown } from '../hooks/useRefreshCooldown'
+
 import PriceChart from '../components/PriceChart'
 
 interface SellOption {
@@ -80,20 +79,11 @@ function volatilityRisk(v: number | null): keyof typeof RISK_LABELS {
   return 'low'
 }
 
-function ItemCard({ entry, stats, onRefresh, onDelete }: {
+function ItemCard({ entry, stats, onDelete }: {
   entry: WatchlistEntry
   stats: MarketStats | null
-  onRefresh: () => void
   onDelete: () => void
 }) {
-  const { isCoolingDown, label: refreshLabel, startCooldown } = useRefreshCooldown(120)
-
-  const handleRefreshClick = () => {
-    if (isCoolingDown) return
-    startCooldown()
-    onRefresh()
-  }
-
   const risk = stats ? RISK_LABELS[volatilityRisk(stats.price_volatility_7d)] : null
 
   return (
@@ -129,29 +119,11 @@ function ItemCard({ entry, stats, onRefresh, onDelete }: {
               )}
             </Box>
           </Box>
-          <Box>
-            <Tooltip title={isCoolingDown
-              ? 'Данные обновляются автоматически каждые 5 минут'
-              : 'Запросить обновление прямо сейчас'
-            }>
-              <span>
-                <Button
-                  size="small"
-                  startIcon={<RefreshIcon fontSize="small" />}
-                  onClick={handleRefreshClick}
-                  disabled={isCoolingDown}
-                  sx={{ mr: 0.5, fontSize: 11, whiteSpace: 'nowrap' }}
-                >
-                  {refreshLabel}
-                </Button>
-              </span>
-            </Tooltip>
-            <Tooltip title="Удалить из Избранного">
-              <IconButton size="small" onClick={onDelete} sx={{ color: 'error.main' }}>
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Box>
+          <Tooltip title="Удалить из Избранного">
+            <IconButton size="small" onClick={onDelete} sx={{ color: 'error.main' }}>
+              <DeleteIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Box>
 
         {entry.error_status && (
@@ -197,7 +169,7 @@ function ItemCard({ entry, stats, onRefresh, onDelete }: {
                 <Avatar
                   src={iconUrl(entry.icon_path) ?? undefined}
                   variant="rounded"
-                  sx={{ width: 48, height: 48, bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  sx={{ width: 144, height: 144, bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px' }}
                 >
                   {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
                 </Avatar>
@@ -307,15 +279,6 @@ export default function MonitoringPage() {
     }
   }, [])
 
-  const handleRefresh = async (entry: WatchlistEntry) => {
-    try {
-      await api.post(`/watchlist/${entry.id}/refresh`)
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      if (msg) alert(msg)
-    }
-  }
-
   const handleDelete = async (id: number) => {
     if (!confirm('Удалить из Избранного?')) return
     await api.delete(`/watchlist/${id}`)
@@ -328,20 +291,17 @@ export default function MonitoringPage() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-            <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.14em', fontWeight: 600 }}>
-              WATCHLIST
-            </Typography>
-            <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: 'success.main', opacity: 0.8 }} />
-            <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.1em' }}>
-              AUTO-UPDATE 5 MIN
-            </Typography>
-          </Box>
-          <Typography variant="h5" fontWeight={700}>Избранное</Typography>
+      <Box sx={{ mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.14em', fontWeight: 600 }}>
+            WATCHLIST
+          </Typography>
+          <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: 'success.main', opacity: 0.8 }} />
+          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.1em' }}>
+            AUTO-UPDATE 5 MIN
+          </Typography>
         </Box>
-        <Button startIcon={<RefreshIcon />} onClick={loadAll} size="small">Обновить список</Button>
+        <Typography variant="h5" fontWeight={700}>Избранное</Typography>
       </Box>
 
       {watchlist.length === 0 ? (
@@ -358,7 +318,6 @@ export default function MonitoringPage() {
               <ItemCard
                 entry={entry}
                 stats={stats[entry.item_id] ?? null}
-                onRefresh={() => handleRefresh(entry)}
                 onDelete={() => handleDelete(entry.id)}
               />
             </Grid2>
