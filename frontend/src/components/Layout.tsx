@@ -1,4 +1,5 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import logoSrc from '../assets/logo.png'
 import { Box, IconButton, Tooltip, Typography, alpha } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
@@ -41,7 +42,7 @@ function AppNav() {
         onClick={() => navigate('/app/monitoring')}
         style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0, marginRight: 4 }}
       >
-        <img src="/logo.png" alt="SC Trading" style={{ height: 38, width: 'auto' }} />
+        <img src={logoSrc} alt="SC Trading" style={{ height: 38, width: 'auto' }} />
       </div>
 
       {/* Разделитель */}
