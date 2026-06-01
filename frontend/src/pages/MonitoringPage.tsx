@@ -88,13 +88,59 @@ function volatilityRisk(v: number | null): keyof typeof RISK_LABELS {
 // Текущий день недели на английском (как в БД)
 const TODAY_EN = new Date().toLocaleDateString('en-US', { weekday: 'long' })
 
+interface LotItem {
+  buyout_price: number
+  amount: number
+  hours_remaining: number | null
+  is_expiring: boolean
+}
+
 function ItemCard({ entry, stats, onDelete }: {
   entry: WatchlistEntry
   stats: MarketStats | null
   onDelete: () => void
 }) {
   const [timeMode, setTimeMode] = useState<'week' | 'today'>('week')
+  const [lots, setLots] = useState<LotItem[]>([])
   const risk = stats ? RISK_LABELS[volatilityRisk(stats.price_volatility_7d)] : null
+
+  // Загружаем лоты для расчёта прибыли
+  useEffect(() => {
+    if (!stats?.sell_options?.length) return
+    api.get(`/lots/${entry.item_id}`, { params: { region: entry.region } })
+      .then(({ data }) => setLots(data.lots || []))
+      .catch(() => setLots([]))
+  }, [entry.item_id, entry.region, stats?.sell_options?.length])
+
+  // Выгодные лоты: прибыль по варианту "Нормально" > 0
+  const profitableLots = (() => {
+    if (!stats?.sell_options || lots.length === 0) return []
+    const normal = stats.sell_options.find(o => o.label === 'normal')
+    if (!normal) return []
+    const COMMISSION = 0.05
+
+    return lots
+      .filter(l => !l.is_expiring && l.buyout_price > 0)
+      .map(l => {
+        const buyPricePerUnit = Math.floor(l.buyout_price / l.amount)
+        return {
+          ...l,
+          buyPricePerUnit,
+          profits: stats.sell_options!.map(opt => ({
+            label:     opt.label,
+            label_ru:  opt.label_ru,
+            perUnit:   Math.round(opt.price_per_unit * (1 - COMMISSION) - buyPricePerUnit),
+            total:     Math.round((opt.price_per_unit * (1 - COMMISSION) - buyPricePerUnit) * l.amount),
+          })),
+        }
+      })
+      .filter(l => {
+        const normalProfit = l.profits.find(p => p.label === 'normal')
+        return normalProfit && normalProfit.perUnit > 0
+      })
+      .sort((a, b) => a.buyPricePerUnit - b.buyPricePerUnit)
+      .slice(0, 5)
+  })()
 
   // Часы продажи/покупки в зависимости от режима
   const sellHour = timeMode === 'today'
@@ -245,6 +291,68 @@ function ItemCard({ entry, stats, onDelete }: {
 
         {stats ? (
           <>
+
+            {/* Выгодные лоты для покупки */}
+            {profitableLots.length > 0 && (
+              <>
+                <Divider sx={{ my: 1.5 }} />
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+                  <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
+                    ВЫГОДНЫЕ ЛОТЫ
+                  </Typography>
+                  <Tooltip title="Лоты которые сейчас на аукционе и дадут прибыль при продаже по варианту «Нормально». Прибыль указана с учётом комиссии 5%.">
+                    <Chip label={`${profitableLots.length} лота`} size="small" color="success" sx={{ ml: 'auto', height: 18, fontSize: 10 }} />
+                  </Tooltip>
+                </Box>
+
+                {/* Заголовок таблицы */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 0.5, mb: 0.5, px: 0.5 }}>
+                  <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em' }}>ЦЕНА ЛОТА / ШТ</Typography>
+                  {stats.sell_options!.map(opt => (
+                    <Typography key={opt.label} sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em', textAlign: 'right' }}>
+                      {opt.label_ru.toUpperCase()}
+                    </Typography>
+                  ))}
+                </Box>
+
+                {profitableLots.map((lot, i) => (
+                  <Box key={i} sx={{
+                    display: 'grid', gridTemplateColumns: '1fr auto auto auto',
+                    gap: 0.5, py: 0.5, px: 0.5,
+                    borderRadius: '6px',
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.02)' },
+                  }}>
+                    {/* Цена покупки */}
+                    <Box>
+                      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                        {formatPrice(lot.buyPricePerUnit)}
+                      </Typography>
+                      {lot.amount > 1 && (
+                        <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled' }}>
+                          {lot.amount} шт · {formatPrice(lot.buyout_price)}
+                        </Typography>
+                      )}
+                    </Box>
+                    {/* Прибыль по каждому варианту */}
+                    {lot.profits.map(p => (
+                      <Box key={p.label} sx={{ textAlign: 'right' }}>
+                        <Typography variant="caption" sx={{
+                          fontWeight: 600,
+                          color: p.perUnit > 0 ? 'success.main' : 'error.main',
+                        }}>
+                          {p.perUnit > 0 ? '+' : ''}{formatPrice(p.perUnit)}
+                        </Typography>
+                        {lot.amount > 1 && (
+                          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', display: 'block' }}>
+                            итого {p.total > 0 ? '+' : ''}{formatPrice(p.total)}
+                          </Typography>
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                ))}
+              </>
+            )}
 
             {/* Варианты продажи */}
             {stats.sell_options && stats.sell_options.length > 0 && (
