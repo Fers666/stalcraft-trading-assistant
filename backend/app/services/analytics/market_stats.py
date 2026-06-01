@@ -88,6 +88,12 @@ async def calculate_market_stats(
         volatility_7d = round(stdev / avg * 100, 2) if avg > 0 else None
 
     # ── 3. Лучшее время продажи (час и день недели) ───────────────────────────
+    # Взвешенный скор: 60% цена + 40% объём.
+    # Логика: нас интересует не просто когда продаётся больше всего,
+    # а когда покупатели платят БОЛЬШЕ и при этом рынок достаточно активен.
+    WEIGHT_PRICE  = 0.6
+    WEIGHT_VOLUME = 0.4
+
     best_sell_hour = None
     best_sell_day = None
     weekend_bonus = None
@@ -103,11 +109,28 @@ async def calculate_market_stats(
             by_hour.setdefault(h, []).append(s.price_per_unit)
             by_day.setdefault(d, []).append(s.price_per_unit)
 
-        # Час с наибольшим объёмом продаж
-        best_sell_hour = max(by_hour, key=lambda h: len(by_hour[h]))
+        def weighted_score(groups: dict) -> str | int | None:
+            """
+            Выбирает лучший ключ по взвешенному скору:
+              score = avg_price_norm × WEIGHT_PRICE + volume_norm × WEIGHT_VOLUME
+            Нормализация: каждый показатель делится на свой максимум → диапазон [0, 1].
+            """
+            if not groups:
+                return None
+            max_avg = max(statistics.mean(ps) for ps in groups.values())
+            max_vol = max(len(ps) for ps in groups.values())
+            if max_avg == 0 or max_vol == 0:
+                return max(groups, key=lambda k: len(groups[k]))
 
-        # День с наибольшим объёмом
-        best_sell_day = max(by_day, key=lambda d: len(by_day[d]))
+            def score(key):
+                avg_price = statistics.mean(groups[key])
+                volume    = len(groups[key])
+                return (avg_price / max_avg) * WEIGHT_PRICE + (volume / max_vol) * WEIGHT_VOLUME
+
+            return max(groups, key=score)
+
+        best_sell_hour = weighted_score(by_hour)
+        best_sell_day  = weighted_score(by_day)
 
         # Бонус выходного дня
         weekday_sales = [
