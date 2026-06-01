@@ -97,16 +97,24 @@ function ItemCard({ entry, stats, onDelete }: {
         }} />
       )}
       <CardContent>
-        {/* Заголовок */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
-          <Box sx={{ minWidth: 0 }}>
+        {entry.error_status && (
+          <Alert severity="error" sx={{ mb: 1.5, py: 0 }}>{entry.error_status}</Alert>
+        )}
+
+        {/* Основная раскладка: левая колонка (инфо + статы) + правая (удалить + фото) */}
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+
+          {/* Левая колонка */}
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            {/* Название */}
             <Typography variant="subtitle1" fontWeight={700} noWrap>
               {entry.name_ru || entry.name_en || entry.item_id}
             </Typography>
+            {/* ID — на этой же высоте начинается фото справа */}
             <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
               {entry.item_id}
             </Typography>
-            <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
+            <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, mb: 1.5 }}>
               <Chip label={entry.region} size="small" variant="outlined" />
               {risk && (
                 <Tooltip title={`Волатильность цены за 7 дней. ${risk.label} = ${
@@ -118,68 +126,69 @@ function ItemCard({ entry, stats, onDelete }: {
                 </Tooltip>
               )}
             </Box>
+
+            {/* Статистика */}
+            {stats && (
+              <Grid2 container spacing={1}>
+                <Grid2 size={{ xs: 6 }}>
+                  <Typography variant="caption" color="text.secondary">Медиана 7д</Typography>
+                  <Typography variant="body2" fontWeight={700} sx={{ color: 'primary.main' }}>
+                    {formatPrice(stats.median_price_7d)}
+                  </Typography>
+                </Grid2>
+                <Grid2 size={{ xs: 6 }}>
+                  <Typography variant="caption" color="text.secondary">Продаж за 7д</Typography>
+                  <Typography variant="body2" fontWeight={600}>{stats.sales_volume_7d ?? '—'}</Typography>
+                </Grid2>
+                {stats.best_sell_hour != null && (
+                  <Grid2 size={{ xs: 12 }}>
+                    <Tooltip title="В этот час и день недели обычно больше всего покупок — выгоднее выставить лот заранее">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}>
+                        <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                        <Typography variant="caption" color="text.secondary">
+                          Лучшее время: {stats.best_sell_hour}:00
+                          {stats.best_sell_day && ` · ${DAYS_RU[stats.best_sell_day] ?? stats.best_sell_day}`}
+                        </Typography>
+                        <InfoOutlinedIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
+                      </Box>
+                    </Tooltip>
+                  </Grid2>
+                )}
+              </Grid2>
+            )}
           </Box>
-          <Tooltip title="Удалить из Избранного">
-            <IconButton size="small" onClick={onDelete} sx={{ color: 'error.main' }}>
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+
+          {/* Правая колонка: кнопка удалить (вверху) + фото (начинается на уровне ID) */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
+            {/* Кнопка удалить — занимает высоту строки с названием */}
+            <Tooltip title="Удалить из Избранного">
+              <IconButton size="small" onClick={onDelete} sx={{ color: 'error.main', mb: 0.5 }}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {/* Фото — верхний край на уровне ID */}
+            <Avatar
+              src={iconUrl(entry.icon_path) ?? undefined}
+              variant="rounded"
+              sx={{
+                width: 144, height: 144,
+                bgcolor: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '12px',
+              }}
+            >
+              {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
+            </Avatar>
+            {entry.last_successful_check && (
+              <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.6rem', mt: 0.5 }}>
+                {new Date(entry.last_successful_check).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+              </Typography>
+            )}
+          </Box>
         </Box>
 
-        {entry.error_status && (
-          <Alert severity="error" sx={{ mb: 1.5, py: 0 }}>{entry.error_status}</Alert>
-        )}
-
-        {/* Рыночная статистика */}
         {stats ? (
           <>
-            <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5 }}>
-              {/* Статы */}
-              <Box sx={{ flex: 1 }}>
-                <Grid2 container spacing={1}>
-                  <Grid2 size={{ xs: 6 }}>
-                    <Typography variant="caption" color="text.secondary">Медиана 7д</Typography>
-                    <Typography variant="body2" fontWeight={700} sx={{ color: 'primary.main' }}>
-                      {formatPrice(stats.median_price_7d)}
-                    </Typography>
-                  </Grid2>
-                  <Grid2 size={{ xs: 6 }}>
-                    <Typography variant="caption" color="text.secondary">Продаж за 7д</Typography>
-                    <Typography variant="body2" fontWeight={600}>{stats.sales_volume_7d ?? '—'}</Typography>
-                  </Grid2>
-                  {stats.best_sell_hour != null && (
-                    <Grid2 size={{ xs: 12 }}>
-                      <Tooltip title="В этот час и день недели обычно больше всего покупок — выгоднее выставить лот заранее">
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}>
-                          <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                          <Typography variant="caption" color="text.secondary">
-                            Лучшее время: {stats.best_sell_hour}:00
-                            {stats.best_sell_day && ` · ${DAYS_RU[stats.best_sell_day] ?? stats.best_sell_day}`}
-                          </Typography>
-                          <InfoOutlinedIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
-                        </Box>
-                      </Tooltip>
-                    </Grid2>
-                  )}
-                </Grid2>
-              </Box>
-
-              {/* Иконка товара + время обновления */}
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                <Avatar
-                  src={iconUrl(entry.icon_path) ?? undefined}
-                  variant="rounded"
-                  sx={{ width: 144, height: 144, bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px' }}
-                >
-                  {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
-                </Avatar>
-                {entry.last_successful_check && (
-                  <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.6rem', textAlign: 'center', lineHeight: 1.2 }}>
-                    {new Date(entry.last_successful_check).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                  </Typography>
-                )}
-              </Box>
-            </Box>
 
             {/* Варианты продажи */}
             {stats.sell_options && stats.sell_options.length > 0 && (
@@ -245,11 +254,6 @@ function ItemCard({ entry, stats, onDelete }: {
           </>
         )}
 
-        {entry.last_successful_check && (
-          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 1.5 }}>
-            Обновлено: {new Date(entry.last_successful_check).toLocaleString('ru-RU')}
-          </Typography>
-        )}
       </CardContent>
     </Card>
   )
