@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Box, Typography, Card, CardContent, Grid2, Chip, CircularProgress,
-  Button, IconButton, Tooltip, Divider, Alert,
+  Button, IconButton, Tooltip, Divider, Alert, Avatar,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -9,7 +9,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import api from '../api/client'
-import { formatPrice } from '../utils/i18n'
+import { formatPrice, iconUrl } from '../utils/i18n'
 import { useRefreshCooldown } from '../hooks/useRefreshCooldown'
 import PriceChart from '../components/PriceChart'
 
@@ -161,32 +161,53 @@ function ItemCard({ entry, stats, onRefresh, onDelete }: {
         {/* Рыночная статистика */}
         {stats ? (
           <>
-            <Grid2 container spacing={1} sx={{ mb: 1.5 }}>
-              <Grid2 size={{ xs: 6 }}>
-                <Typography variant="caption" color="text.secondary">Медиана 7д</Typography>
-                <Typography variant="body2" fontWeight={700} sx={{ color: 'primary.main' }}>
-                  {formatPrice(stats.median_price_7d)}
-                </Typography>
-              </Grid2>
-              <Grid2 size={{ xs: 6 }}>
-                <Typography variant="caption" color="text.secondary">Продаж за 7д</Typography>
-                <Typography variant="body2" fontWeight={600}>{stats.sales_volume_7d ?? '—'}</Typography>
-              </Grid2>
-              {stats.best_sell_hour != null && (
-                <Grid2 size={{ xs: 12 }}>
-                  <Tooltip title="В этот час и день недели обычно больше всего покупок — выгоднее выставить лот заранее">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}>
-                      <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
-                      <Typography variant="caption" color="text.secondary">
-                        Лучшее время: {stats.best_sell_hour}:00
-                        {stats.best_sell_day && ` · ${DAYS_RU[stats.best_sell_day] ?? stats.best_sell_day}`}
-                      </Typography>
-                      <InfoOutlinedIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
-                    </Box>
-                  </Tooltip>
+            <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5 }}>
+              {/* Статы */}
+              <Box sx={{ flex: 1 }}>
+                <Grid2 container spacing={1}>
+                  <Grid2 size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">Медиана 7д</Typography>
+                    <Typography variant="body2" fontWeight={700} sx={{ color: 'primary.main' }}>
+                      {formatPrice(stats.median_price_7d)}
+                    </Typography>
+                  </Grid2>
+                  <Grid2 size={{ xs: 6 }}>
+                    <Typography variant="caption" color="text.secondary">Продаж за 7д</Typography>
+                    <Typography variant="body2" fontWeight={600}>{stats.sales_volume_7d ?? '—'}</Typography>
+                  </Grid2>
+                  {stats.best_sell_hour != null && (
+                    <Grid2 size={{ xs: 12 }}>
+                      <Tooltip title="В этот час и день недели обычно больше всего покупок — выгоднее выставить лот заранее">
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'help' }}>
+                          <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                          <Typography variant="caption" color="text.secondary">
+                            Лучшее время: {stats.best_sell_hour}:00
+                            {stats.best_sell_day && ` · ${DAYS_RU[stats.best_sell_day] ?? stats.best_sell_day}`}
+                          </Typography>
+                          <InfoOutlinedIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
+                        </Box>
+                      </Tooltip>
+                    </Grid2>
+                  )}
                 </Grid2>
-              )}
-            </Grid2>
+              </Box>
+
+              {/* Иконка товара + время обновления */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                <Avatar
+                  src={iconUrl(entry.icon_path) ?? undefined}
+                  variant="rounded"
+                  sx={{ width: 48, height: 48, bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                >
+                  {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
+                </Avatar>
+                {entry.last_successful_check && (
+                  <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.6rem', textAlign: 'center', lineHeight: 1.2 }}>
+                    {new Date(entry.last_successful_check).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                  </Typography>
+                )}
+              </Box>
+            </Box>
 
             {/* Варианты продажи */}
             {stats.sell_options && stats.sell_options.length > 0 && (
