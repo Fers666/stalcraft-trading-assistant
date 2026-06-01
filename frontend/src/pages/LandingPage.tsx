@@ -2,7 +2,6 @@ import { useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Box, Typography, Button, Stack, alpha } from '@mui/material'
 import { tokens } from '../theme'
-import logoSrc from '../assets/logo_icon.png'
 
 const {
   gold: G2, goldAccent: G3, goldSoft: G1,
@@ -50,8 +49,31 @@ function DiamondPattern() {
   )
 }
 
+// Landing page logo — larger diamond with ascending bars
 function HeroLogo() {
-  return <img src={logoSrc} alt="SC Trading" style={{ height: 360, width: 'auto', maxWidth: '80vw' }} />
+  return (
+    <Box sx={{ width: 64, height: 64, flexShrink: 0 }}>
+      <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="hero-gold" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0%" stopColor="#B78A2A" />
+            <stop offset="55%" stopColor="#D9AF37" />
+            <stop offset="100%" stopColor="#F2C94C" />
+          </linearGradient>
+          <clipPath id="hero-diamond">
+            <polygon points="32,2 62,32 32,62 2,32" />
+          </clipPath>
+        </defs>
+        <polygon points="32,2 62,32 32,62 2,32" stroke="url(#hero-gold)" strokeWidth="1.5" fill="none" />
+        <g clipPath="url(#hero-diamond)">
+          <rect x="12" y="41" width="7" height="18" fill="url(#hero-gold)" opacity="0.5" />
+          <rect x="21" y="33" width="7" height="26" fill="url(#hero-gold)" opacity="0.65" />
+          <rect x="30" y="24" width="7" height="35" fill="url(#hero-gold)" opacity="0.8" />
+          <rect x="39" y="15" width="7" height="44" fill="url(#hero-gold)" />
+        </g>
+      </svg>
+    </Box>
+  )
 }
 
 export default function LandingPage() {
@@ -88,13 +110,37 @@ export default function LandingPage() {
         position: 'relative', zIndex: 1,
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <img src={logoSrc} alt="SC Trading" style={{ height: 48, width: 'auto' }} />
+          {/* Navbar-sized diamond logo */}
+          <Box sx={{ width: 34, height: 34 }}>
+            <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+              <defs>
+                <linearGradient id="hdr-gold" x1="0" y1="1" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#B78A2A" />
+                  <stop offset="55%" stopColor="#D9AF37" />
+                  <stop offset="100%" stopColor="#F2C94C" />
+                </linearGradient>
+                <clipPath id="hdr-diamond">
+                  <polygon points="17,1 33,17 17,33 1,17" />
+                </clipPath>
+              </defs>
+              <polygon points="17,1 33,17 17,33 1,17" stroke="url(#hdr-gold)" strokeWidth="1.5" fill="none" />
+              <g clipPath="url(#hdr-diamond)">
+                <rect x="6" y="22" width="4" height="9" fill="url(#hdr-gold)" opacity="0.55" />
+                <rect x="11.5" y="18" width="4" height="13" fill="url(#hdr-gold)" opacity="0.7" />
+                <rect x="17" y="13" width="4" height="18" fill="url(#hdr-gold)" opacity="0.85" />
+                <rect x="22.5" y="8" width="4" height="23" fill="url(#hdr-gold)" />
+              </g>
+            </svg>
+          </Box>
           <Box>
-            <Typography sx={{ fontFamily: '"Rajdhani", sans-serif', fontWeight: 700, fontSize: '1.05rem', color: '#F5F5F5', letterSpacing: '0.08em', lineHeight: 1 }}>
+            <Typography sx={{
+              fontFamily: '"Rajdhani", sans-serif', fontWeight: 700,
+              fontSize: '1.05rem', color: '#F5F5F5', letterSpacing: '0.08em', lineHeight: 1,
+            }}>
               SC TRADING
             </Typography>
             <Typography sx={{ fontSize: '0.5rem', color: T2, letterSpacing: '0.15em', lineHeight: 1 }}>
-              ZONE MARKET TERMINAL
+              ZONE MARKET TERMINAL v0.1
             </Typography>
           </Box>
         </Box>

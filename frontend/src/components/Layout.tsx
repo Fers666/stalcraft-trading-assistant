@@ -1,5 +1,4 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import logoSrc from '../assets/logo_icon.png'
 import { Box, IconButton, Tooltip, Typography, alpha } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
@@ -27,7 +26,7 @@ function AppNav() {
 
   return (
     <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, height: 68,
+      position: 'fixed', top: 0, left: 0, right: 0, height: 56,
       background: 'rgba(17,21,26,0.92)',
       backdropFilter: 'blur(24px)',
       WebkitBackdropFilter: 'blur(24px)',
@@ -42,13 +41,33 @@ function AppNav() {
         onClick={() => navigate('/app/monitoring')}
         style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flexShrink: 0, marginRight: 4 }}
       >
-        <img src={logoSrc} alt="SC Trading" style={{ height: 60, width: 'auto', objectFit: 'contain' }} />
+        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+          <defs>
+            <linearGradient id="nav-g" x1="0" y1="1" x2="1" y2="0">
+              <stop offset="0%" stopColor="#B78A2A" />
+              <stop offset="55%" stopColor="#D9AF37" />
+              <stop offset="100%" stopColor="#F2C94C" />
+            </linearGradient>
+            <clipPath id="nav-c">
+              <polygon points="16,1 31,16 16,31 1,16" />
+            </clipPath>
+          </defs>
+          <polygon points="16,1 31,16 16,31 1,16" stroke="url(#nav-g)" strokeWidth="1.5" fill="none" />
+          <g clipPath="url(#nav-c)">
+            <rect x="5"  y="21" width="4" height="9"  fill="url(#nav-g)" opacity="0.55" />
+            <rect x="11" y="17" width="4" height="13" fill="url(#nav-g)" opacity="0.7"  />
+            <rect x="16" y="12" width="4" height="18" fill="url(#nav-g)" opacity="0.85" />
+            <rect x="21" y="7"  width="4" height="23" fill="url(#nav-g)" />
+          </g>
+        </svg>
         <div>
           <div style={{
             fontFamily: '"Rajdhani", sans-serif', fontWeight: 700,
-            fontSize: 17, color: '#F5F5F5', letterSpacing: '0.08em', lineHeight: 1,
-          }}>SC TRADING</div>
-          <div style={{ fontSize: 8, color: '#7C7C7C', letterSpacing: '0.14em', lineHeight: 1.5 }}>
+            fontSize: 16, color: '#F5F5F5', letterSpacing: '0.08em', lineHeight: 1,
+          }}>
+            SC TRADING
+          </div>
+          <div style={{ fontSize: 8, color: '#7C7C7C', letterSpacing: '0.14em', lineHeight: 1 }}>
             ZONE MARKET TERMINAL
           </div>
         </div>
@@ -125,7 +144,7 @@ export default function Layout() {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppNav />
-      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: '68px' }}>
+      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: '56px' }}>
         <Outlet />
       </Box>
     </Box>
