@@ -6,8 +6,8 @@
 
 | Задача | Расписание | Модуль | Описание |
 |--------|-----------|--------|----------|
-| `collect_watchlist_lots` | каждые 5 мин | `app.tasks.collectors` | Уникальные пары из всех watchlist, 1 запрос/пару |
-| `collect_watchlist_history` | раз в час (мин. 0) | `app.tasks.collectors` | История для watchlist предметов |
+| `collect_all_active_lots` | каждые 5 мин | `app.tasks.collectors` | Уникальные пары из всех watchlist, 1 запрос/пару |
+| `collect_all_history` | раз в час (мин. 0) | `app.tasks.collectors` | История для watchlist предметов |
 | `calculate_all_market_stats` | раз в час (мин. 5) | `app.tasks.analyzers` | Пересчёт market_statistics |
 | `run_global_feed_batch` | раз в час (мин. 30) | `app.tasks.global_scanner` | ~93 предмета вне watchlist, скользящий цикл |
 | `delete_old_data` | ежедневно 03:00 | `app.tasks.cleanup` | Данные старше 120 дней |
@@ -153,6 +153,17 @@ OAuth2 Client Credentials flow для Stalcraft API.
 2. Разделяет на **ликвидные** (endTime > now + 2ч) и **истекающие** (< 2ч)
 3. Рассчитывает цены только по ликвидным лотам (`best_liquid_price_per_unit`)
 4. Сохраняет снэпшот в `collected_data` с `user_id=None` (глобальный)
+
+### Разовые задачи (цепочка при добавлении в watchlist)
+
+| Задача | Модуль | Описание |
+|--------|--------|----------|
+| `collect_single_item(user_id, item_id, region)` | `app.tasks.collectors` | Снэпшот активных лотов |
+| `collect_history_single(user_id, item_id, region)` | `app.tasks.collectors` | История продаж |
+| `calculate_stats_single(item_id, region)` | `app.tasks.analyzers` | Пересчёт market_statistics |
+
+`POST /watchlist/` запускает Celery chain: `collect_single_item → collect_history_single → calculate_stats_single`.  
+Карточка заполняется за ~30–60 сек вместо ожидания планировщика (до 55 минут).
 
 ### `collect_history_single(user_id, item_id, region)` (Celery task)
 
