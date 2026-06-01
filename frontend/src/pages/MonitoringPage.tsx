@@ -100,45 +100,67 @@ function ItemCard({ entry, stats, onDelete }: {
   stats: MarketStats | null
   onDelete: () => void
 }) {
-  const [timeMode, setTimeMode] = useState<'week' | 'today'>('week')
-  const [lots, setLots] = useState<LotItem[]>([])
+  const [timeMode, setTimeMode]   = useState<'week' | 'today'>('week')
+  const [lotMode, setLotMode]     = useState<'current' | 'median'>('median')
+  const [lots, setLots]           = useState<LotItem[]>([])
+  const [lotsLoaded, setLotsLoaded] = useState(false)
   const risk = stats ? RISK_LABELS[volatilityRisk(stats.price_volatility_7d)] : null
 
-  // Загружаем лоты для расчёта прибыли
+  // Загружаем лоты при появлении stats
   useEffect(() => {
-    if (!stats?.sell_options?.length) return
+    if (!stats) return
+    setLotsLoaded(false)
     api.get(`/lots/${entry.item_id}`, { params: { region: entry.region } })
-      .then(({ data }) => setLots(data.lots || []))
-      .catch(() => setLots([]))
-  }, [entry.item_id, entry.region, stats?.sell_options?.length])
+      .then(({ data }) => { setLots(data.lots || []); setLotsLoaded(true) })
+      .catch(() => { setLots([]); setLotsLoaded(true) })
+  }, [entry.item_id, entry.region])
 
-  // Выгодные лоты: прибыль по варианту "Нормально" > 0
+  const COMMISSION = 0.05
+
+  // Ценовые ориентиры для двух режимов:
+  // "Сейчас" — текущий рынок (sell_options уже посчитаны от current_min)
+  // "Неделя" — исторический уровень (median_7d), находит просевшие лоты
+  const sellPrices = (() => {
+    if (!stats?.sell_options) return null
+    if (lotMode === 'current') {
+      return stats.sell_options.map(o => ({
+        label: o.label, label_ru: o.label_ru,
+        price: o.price_per_unit,
+      }))
+    }
+    // Режим "Неделя": пересчитываем от медианы
+    const m = stats.median_price_7d
+    if (!m) return null
+    return [
+      { label: 'fast',    label_ru: 'Быстро',    price: Math.round(m * 0.97) },
+      { label: 'normal',  label_ru: 'Нормально', price: Math.round(m * 1.00) },
+      { label: 'premium', label_ru: 'Выгодно',   price: Math.round(m * 1.03) },
+    ]
+  })()
+
+  // Выгодные лоты — те где прибыль по "Нормально" > 0
   const profitableLots = (() => {
-    if (!stats?.sell_options || lots.length === 0) return []
-    const normal = stats.sell_options.find(o => o.label === 'normal')
-    if (!normal) return []
-    const COMMISSION = 0.05
+    if (!sellPrices || lots.length === 0) return []
+    const normalPrice = sellPrices.find(p => p.label === 'normal')?.price
+    if (!normalPrice) return []
 
     return lots
       .filter(l => !l.is_expiring && l.buyout_price > 0)
       .map(l => {
-        const buyPricePerUnit = Math.floor(l.buyout_price / l.amount)
+        const buyPerUnit = Math.floor(l.buyout_price / l.amount)
         return {
           ...l,
-          buyPricePerUnit,
-          profits: stats.sell_options!.map(opt => ({
-            label:     opt.label,
-            label_ru:  opt.label_ru,
-            perUnit:   Math.round(opt.price_per_unit * (1 - COMMISSION) - buyPricePerUnit),
-            total:     Math.round((opt.price_per_unit * (1 - COMMISSION) - buyPricePerUnit) * l.amount),
+          buyPerUnit,
+          profits: sellPrices.map(sp => ({
+            label:    sp.label,
+            label_ru: sp.label_ru,
+            perUnit:  Math.round(sp.price * (1 - COMMISSION) - buyPerUnit),
+            total:    Math.round((sp.price * (1 - COMMISSION) - buyPerUnit) * l.amount),
           })),
         }
       })
-      .filter(l => {
-        const normalProfit = l.profits.find(p => p.label === 'normal')
-        return normalProfit && normalProfit.perUnit > 0
-      })
-      .sort((a, b) => a.buyPricePerUnit - b.buyPricePerUnit)
+      .filter(l => (l.profits.find(p => p.label === 'normal')?.perUnit ?? -1) > 0)
+      .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
       .slice(0, 5)
   })()
 
@@ -293,61 +315,83 @@ function ItemCard({ entry, stats, onDelete }: {
           <>
 
             {/* Выгодные лоты для покупки */}
-            {profitableLots.length > 0 && (
+            {lotsLoaded && (
               <>
                 <Divider sx={{ my: 1.5 }} />
+
+                {/* Заголовок с toggle */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
                   <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
                     ВЫГОДНЫЕ ЛОТЫ
                   </Typography>
-                  <Tooltip title="Лоты которые сейчас на аукционе и дадут прибыль при продаже по варианту «Нормально». Прибыль указана с учётом комиссии 5%.">
-                    <Chip label={`${profitableLots.length} лота`} size="small" color="success" sx={{ ml: 'auto', height: 18, fontSize: 10 }} />
+                  <Tooltip title={lotMode === 'median'
+                    ? 'Прибыль если купить сейчас и продать по медиане за 7 дней. Находит лоты когда рынок просел.'
+                    : 'Прибыль если купить сейчас и продать по текущим рыночным ценам.'
+                  }>
+                    {profitableLots.length > 0
+                      ? <Chip label={`${profitableLots.length}`} size="small" color="success" sx={{ height: 18, fontSize: 10 }} />
+                      : <Chip label="нет" size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'text.disabled' }} />
+                    }
                   </Tooltip>
+                  <ToggleButtonGroup
+                    value={lotMode}
+                    exclusive
+                    onChange={(_, v) => v && setLotMode(v)}
+                    size="small"
+                    sx={{ ml: 'auto' }}
+                  >
+                    <ToggleButton value="median" sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>Неделя</ToggleButton>
+                    <ToggleButton value="current" sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>Сейчас</ToggleButton>
+                  </ToggleButtonGroup>
                 </Box>
 
-                {/* Заголовок таблицы */}
-                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 0.5, mb: 0.5, px: 0.5 }}>
-                  <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em' }}>ЦЕНА ЛОТА / ШТ</Typography>
-                  {stats.sell_options!.map(opt => (
-                    <Typography key={opt.label} sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em', textAlign: 'right' }}>
-                      {opt.label_ru.toUpperCase()}
-                    </Typography>
-                  ))}
-                </Box>
-
-                {profitableLots.map((lot, i) => (
-                  <Box key={i} sx={{
-                    display: 'grid', gridTemplateColumns: '1fr auto auto auto',
-                    gap: 0.5, py: 0.5, px: 0.5,
-                    borderRadius: '6px',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.02)' },
-                  }}>
-                    {/* Цена покупки */}
-                    <Box>
-                      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                        {formatPrice(lot.buyPricePerUnit)}
-                      </Typography>
-                      {lot.amount > 1 && (
-                        <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled' }}>
-                          {lot.amount} шт · {formatPrice(lot.buyout_price)}
+                {profitableLots.length === 0 ? (
+                  <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'center', py: 1 }}>
+                    Нет выгодных лотов
+                  </Typography>
+                ) : (
+                  <>
+                    {/* Заголовок таблицы */}
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 0.5, mb: 0.5, px: 0.5 }}>
+                      <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em' }}>ЦЕНА / ШТ</Typography>
+                      {sellPrices!.map(sp => (
+                        <Typography key={sp.label} sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em', textAlign: 'right' }}>
+                          {sp.label_ru.toUpperCase()}
                         </Typography>
-                      )}
+                      ))}
                     </Box>
-                    {/* Прибыль по каждому варианту */}
-                    {lot.profits.map(p => (
-                      <Box key={p.label} sx={{ textAlign: 'right' }}>
-                        <Typography variant="caption" sx={{
-                          fontWeight: 600,
-                          color: p.perUnit > 0 ? 'success.main' : 'error.main',
-                        }}>
-                          {p.perUnit > 0 ? '+' : ''}{formatPrice(p.perUnit)}
-                        </Typography>
-                        {lot.amount > 1 && (
-                          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', display: 'block' }}>
-                            итого {p.total > 0 ? '+' : ''}{formatPrice(p.total)}
+
+                    {profitableLots.map((lot, i) => (
+                      <Box key={i} sx={{
+                        display: 'grid', gridTemplateColumns: '1fr auto auto auto',
+                        gap: 0.5, py: 0.5, px: 0.5,
+                        borderRadius: '6px',
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.02)' },
+                      }}>
+                        <Box>
+                          <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.primary' }}>
+                            {formatPrice(lot.buyPerUnit)}
                           </Typography>
-                        )}
-                      </Box>
+                          {lot.amount > 1 && (
+                            <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled' }}>
+                              {lot.amount} шт · {formatPrice(lot.buyout_price)}
+                            </Typography>
+                          )}
+                        </Box>
+                        {lot.profits.map(p => (
+                          <Box key={p.label} sx={{ textAlign: 'right' }}>
+                            <Typography variant="caption" sx={{
+                              fontWeight: 600,
+                              color: p.perUnit > 0 ? 'success.main' : 'error.main',
+                            }}>
+                              {p.perUnit > 0 ? '+' : ''}{formatPrice(p.perUnit)}
+                            </Typography>
+                            {lot.amount > 1 && (
+                              <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', display: 'block' }}>
+                                итого {p.total > 0 ? '+' : ''}{formatPrice(p.total)}
+                              </Typography>
+                            )}
+                          </Box>
                     ))}
                   </Box>
                 ))}
