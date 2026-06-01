@@ -40,9 +40,20 @@ function AppNav() {
       {/* Логотип */}
       <div
         onClick={() => navigate('/app/monitoring')}
-        style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0, marginRight: 4 }}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flexShrink: 0, marginRight: 4 }}
       >
-        <img src={logoSrc} alt="SC Trading" style={{ height: 38, width: 'auto' }} />
+        <img src={logoSrc} alt="SC Trading" style={{ height: 48, width: 'auto' }} />
+        <div>
+          <div style={{
+            fontFamily: '"Rajdhani", sans-serif', fontWeight: 700,
+            fontSize: 18, color: '#F5F5F5', letterSpacing: '0.08em', lineHeight: 1,
+          }}>
+            SC TRADING
+          </div>
+          <div style={{ fontSize: 8, color: '#7C7C7C', letterSpacing: '0.14em', lineHeight: 1.4 }}>
+            ZONE MARKET TERMINAL
+          </div>
+        </div>
       </div>
 
       {/* Разделитель */}
