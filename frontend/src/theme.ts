@@ -33,7 +33,7 @@ const GLOW    = 'rgba(217,175,55,0.10)'
 const theme = createTheme({
   palette: {
     mode: 'dark',
-    primary:   { main: G2, light: G3, dark: G1, contrastText: '#080808' },
+    primary:   { main: G2, light: G3, dark: G1, contrastText: '#F5F5F5' },
     secondary: { main: SUCCESS, light: '#6affc0', dark: '#1ab867' },
     error:     { main: DANGER  },
     warning:   { main: WARNING },
@@ -158,7 +158,7 @@ const theme = createTheme({
         sizeLarge: { height: 48, borderRadius: 12, fontSize: '1rem' },
         containedPrimary: {
           background: `linear-gradient(90deg, ${G1} 0%, ${G2} 50%, ${G3} 100%)`,
-          color: '#080808',
+          color: '#080808 !important',
           boxShadow: 'none',
           '&:hover': {
             filter: 'brightness(1.1)',
