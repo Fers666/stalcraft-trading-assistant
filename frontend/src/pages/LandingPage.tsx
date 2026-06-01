@@ -2,7 +2,7 @@ import { useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Box, Typography, Button, Stack, alpha } from '@mui/material'
 import { tokens } from '../theme'
-import logoSrc from '../assets/logo.png'
+import logoSrc from '../assets/logo_icon.png'
 
 const {
   gold: G2, goldAccent: G3, goldSoft: G1,
@@ -51,7 +51,7 @@ function DiamondPattern() {
 }
 
 function HeroLogo() {
-  return <img src={logoSrc} alt="SC Trading" style={{ height: 180, width: 'auto' }} />
+  return <img src={logoSrc} alt="SC Trading" style={{ height: 360, width: 'auto', maxWidth: '80vw' }} />
 }
 
 export default function LandingPage() {
@@ -87,8 +87,16 @@ export default function LandingPage() {
         background: alpha(BG1, 0.7),
         position: 'relative', zIndex: 1,
       }}>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <img src={logoSrc} alt="SC Trading" style={{ height: 52, width: 'auto' }} />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <img src={logoSrc} alt="SC Trading" style={{ height: 48, width: 'auto' }} />
+          <Box>
+            <Typography sx={{ fontFamily: '"Rajdhani", sans-serif', fontWeight: 700, fontSize: '1.05rem', color: '#F5F5F5', letterSpacing: '0.08em', lineHeight: 1 }}>
+              SC TRADING
+            </Typography>
+            <Typography sx={{ fontSize: '0.5rem', color: T2, letterSpacing: '0.15em', lineHeight: 1 }}>
+              ZONE MARKET TERMINAL
+            </Typography>
+          </Box>
         </Box>
         {isLoggedIn ? (
           <Button variant="outlined" size="small" onClick={() => navigate('/app/monitoring')}>
