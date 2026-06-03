@@ -13,6 +13,9 @@
 
 ## Закрытые задачи
 
+- [x] **Лоты: кнопка «В Избранное» с параметрами лота** — в каждой строке таблицы лотов добавлена кнопка `BookmarkAdd`. При нажатии вызывает `POST /watchlist/` с `quality_filter=lot.quality_value` и `enchant_filter=lot.enchant_level`. Кнопка переходит в состояние `BookmarkAdded` после успеха или 409. Snackbar-уведомление на 2.5 сек. Бэкенд: добавлено поле `quality_value` (raw qlt 0-5, только для артефактов) в `LotItem`.
+- [x] **Лоты: заточка и качество в API-ответе (`additional=true`)** — Stalcraft API не возвращал `additional.ptn`/`additional.qlt` для лотов без параметра `additional=true`. Python `True` → httpx отправлял `"True"` (заглавная), API игнорировал. Исправлено на строку `"true"` в `client.py`. Теперь `enchant_level` и `quality_name` корректно заполняются для всех предметов с заточкой/качеством.
+- [x] **Navbar: кнопка «Админ» перенесена в навигацию** — вместо иконки в правом углу — полноценная кнопка в основном меню (только для `is_admin`), единый стиль с остальными nav-пунктами.
 - [x] **Баг: `_build_sales_filter` — неверное поле заточки** — `monitoring.py` использовал `additional_info->>'upgrade_bonus'` (умноженный на 100) вместо корректного `additional_info->>'ptn'`. Поле `ptn` — прямое целое 0–15 (Stalcraft API). Фильтр заточки в статистике и графике продаж не работал. Исправлено в `monitoring.py`. Лишние импорты `cast`, `Numeric` удалены.
 - [x] **Баг: `MIN_BUYOUTS_FOR_TIME_MODEL` не определена** — константа использовалась в `_estimate_hours` (`market_stats.py`) но нигде не была объявлена → `NameError` при расчёте прогноза времени продажи. Добавлено `MIN_BUYOUTS_FOR_TIME_MODEL = 5` рядом с остальными константами.
 - [x] **Дефолтный регион watchlist** — `WatchlistCreate.region` был `"EU"`, хотя фронтенд и UI используют `"RU"`. Исправлено на `"RU"` (значение всё равно приходит с фронта явно, но дефолт логичнее).

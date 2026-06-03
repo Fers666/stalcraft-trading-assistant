@@ -59,6 +59,7 @@ class LotItem(BaseModel):
     hours_remaining: float | None = None
     is_expiring: bool = False
     quality_name: str | None = None   # из additional.qlt (артефакты) или master_items.color
+    quality_value: int | None = None  # raw qlt 0-5 для watchlist (только для артефактов)
     enchant_level: int | None = None  # заточка 1-15 (из additional.ptn)
 
 
@@ -116,9 +117,11 @@ async def get_item_lots(
 
         # Качество: для артефактов — из additional.qlt (пустой additional = qlt 0)
         # Для остального — из master_items.color (одинаково для всех лотов предмета)
+        quality_value: int | None = None
         if is_artefact:
             actual_qlt = qlt if qlt is not None else 0
             quality_name = _QLT_TO_QUALITY.get(actual_qlt)
+            quality_value = actual_qlt
         else:
             quality_name = _QLT_TO_QUALITY.get(qlt) if qlt is not None else item_color_quality
 
@@ -135,6 +138,7 @@ async def get_item_lots(
             hours_remaining=hours_remaining,
             is_expiring=is_expiring,
             quality_name=quality_name,
+            quality_value=quality_value,
             enchant_level=enchant_level,
         ))
 

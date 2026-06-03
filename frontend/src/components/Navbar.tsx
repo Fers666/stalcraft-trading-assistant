@@ -114,6 +114,30 @@ export default function Navbar() {
               </Button>
             )
           })}
+          {user?.is_admin && (
+            <Button
+              startIcon={<AdminPanelSettingsIcon sx={{ fontSize: 14 }} />}
+              onClick={() => navigate('/app/admin')}
+              size="small"
+              sx={{
+                fontFamily: '"Rajdhani", sans-serif',
+                fontWeight: location.pathname === '/app/admin' ? 700 : 500,
+                fontSize: '0.8rem',
+                letterSpacing: '0.06em',
+                color: location.pathname === '/app/admin' ? G3 : G2,
+                px: 1.5,
+                height: 34,
+                borderRadius: '8px',
+                background: location.pathname === '/app/admin' ? alpha(G2, 0.12) : 'transparent',
+                border: `1px solid ${alpha(G2, 0.3)}`,
+                transition: 'all 0.2s',
+                '& .MuiButton-startIcon': { mr: '4px' },
+                '&:hover': { color: G3, background: alpha(G2, 0.1), border: `1px solid ${alpha(G2, 0.5)}` },
+              }}
+            >
+              Админ
+            </Button>
+          )}
         </Box>
 
         {/* Пользователь */}
@@ -129,14 +153,6 @@ export default function Navbar() {
                 {user.username}
               </Typography>
             </Box>
-            {user.is_admin && (
-              <Tooltip title="Управление доступом">
-                <IconButton size="small" onClick={() => navigate('/app/admin')}
-                  sx={{ color: T2, borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.1) } }}>
-                  <AdminPanelSettingsIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Tooltip>
-            )}
             <Tooltip title="Настройки">
               <IconButton size="small" onClick={() => navigate('/app/settings')}
                 sx={{ color: T2, borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.1) } }}>

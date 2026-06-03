@@ -4,7 +4,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
   Chip, CircularProgress, Alert, FormControl, InputLabel, Select, MenuItem,
   List, ListItem, ListItemButton, ListItemText, Paper, Tooltip, Avatar,
-  IconButton,
+  IconButton, Snackbar,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import HistoryIcon from '@mui/icons-material/History'
@@ -12,6 +12,8 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
+import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd'
+import BookmarkAddedIcon from '@mui/icons-material/BookmarkAdded'
 import api from '../api/client'
 import { translateCategory, formatPrice, iconUrl } from '../utils/i18n'
 
@@ -33,6 +35,7 @@ interface Lot {
   hours_remaining: number | null
   is_expiring: boolean
   quality_name: string | null
+  quality_value: number | null
   enchant_level: number | null
 }
 
@@ -120,6 +123,10 @@ export default function LotsPage() {
   const [page, setPage]                   = useState(0)
   const [rowsPerPage, setRowsPerPage]     = useState(25)
 
+  // watchlist: ключ = "qv_ev" (quality_value_enchant_level), значение = статус
+  const [wlStates, setWlStates] = useState<Record<string, 'loading' | 'added' | 'exists'>>({})
+  const [snackbar, setSnackbar] = useState<string | null>(null)
+
   // Уникальные значения из загруженных лотов → опции фильтров
   const qualityOptions = useMemo(() => {
     if (!result) return []
@@ -152,11 +159,12 @@ export default function LotsPage() {
   // Сброс страницы при смене фильтра или сортировки
   useEffect(() => { setPage(0) }, [filterQuality, filterEnchant, sortKey, sortDir])
 
-  // Сброс фильтров при новом результате
+  // Сброс фильтров и состояний watchlist при новом результате
   useEffect(() => {
     setFilterQuality('all')
     setFilterEnchant('all')
     setPage(0)
+    setWlStates({})
   }, [result])
 
   const handleQueryChange = async (value: string) => {
@@ -196,6 +204,33 @@ export default function LotsPage() {
   const handleHistoryClick = (entry: HistoryEntry) => fetchLots({ item_id: entry.item_id, name_ru: entry.name, name_en: null, category: entry.category, icon_path: entry.icon_path }, region)
   const handleRegionChange = (newRegion: string)   => { setRegion(newRegion); if (selectedItem) fetchLots(selectedItem, newRegion) }
   const handleRefresh      = ()                    => { if (selectedItem) fetchLots(selectedItem, region, true) }
+
+  const wlKey = (lot: Lot) => `${lot.quality_value ?? 'n'}_${lot.enchant_level ?? 'n'}`
+
+  const handleAddToWatchlist = async (lot: Lot) => {
+    if (!selectedItem) return
+    const key = wlKey(lot)
+    setWlStates((s) => ({ ...s, [key]: 'loading' }))
+    try {
+      await api.post('/watchlist/', {
+        item_id: selectedItem.item_id,
+        region,
+        quality_filter: lot.quality_value ?? null,
+        enchant_filter: lot.enchant_level ?? null,
+      })
+      setWlStates((s) => ({ ...s, [key]: 'added' }))
+      setSnackbar('Добавлено в Избранное')
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 409) {
+        setWlStates((s) => ({ ...s, [key]: 'exists' }))
+        setSnackbar('Уже в Избранном')
+      } else {
+        setWlStates((s) => { const next = { ...s }; delete next[key]; return next })
+        setSnackbar('Ошибка добавления')
+      }
+    }
+  }
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => d === 'asc' ? 'desc' : 'asc')
@@ -296,6 +331,14 @@ export default function LotsPage() {
 
       {error && <Alert severity="warning" sx={{ mb: 2 }}>{error}</Alert>}
       {loading && <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress /></Box>}
+
+      <Snackbar
+        open={snackbar !== null}
+        autoHideDuration={2500}
+        onClose={() => setSnackbar(null)}
+        message={snackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
 
       {result && !loading && (
         <Card>
@@ -408,6 +451,7 @@ export default function LotsPage() {
                             </Box>
                           </TableCell>
                         ))}
+                        <TableCell sx={{ width: 40 }} />
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -440,6 +484,37 @@ export default function LotsPage() {
                               {lot.is_expiring
                                 ? <Chip label="Истекает" size="small" color="error" variant="outlined" />
                                 : <Chip label="Активен" size="small" color="success" variant="outlined" />}
+                            </TableCell>
+                            <TableCell sx={{ p: '4px 8px' }}>
+                              {(() => {
+                                const key = wlKey(lot)
+                                const st = wlStates[key]
+                                const label = lot.quality_name && lot.enchant_level != null
+                                  ? `${lot.quality_name} +${lot.enchant_level}`
+                                  : lot.quality_name
+                                    ? lot.quality_name
+                                    : lot.enchant_level != null
+                                      ? `+${lot.enchant_level}`
+                                      : 'Без фильтров'
+                                return (
+                                  <Tooltip title={st === 'added' || st === 'exists' ? 'Уже в Избранном' : `Добавить в Избранное: ${label}`}>
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleAddToWatchlist(lot)}
+                                        disabled={st === 'loading' || st === 'added' || st === 'exists'}
+                                        sx={{ color: (st === 'added' || st === 'exists') ? 'primary.main' : 'text.disabled' }}
+                                      >
+                                        {st === 'loading'
+                                          ? <CircularProgress size={16} />
+                                          : (st === 'added' || st === 'exists')
+                                            ? <BookmarkAddedIcon fontSize="small" />
+                                            : <BookmarkAddIcon fontSize="small" />}
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                )
+                              })()}
                             </TableCell>
                           </TableRow>
                         )

@@ -54,7 +54,7 @@ class StalcraftClient:
         return await self._request(
             "GET", f"/{self.region}/auction/{item_id}/lots",
             cost=TokenCost.LOTS,
-            params={"offset": offset, "limit": min(limit, 200)},
+            params={"offset": offset, "limit": min(limit, 200), "additional": "true"},
         )
 
     async def get_auction_history(self, item_id: str, offset: int = 0, limit: int = 200) -> dict:
