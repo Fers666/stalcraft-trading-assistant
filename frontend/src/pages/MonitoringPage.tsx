@@ -3,11 +3,11 @@ import {
   Box, Typography, Card, CardContent, Grid2, Chip, CircularProgress,
   IconButton, Tooltip, Divider, Alert, Avatar,
   ToggleButtonGroup, ToggleButton,
+  Dialog, DialogTitle, DialogContent, DialogActions, Button,
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import api from '../api/client'
 import { formatPrice, iconUrl } from '../utils/i18n'
 
@@ -46,10 +46,17 @@ interface WatchlistEntry {
   name_en: string | null
   icon_path: string | null
   region: string
+  quality_filter: number | null
+  enchant_filter: number | null
   is_active: boolean
   last_successful_check: string | null
   error_status: string | null
   tracked_batch_sizes: number[]
+}
+
+const QLT_NAMES: Record<number, string> = {
+  0: 'Обычный', 1: 'Необычный', 2: 'Особый',
+  3: 'Ветеран', 4: 'Мастер', 5: 'Легендарный',
 }
 
 const DAYS_RU: Record<string, string> = {
@@ -88,11 +95,21 @@ function volatilityRisk(v: number | null): keyof typeof RISK_LABELS {
 // Текущий день недели на английском (как в БД)
 const TODAY_EN = new Date().toLocaleDateString('en-US', { weekday: 'long' })
 
+function formatLastCheck(iso: string): string {
+  const d = new Date(iso)
+  const sameDay = d.toDateString() === new Date().toDateString()
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  if (sameDay) return time
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) + ' ' + time
+}
+
 interface LotItem {
   buyout_price: number
   amount: number
   hours_remaining: number | null
   is_expiring: boolean
+  quality_name: string | null
+  enchant_level: number | null
 }
 
 function ItemCard({ entry, stats, onDelete }: {
@@ -109,10 +126,13 @@ function ItemCard({ entry, stats, onDelete }: {
   // Загружаем лоты независимо от наличия stats
   useEffect(() => {
     setLotsLoaded(false)
-    api.get(`/lots/${entry.item_id}`, { params: { region: entry.region } })
+    const params: Record<string, string | number> = { region: entry.region }
+    if (entry.quality_filter !== null) params.quality_filter = entry.quality_filter
+    if (entry.enchant_filter !== null) params.enchant_filter = entry.enchant_filter
+    api.get(`/lots/${entry.item_id}`, { params })
       .then(({ data }) => { setLots(data.lots || []); setLotsLoaded(true) })
       .catch(() => { setLots([]); setLotsLoaded(true) })
-  }, [entry.item_id, entry.region])
+  }, [entry.item_id, entry.region, entry.quality_filter, entry.enchant_filter])
 
   const COMMISSION = 0.05
 
@@ -144,7 +164,12 @@ function ItemCard({ entry, stats, onDelete }: {
     if (!normalPrice) return []
 
     return lots
-      .filter(l => !l.is_expiring && l.buyout_price > 0)
+      .filter(l => {
+        if (l.is_expiring || l.buyout_price <= 0) return false
+        if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
+        if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
+        return true
+      })
       .map(l => {
         const buyPerUnit = Math.floor(l.buyout_price / l.amount)
         return {
@@ -163,6 +188,9 @@ function ItemCard({ entry, stats, onDelete }: {
       .slice(0, 5)
   })()
 
+  const hasQuality = profitableLots.some(l => l.quality_name || l.enchant_level)
+  const lotGridCols = hasQuality ? '1fr auto auto auto auto' : '1fr auto auto auto'
+
   // Часы продажи/покупки в зависимости от режима
   const sellHour = timeMode === 'today'
     ? (stats?.sell_hours_by_day?.[TODAY_EN] ?? stats?.best_sell_hour)
@@ -174,16 +202,28 @@ function ItemCard({ entry, stats, onDelete }: {
   const buyDay  = timeMode === 'week' ? stats?.best_buy_day  : null
 
   return (
-    <Card>
+    <Card sx={{
+      width: 440,
+      height: 900,
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    }}>
       {/* Золотая полоска сверху на активных карточках */}
       {!entry.error_status && (
         <Box sx={{
+          flexShrink: 0,
           height: 2,
           background: 'linear-gradient(90deg, #B78A2A 0%, #D9AF37 50%, #F2C94C 100%)',
           borderRadius: '18px 18px 0 0',
         }} />
       )}
-      <CardContent>
+      <CardContent sx={{
+        flex: 1,
+        overflowY: 'auto',
+        '&::-webkit-scrollbar': { width: '3px' },
+        '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.08)', borderRadius: '2px' },
+      }}>
         {entry.error_status && (
           <Alert severity="error" sx={{ mb: 1.5, py: 0 }}>{entry.error_status}</Alert>
         )}
@@ -193,10 +233,17 @@ function ItemCard({ entry, stats, onDelete }: {
 
           {/* Левая колонка */}
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            {/* Название */}
-            <Typography variant="subtitle1" fontWeight={700} noWrap>
-              {entry.name_ru || entry.name_en || entry.item_id}
-            </Typography>
+            {/* Название + заточка */}
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
+              <Typography variant="subtitle1" fontWeight={700} noWrap>
+                {entry.name_ru || entry.name_en || entry.item_id}
+              </Typography>
+              {entry.enchant_filter !== null && (
+                <Typography sx={{ fontSize: '0.85rem', fontWeight: 700, color: 'primary.main', flexShrink: 0 }}>
+                  +{entry.enchant_filter}
+                </Typography>
+              )}
+            </Box>
             {/* ID — на этой же высоте начинается фото справа */}
             <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
               {entry.item_id}
@@ -283,12 +330,19 @@ function ItemCard({ entry, stats, onDelete }: {
 
           {/* Правая колонка: кнопка удалить (вверху) + фото (начинается на уровне ID) */}
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
-            {/* Кнопка удалить — занимает высоту строки с названием */}
-            <Tooltip title="Удалить из Избранного">
-              <IconButton size="small" onClick={onDelete} sx={{ color: 'error.main', mb: 0.5 }}>
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            {/* Кнопка удалить + время обновления */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+              {entry.last_successful_check && (
+                <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', whiteSpace: 'nowrap' }}>
+                  {formatLastCheck(entry.last_successful_check)}
+                </Typography>
+              )}
+              <Tooltip title="Удалить из Избранного">
+                <IconButton size="small" onClick={onDelete} sx={{ color: 'error.main' }}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
             {/* Фото — верхний край на уровне ID */}
             <Avatar
               src={iconUrl(entry.icon_path) ?? undefined}
@@ -302,9 +356,13 @@ function ItemCard({ entry, stats, onDelete }: {
             >
               {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
             </Avatar>
-            {entry.last_successful_check && (
-              <Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.6rem', mt: 0.5 }}>
-                {new Date(entry.last_successful_check).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+            {/* Качество под иконкой */}
+            {entry.quality_filter !== null && (
+              <Typography sx={{
+                fontSize: '0.6rem', fontWeight: 600, letterSpacing: '0.04em',
+                color: 'primary.main', textAlign: 'center', mt: 0.5,
+              }}>
+                {QLT_NAMES[entry.quality_filter] ?? `qlt${entry.quality_filter}`}
               </Typography>
             )}
           </Box>
@@ -360,8 +418,11 @@ function ItemCard({ entry, stats, onDelete }: {
                 ) : (
                   <>
                     {/* Заголовок таблицы */}
-                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 0.5, mb: 0.5, px: 0.5 }}>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: lotGridCols, gap: 0.5, mb: 0.5, px: 0.5 }}>
                       <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em' }}>ЦЕНА / ШТ</Typography>
+                      {hasQuality && (
+                        <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em', textAlign: 'right' }}>КАЧЕСТВО</Typography>
+                      )}
                       {sellPrices!.map(sp => (
                         <Typography key={sp.label} sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em', textAlign: 'right' }}>
                           {sp.label_ru.toUpperCase()}
@@ -371,7 +432,7 @@ function ItemCard({ entry, stats, onDelete }: {
 
                     {profitableLots.map((lot, i) => (
                       <Box key={i} sx={{
-                        display: 'grid', gridTemplateColumns: '1fr auto auto auto',
+                        display: 'grid', gridTemplateColumns: lotGridCols,
                         gap: 0.5, py: 0.5, px: 0.5,
                         borderRadius: '6px',
                         '&:hover': { bgcolor: 'rgba(255,255,255,0.02)' },
@@ -386,6 +447,20 @@ function ItemCard({ entry, stats, onDelete }: {
                             </Typography>
                           )}
                         </Box>
+                        {hasQuality && (
+                          <Box sx={{ textAlign: 'right', alignSelf: 'center' }}>
+                            {lot.quality_name && (
+                              <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
+                                {lot.quality_name}
+                              </Typography>
+                            )}
+                            {lot.enchant_level && (
+                              <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 600, lineHeight: 1.3 }}>
+                                +{lot.enchant_level}
+                              </Typography>
+                            )}
+                          </Box>
+                        )}
                         {lot.profits.map(p => (
                           <Box key={p.label} sx={{ textAlign: 'right' }}>
                             <Typography variant="caption" sx={{
@@ -400,9 +475,11 @@ function ItemCard({ entry, stats, onDelete }: {
                               </Typography>
                             )}
                           </Box>
+                        ))}
+                      </Box>
                     ))}
-                  </Box>
-                ))}
+                  </>
+                )}
               </>
             )}
 
@@ -467,15 +544,18 @@ function ItemCard({ entry, stats, onDelete }: {
                 </Box>
               </>
             )}
-              </>
-            )}
           </Box>
         )}
 
         {/* График истории цен — показываем всегда (данные есть после первого сбора) */}
         <>
           <Divider sx={{ my: 1.5 }} />
-          <PriceChart itemId={entry.item_id} region={entry.region} />
+          <PriceChart
+            itemId={entry.item_id}
+            region={entry.region}
+            qualityFilter={entry.quality_filter}
+            enchantFilter={entry.enchant_filter}
+          />
         </>
 
       </CardContent>
@@ -485,8 +565,9 @@ function ItemCard({ entry, stats, onDelete }: {
 
 export default function MonitoringPage() {
   const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([])
-  const [stats, setStats]         = useState<Record<string, MarketStats>>({})
+  const [stats, setStats]         = useState<Record<number, MarketStats>>({})
   const [loading, setLoading]     = useState(true)
+  const [deleteEntry, setDeleteEntry] = useState<WatchlistEntry | null>(null)
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -496,9 +577,12 @@ export default function MonitoringPage() {
       const pairs = await Promise.all(
         data.map(async (entry: WatchlistEntry) => {
           try {
-            const { data: s } = await api.get(`/monitoring/item/${entry.item_id}?region=${entry.region}`)
-            return [entry.item_id, s]
-          } catch { return [entry.item_id, null] }
+            const params: Record<string, string> = { region: entry.region }
+            if (entry.quality_filter !== null) params.quality_filter = String(entry.quality_filter)
+            if (entry.enchant_filter !== null) params.enchant_filter = String(entry.enchant_filter)
+            const { data: s } = await api.get(`/monitoring/item/${entry.item_id}`, { params })
+            return [entry.id, s]
+          } catch { return [entry.id, null] }
         })
       )
       setStats(Object.fromEntries(pairs.filter(([, v]) => v !== null)))
@@ -507,10 +591,11 @@ export default function MonitoringPage() {
     }
   }, [])
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Удалить из Избранного?')) return
-    await api.delete(`/watchlist/${id}`)
-    setWatchlist((prev) => prev.filter((e) => e.id !== id))
+  const handleDeleteConfirm = async () => {
+    if (!deleteEntry) return
+    await api.delete(`/watchlist/${deleteEntry.id}`)
+    setWatchlist((prev) => prev.filter((e) => e.id !== deleteEntry.id))
+    setDeleteEntry(null)
   }
 
   useEffect(() => {
@@ -544,18 +629,49 @@ export default function MonitoringPage() {
           </Typography>
         </Box>
       ) : (
-        <Grid2 container spacing={2}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           {watchlist.map((entry) => (
-            <Grid2 size={{ xs: 12, md: 6, xl: 4 }} key={entry.id}>
-              <ItemCard
-                entry={entry}
-                stats={stats[entry.item_id] ?? null}
-                onDelete={() => handleDelete(entry.id)}
-              />
-            </Grid2>
+            <ItemCard
+              key={entry.id}
+              entry={entry}
+              stats={stats[entry.id] ?? null}
+              onDelete={() => setDeleteEntry(entry)}
+            />
           ))}
-        </Grid2>
+        </Box>
       )}
+
+      <Dialog
+        open={!!deleteEntry}
+        onClose={() => setDeleteEntry(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography fontWeight={700}>Удалить из Избранного?</Typography>
+          <Typography variant="caption" color="text.secondary">
+            {deleteEntry?.name_ru || deleteEntry?.item_id}
+            {deleteEntry?.quality_filter != null ? ` · кач. ${deleteEntry.quality_filter}` : ''}
+            {deleteEntry?.enchant_filter != null ? ` · +${deleteEntry.enchant_filter}` : ''}
+            {deleteEntry ? ` · ${deleteEntry.region}` : ''}
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: '8px !important' }}>
+          <Typography variant="body2" color="text.secondary">
+            Карточка будет удалена из мониторинга. Вы сможете добавить её снова из Каталога.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeleteEntry(null)} color="inherit">Отмена</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDeleteConfirm}
+          >
+            Удалить
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

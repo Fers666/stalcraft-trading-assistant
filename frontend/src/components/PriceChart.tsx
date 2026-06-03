@@ -30,6 +30,8 @@ interface SalesChartResponse {
 interface Props {
   itemId: string
   region: string
+  qualityFilter?: number | null
+  enchantFilter?: number | null
 }
 
 const HOURS_OPTIONS = [
@@ -53,7 +55,7 @@ function fmtDayLabel(iso: string): string {
   return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}`
 }
 
-export default function PriceChart({ itemId, region }: Props) {
+export default function PriceChart({ itemId, region, qualityFilter, enchantFilter }: Props) {
   const [resp, setResp]       = useState<SalesChartResponse | null>(null)
   const [hours, setHours]     = useState(24)
   const [loading, setLoading] = useState(false)
@@ -62,9 +64,10 @@ export default function PriceChart({ itemId, region }: Props) {
     const load = async () => {
       setLoading(true)
       try {
-        const { data } = await api.get(`/monitoring/sales-chart/${itemId}`, {
-          params: { region, hours },
-        })
+        const params: Record<string, string | number> = { region, hours }
+        if (qualityFilter != null) params.quality_filter = qualityFilter
+        if (enchantFilter != null) params.enchant_filter = enchantFilter
+        const { data } = await api.get(`/monitoring/sales-chart/${itemId}`, { params })
         setResp(data)
       } catch {
         setResp(null)
@@ -73,7 +76,7 @@ export default function PriceChart({ itemId, region }: Props) {
       }
     }
     load()
-  }, [itemId, region, hours])
+  }, [itemId, region, hours, qualityFilter, enchantFilter])
 
   const periodLabel = hours === 168 ? '7 дней' : `${hours} ч`
 

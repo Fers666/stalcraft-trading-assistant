@@ -20,7 +20,9 @@ MANUAL_REFRESH_COOLDOWN = 120  # секунд
 
 class WatchlistCreate(BaseModel):
     item_id: str
-    region: str = "EU"
+    region: str = "RU"
+    quality_filter: Optional[int] = None   # qlt 0-5; None = любое качество
+    enchant_filter: Optional[int] = None   # 1-15; None = любая заточка
     tracked_batch_sizes: List[int] = [10, 20, 30, 50]
 
 
@@ -36,6 +38,8 @@ class WatchlistResponse(BaseModel):
     name_en: Optional[str] = None
     icon_path: Optional[str] = None
     region: str
+    quality_filter: Optional[int] = None
+    enchant_filter: Optional[int] = None
     tracked_batch_sizes: List[int]
     is_active: bool
     last_successful_check: Optional[datetime]
@@ -70,6 +74,8 @@ async def get_watchlist(
             name_en=row.name_en,
             icon_path=row.icon_path,
             region=row.UserWatchlist.region,
+            quality_filter=row.UserWatchlist.quality_filter,
+            enchant_filter=row.UserWatchlist.enchant_filter,
             tracked_batch_sizes=row.UserWatchlist.tracked_batch_sizes or [],
             is_active=row.UserWatchlist.is_active,
             last_successful_check=row.UserWatchlist.last_successful_check,
@@ -93,12 +99,14 @@ async def add_to_watchlist(
     if not item:
         raise HTTPException(status_code=404, detail=f"Item {payload.item_id} not found in catalog")
 
-    # Проверяем дубли
+    # Уникальность: item_id + region + quality_filter + enchant_filter
     existing = (await db.execute(
         select(UserWatchlist).where(
             UserWatchlist.user_id == current_user.id,
             UserWatchlist.item_id == payload.item_id,
             UserWatchlist.region == payload.region,
+            UserWatchlist.quality_filter == payload.quality_filter,
+            UserWatchlist.enchant_filter == payload.enchant_filter,
         )
     )).scalar_one_or_none()
     if existing:
@@ -108,6 +116,8 @@ async def add_to_watchlist(
         user_id=current_user.id,
         item_id=payload.item_id,
         region=payload.region,
+        quality_filter=payload.quality_filter,
+        enchant_filter=payload.enchant_filter,
         tracked_batch_sizes=payload.tracked_batch_sizes,
     )
     db.add(entry)

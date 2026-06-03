@@ -7,6 +7,7 @@ import MenuBookIcon from '@mui/icons-material/MenuBook'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import { useAuthStore } from '../store/authStore'
 import { tokens } from '../theme'
 
@@ -128,6 +129,14 @@ export default function Navbar() {
                 {user.username}
               </Typography>
             </Box>
+            {user.is_admin && (
+              <Tooltip title="Управление доступом">
+                <IconButton size="small" onClick={() => navigate('/app/admin')}
+                  sx={{ color: T2, borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.1) } }}>
+                  <AdminPanelSettingsIcon sx={{ fontSize: 16 }} />
+                </IconButton>
+              </Tooltip>
+            )}
             <Tooltip title="Настройки">
               <IconButton size="small" onClick={() => navigate('/app/settings')}
                 sx={{ color: T2, borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.1) } }}>

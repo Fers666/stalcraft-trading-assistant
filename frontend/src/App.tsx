@@ -11,6 +11,7 @@ import LotsPage from './pages/LotsPage'
 import FeedPage from './pages/FeedPage'
 import InventoryPage from './pages/InventoryPage'
 import SettingsPage from './pages/SettingsPage'
+import AdminPage from './pages/AdminPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('access_token')
@@ -24,6 +25,14 @@ function PublicOnlyRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((s) => s.user)
+  const token = localStorage.getItem('access_token')
+  if (!token) return <Navigate to="/" replace />
+  if (user && !user.is_admin) return <Navigate to="/app/monitoring" replace />
+  return <>{children}</>
+}
+
 export default function App() {
   const fetchMe = useAuthStore((s) => s.fetchMe)
 
@@ -34,13 +43,10 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Публичные маршруты — лендинг доступен всем */}
         <Route path="/" element={<LandingPage />} />
-        {/* Логин/регистрация — только для незалогиненных */}
         <Route path="/login"    element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
         <Route path="/register" element={<PublicOnlyRoute><RegisterPage /></PublicOnlyRoute>} />
 
-        {/* Защищённые маршруты */}
         <Route
           path="/app"
           element={<ProtectedRoute><Layout /></ProtectedRoute>}
@@ -52,9 +58,9 @@ export default function App() {
           <Route path="feed"          element={<FeedPage />} />
           <Route path="inventory"     element={<InventoryPage />} />
           <Route path="settings"      element={<SettingsPage />} />
+          <Route path="admin"         element={<AdminRoute><AdminPage /></AdminRoute>} />
         </Route>
 
-        {/* Редирект старых путей */}
         <Route path="/monitoring" element={<Navigate to="/app/monitoring" replace />} />
         <Route path="/catalog"    element={<Navigate to="/app/catalog" replace />} />
         <Route path="/lots"       element={<Navigate to="/app/lots" replace />} />

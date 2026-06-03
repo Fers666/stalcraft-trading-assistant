@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 from datetime import datetime
 
 from app.db.session import get_db
@@ -11,6 +11,29 @@ from app.services.catalog.github_parser import sync_catalog
 
 router = APIRouter(prefix="/items", tags=["Items"])
 
+# Маппинг color → человекочитаемое название качества
+_COLOR_TO_QUALITY: dict[str, str] = {
+    # Актуальный формат из stalcraft-database
+    "default":      "Обычный",
+    "rank_newbie":  "Необычный",
+    "rank_stalker": "Особый",
+    "rank_veteran": "Ветеран",
+    "rank_master":  "Мастер",
+    "rank_legend":  "Легендарный",
+    "quest_item":   "Легендарный",
+    # Легаси rgb-коды
+    "gray":   "Обычный",
+    "grey":   "Обычный",
+    "white":  "Обычный",
+    "green":  "Необычный",
+    "blue":   "Особый",
+    "violet": "Ветеран",
+    "purple": "Ветеран",
+    "yellow": "Мастер",
+    "black":  "Мастер",
+    "red":    "Легендарный",
+}
+
 
 class ItemResponse(BaseModel):
     id: int
@@ -18,9 +41,17 @@ class ItemResponse(BaseModel):
     name_ru: str | None
     name_en: str | None
     category: str | None
+    color: str | None
     icon_path: str | None
     can_be_batch_traded: bool
     last_updated: datetime | None
+
+    @computed_field
+    @property
+    def quality_name(self) -> str | None:
+        if self.color is None:
+            return None
+        return _COLOR_TO_QUALITY.get(self.color.lower())
 
     class Config:
         from_attributes = True

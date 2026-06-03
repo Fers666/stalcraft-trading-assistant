@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 
 from app.core.config import settings
 from app.api.v1.endpoints.auth import router as auth_router
@@ -9,11 +11,13 @@ from app.api.v1.endpoints.lots import router as lots_router
 from app.api.v1.endpoints.monitoring import router as monitoring_router
 from app.api.v1.endpoints.settings import router as settings_router
 from app.api.v1.endpoints.inventory import router as inventory_router
+from app.api.v1.endpoints.admin import router as admin_router
 
 app = FastAPI(
     title="Stalcraft Trading Assistant",
     version="0.1.0",
     description="Анализ аукциона Stalcraft X — рекомендации по покупкам и продажам",
+    docs_url=None,
 )
 
 app.add_middleware(
@@ -24,6 +28,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount("/static", StaticFiles(directory="/app/app/static"), name="static")
+
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(watchlist_router, prefix="/api/v1")
 app.include_router(items_router, prefix="/api/v1")
@@ -31,6 +37,34 @@ app.include_router(lots_router, prefix="/api/v1")
 app.include_router(monitoring_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
 app.include_router(inventory_router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1")
+
+
+@app.get("/docs", include_in_schema=False)
+async def swagger_ui() -> HTMLResponse:
+    html = """<!DOCTYPE html>
+<html>
+<head>
+  <title>Stalcraft Trading Assistant - Swagger UI</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" type="text/css" href="/static/swagger-ui.css">
+</head>
+<body>
+<div id="swagger-ui"></div>
+<script src="/static/swagger-ui-bundle.js"></script>
+<script>
+  SwaggerUIBundle({
+    url: "/openapi.json",
+    dom_id: "#swagger-ui",
+    presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.presets.base],
+    layout: "BaseLayout",
+    deepLinking: true,
+  })
+</script>
+</body>
+</html>"""
+    return HTMLResponse(html)
 
 
 @app.get("/health")

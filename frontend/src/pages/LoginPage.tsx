@@ -18,8 +18,13 @@ export default function LoginPage() {
     try {
       await login(email, password)
       navigate('/app/monitoring')
-    } catch {
-      setError('Неверный email или пароль')
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 403) {
+        setError('Аккаунт ожидает подтверждения администратора')
+      } else {
+        setError('Неверный email или пароль')
+      }
     } finally {
       setLoading(false)
     }

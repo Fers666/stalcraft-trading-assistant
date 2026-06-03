@@ -1,16 +1,17 @@
 import { useState } from 'react'
-import { useNavigate, Link as RouterLink } from 'react-router-dom'
+import { Link as RouterLink } from 'react-router-dom'
 import { Box, Card, CardContent, TextField, Button, Typography, Alert, Link, alpha } from '@mui/material'
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import { useAuthStore } from '../store/authStore'
 
 export default function RegisterPage() {
-  const navigate  = useNavigate()
   const register  = useAuthStore((s) => s.register)
   const [username, setUsername] = useState('')
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState('')
   const [loading, setLoading]   = useState(false)
+  const [success, setSuccess]   = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -18,7 +19,7 @@ export default function RegisterPage() {
     setLoading(true)
     try {
       await register(username, email, password)
-      navigate('/app/monitoring')
+      setSuccess(true)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setError(msg || 'Ошибка регистрации')
@@ -87,51 +88,78 @@ export default function RegisterPage() {
             </Box>
           </Box>
 
-          <Typography sx={{
-            fontFamily: '"Rajdhani", sans-serif',
-            fontWeight: 700, fontSize: '1.35rem', letterSpacing: '0.04em',
-            color: '#F5F5F5', mb: 0.5,
-          }}>
-            Создать аккаунт
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Доступ по приглашению администратора
-          </Typography>
+          {success ? (
+            /* ── Экран ожидания подтверждения ── */
+            <Box sx={{ textAlign: 'center', py: 2 }}>
+              <CheckCircleOutlineIcon sx={{ fontSize: 48, color: '#3ED598', mb: 1.5 }} />
+              <Typography sx={{
+                fontFamily: '"Rajdhani", sans-serif',
+                fontWeight: 700, fontSize: '1.2rem', letterSpacing: '0.04em',
+                color: '#F5F5F5', mb: 1,
+              }}>
+                Заявка отправлена
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
+                Аккаунт <strong style={{ color: '#B8B8B8' }}>{username}</strong> создан.<br />
+                Администратор должен подтвердить доступ — после этого вы сможете войти.
+              </Typography>
+              <Button
+                component={RouterLink} to="/login"
+                variant="contained" fullWidth size="large"
+              >
+                Перейти ко входу
+              </Button>
+            </Box>
+          ) : (
+            /* ── Форма регистрации ── */
+            <>
+              <Typography sx={{
+                fontFamily: '"Rajdhani", sans-serif',
+                fontWeight: 700, fontSize: '1.35rem', letterSpacing: '0.04em',
+                color: '#F5F5F5', mb: 0.5,
+              }}>
+                Создать аккаунт
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Доступ активируется после одобрения администратора
+              </Typography>
 
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+              {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-          <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              label="Имя пользователя"
-              value={username} onChange={(e) => setUsername(e.target.value)}
-              required fullWidth
-            />
-            <TextField
-              label="Email" type="email"
-              value={email} onChange={(e) => setEmail(e.target.value)}
-              required fullWidth
-            />
-            <TextField
-              label="Пароль" type="password"
-              value={password} onChange={(e) => setPassword(e.target.value)}
-              required fullWidth slotProps={{ htmlInput: { minLength: 8 } }}
-            />
-            <Button type="submit" variant="contained" fullWidth size="large" disabled={loading} sx={{ mt: 0.5 }}>
-              {loading ? 'Создание...' : 'Создать аккаунт'}
-            </Button>
-          </Box>
+              <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField
+                  label="Имя пользователя"
+                  value={username} onChange={(e) => setUsername(e.target.value)}
+                  required fullWidth
+                />
+                <TextField
+                  label="Email" type="email"
+                  value={email} onChange={(e) => setEmail(e.target.value)}
+                  required fullWidth
+                />
+                <TextField
+                  label="Пароль" type="password"
+                  value={password} onChange={(e) => setPassword(e.target.value)}
+                  required fullWidth slotProps={{ htmlInput: { minLength: 8 } }}
+                />
+                <Button type="submit" variant="contained" fullWidth size="large" disabled={loading} sx={{ mt: 0.5 }}>
+                  {loading ? 'Создание...' : 'Создать аккаунт'}
+                </Button>
+              </Box>
 
-          <Box sx={{
-            mt: 2.5, pt: 2, borderTop: '1px solid rgba(255,255,255,0.06)',
-            textAlign: 'center',
-          }}>
-            <Typography variant="body2" color="text.secondary">
-              Уже есть аккаунт?{' '}
-              <Link component={RouterLink} to="/login" sx={{ color: 'primary.light', textDecorationColor: alpha('#F2C94C', 0.4) }}>
-                Войти
-              </Link>
-            </Typography>
-          </Box>
+              <Box sx={{
+                mt: 2.5, pt: 2, borderTop: '1px solid rgba(255,255,255,0.06)',
+                textAlign: 'center',
+              }}>
+                <Typography variant="body2" color="text.secondary">
+                  Уже есть аккаунт?{' '}
+                  <Link component={RouterLink} to="/login" sx={{ color: 'primary.light', textDecorationColor: alpha('#F2C94C', 0.4) }}>
+                    Войти
+                  </Link>
+                </Typography>
+              </Box>
+            </>
+          )}
         </CardContent>
       </Card>
     </Box>

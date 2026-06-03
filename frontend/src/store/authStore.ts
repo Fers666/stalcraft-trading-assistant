@@ -6,6 +6,8 @@ interface User {
   username: string
   email: string
   telegram_username: string | null
+  is_admin: boolean
+  is_approved: boolean
 }
 
 interface AuthState {
@@ -29,10 +31,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   register: async (username, email, password) => {
-    const { data } = await api.post('/auth/register', { username, email, password })
-    localStorage.setItem('access_token', data.access_token)
-    const me = await api.get('/auth/me')
-    set({ user: me.data })
+    await api.post('/auth/register', { username, email, password })
+    // Регистрация не выдаёт токен — пользователь ждёт подтверждения админа
   },
 
   logout: () => {

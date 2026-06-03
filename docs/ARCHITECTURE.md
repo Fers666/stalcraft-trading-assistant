@@ -1,4 +1,4 @@
-# Архитектура сбора данных
+ # Архитектура сбора данных
 
 ## Проблема наивного подхода
 
@@ -112,6 +112,20 @@ master_items: 2236 предметов
 | Уведомления | Личный (user_settings) |
 | Tracked batch sizes | Личный (user_watchlist) |
 | Ручной refresh | Личный (user_id в collected_data) |
+| Статистика по quality/enchant | На лету (фильтрация sales_history при запросе) |
+
+### Фильтрация по quality/enchant (карточка Избранного)
+
+`market_statistics` хранит глобальные агрегаты без разбивки по качеству/заточке.
+Когда watchlist-запись имеет `quality_filter` или `enchant_filter`, три блока карточки получают данные по-разному:
+
+| Блок | Источник | Как фильтруется |
+|------|---------|-----------------|
+| Выгодные лоты | `GET /lots/{id}` + фронт | `profitableLots` сравнивает `quality_name`/`enchant_level` |
+| Варианты продажи | `GET /monitoring/item/{id}?quality_filter=…` | На лету: `median_price_7d`, `sales_volume_7d`, `sell_options` из отфильтрованных `sales_history`; `best_sell_hour`/`buy_hours` и проч. берутся из глобальной `market_statistics` |
+| История продаж | `GET /monitoring/sales-chart/{id}?quality_filter=…` | SQL-фильтр по `additional_info->>'qlt'` / `upgrade_bonus` |
+
+`sell_options` в режиме с фильтром считаются с `confidence=low` (только объём, без lot_start пар), поскольку выборка по одному качеству/заточке обычно мала для статистической уверенности.
 
 ---
 

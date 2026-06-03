@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from pydantic import BaseModel
 from datetime import datetime
+import statistics as _statistics
 
 from app.db.session import get_db
 from app.models.models import User, MarketStatistics, CollectedData, GlobalItemScan, MasterItem, SalesHistory
@@ -35,10 +36,67 @@ class MonitoringItemResponse(BaseModel):
         from_attributes = True
 
 
+def _build_sales_filter(quality_filter: int | None, enchant_filter: int | None) -> list:
+    """Возвращает список SQL-условий для фильтрации SalesHistory по качеству/заточке."""
+    conds = []
+    if quality_filter is not None:
+        if quality_filter == 0:
+            # qlt=0: поле qlt отсутствует или явно равно 0
+            conds.append(or_(
+                SalesHistory.additional_info['qlt'].astext.is_(None),
+                SalesHistory.additional_info['qlt'].astext == '0',
+            ))
+        else:
+            conds.append(SalesHistory.additional_info['qlt'].astext == str(quality_filter))
+    if enchant_filter is not None:
+        # ptn — прямое целое 1-15 (0 = не зачарован, в watchlist enchant_filter всегда 1-15)
+        conds.append(SalesHistory.additional_info['ptn'].astext == str(enchant_filter))
+    return conds
+
+
+def _make_sell_options(median: float, volume_7d: int) -> list[dict]:
+    """Быстрый расчёт sell_options от отфильтрованной медианы (confidence=low)."""
+    from app.services.analytics.market_stats import _format_hours
+    ref = int(median)
+    fast_price    = int(ref * 0.97)
+    normal_price  = int(ref * 1.00)
+    premium_price = int(ref * 1.05)
+    COMMISSION    = 0.05
+
+    sales_per_day = volume_7d / 7.0
+    if sales_per_day >= 5:
+        fh, nh, ph = 2.0, 8.0, 24.0
+    elif sales_per_day >= 1:
+        fh, nh, ph = 8.0, 24.0, 72.0
+    elif sales_per_day >= 0.14:
+        fh, nh, ph = 24.0, 72.0, 168.0
+    else:
+        fh, nh, ph = 72.0, 168.0, 336.0
+
+    def opt(label, label_ru, price, hours):
+        return {
+            "label": label, "label_ru": label_ru,
+            "price_per_unit": price,
+            "net_price_per_unit": int(price * (1 - COMMISSION)),
+            "estimated_hours": hours,
+            "estimated_hours_display": _format_hours(hours),
+            "confidence": "low",
+            "data_points": volume_7d,
+        }
+
+    return [
+        opt("fast",    "Быстро",    fast_price,    fh),
+        opt("normal",  "Нормально", normal_price,  nh),
+        opt("premium", "Выгодно",   premium_price, ph),
+    ]
+
+
 @router.get("/item/{item_id}", response_model=MonitoringItemResponse)
 async def get_item_stats(
     item_id: str,
     region: str = Query(default="RU"),
+    quality_filter: int | None = Query(default=None),
+    enchant_filter: int | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -55,7 +113,53 @@ async def get_item_stats(
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="No stats yet for this item")
 
-    return stats
+    # Без фильтров — возвращаем глобальную статистику напрямую
+    if quality_filter is None and enchant_filter is None:
+        return stats
+
+    # С фильтрами — пересчитываем median/volume/sell_options от отфильтрованных продаж
+    from datetime import timezone, timedelta
+    cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
+
+    extra_conds = _build_sales_filter(quality_filter, enchant_filter)
+    prices = (await db.execute(
+        select(SalesHistory.price_per_unit).where(
+            SalesHistory.item_id == item_id,
+            SalesHistory.region  == region.upper(),
+            SalesHistory.sale_time >= cutoff_7d,
+            *extra_conds,
+        )
+    )).scalars().all()
+
+    if prices:
+        filtered_median = _statistics.median(prices)
+        filtered_volume = len(prices)
+        filtered_opts   = _make_sell_options(filtered_median, filtered_volume)
+    else:
+        filtered_median = None
+        filtered_volume = 0
+        filtered_opts   = []
+
+    return MonitoringItemResponse(
+        item_id=stats.item_id,
+        region=stats.region,
+        avg_price_7d=float(stats.avg_price_7d) if stats.avg_price_7d else None,
+        median_price_7d=filtered_median,
+        min_price_7d=int(stats.min_price_7d) if stats.min_price_7d else None,
+        max_price_7d=int(stats.max_price_7d) if stats.max_price_7d else None,
+        sales_volume_7d=filtered_volume,
+        price_volatility_7d=float(stats.price_volatility_7d) if stats.price_volatility_7d else None,
+        best_sell_hour=stats.best_sell_hour,
+        best_sell_day=stats.best_sell_day,
+        best_buy_hour=stats.best_buy_hour,
+        best_buy_day=stats.best_buy_day,
+        sell_hours_by_day=stats.sell_hours_by_day,
+        buy_hours_by_day=stats.buy_hours_by_day,
+        weekend_bonus_percent=float(stats.weekend_bonus_percent) if stats.weekend_bonus_percent else None,
+        avg_sell_time_hours=float(stats.avg_sell_time_hours) if stats.avg_sell_time_hours else None,
+        sell_options=filtered_opts or None,
+        calculated_at=stats.calculated_at,
+    )
 
 
 class PricePoint(BaseModel):
@@ -129,6 +233,8 @@ async def get_sales_chart(
     item_id: str,
     region: str = Query(default="RU"),
     hours: int = Query(default=24, ge=1, le=720),
+    quality_filter: int | None = Query(default=None),
+    enchant_filter: int | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
@@ -136,6 +242,7 @@ async def get_sales_chart(
     from datetime import timezone, timedelta
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    extra_conds = _build_sales_filter(quality_filter, enchant_filter)
 
     if hours < 168:
         rows = (await db.execute(
@@ -144,6 +251,7 @@ async def get_sales_chart(
                 SalesHistory.item_id == item_id,
                 SalesHistory.region == region.upper(),
                 SalesHistory.sale_time >= cutoff,
+                *extra_conds,
             )
             .order_by(SalesHistory.sale_time)
         )).all()
@@ -172,6 +280,7 @@ async def get_sales_chart(
                 SalesHistory.item_id == item_id,
                 SalesHistory.region == region.upper(),
                 SalesHistory.sale_time >= cutoff,
+                *extra_conds,
             )
             .group_by(trunc_expr)
             .order_by(trunc_expr)

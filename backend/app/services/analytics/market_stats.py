@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 # Минимум продаж для расчёта статистики (волатильность, лучший час/день)
 MIN_SALES_FOR_STATS = 3
 
+# Минимум точек (lot_start) для nearest-neighbor прогноза времени продажи
+MIN_BUYOUTS_FOR_TIME_MODEL = 5
+
 # Пороги покрытия для уверенности прогноза времени продажи
 COVERAGE_HIGH   = 0.30  # ≥30% продаж с lot_start + минимум 10 точек
 COVERAGE_MEDIUM = 0.10  # 10–30% продаж с lot_start + минимум 3 точки

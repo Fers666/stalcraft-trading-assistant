@@ -28,19 +28,24 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class RegisterResponse(BaseModel):
+    message: str
+
+
 class UserResponse(BaseModel):
     id: int
     username: str
     email: str
     telegram_username: str | None
+    is_admin: bool
+    is_approved: bool
 
     class Config:
         from_attributes = True
 
 
-@router.post("/register", response_model=TokenResponse, status_code=201)
+@router.post("/register", response_model=RegisterResponse, status_code=201)
 async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    # Проверяем уникальность
     existing = (await db.execute(
         select(User).where((User.email == payload.email) | (User.username == payload.username))
     )).scalar_one_or_none()
@@ -51,19 +56,15 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
         username=payload.username,
         email=payload.email,
         password_hash=hash_password(payload.password),
+        is_approved=False,
     )
     db.add(user)
     await db.flush()
 
-    # Создаём настройки по умолчанию
     db.add(UserSettings(user_id=user.id))
     await db.commit()
-    await db.refresh(user)
 
-    return TokenResponse(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-    )
+    return RegisterResponse(message="Регистрация успешна. Ожидайте подтверждения администратора.")
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -71,6 +72,8 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.email == payload.email))).scalar_one_or_none()
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not user.is_approved:
+        raise HTTPException(status_code=403, detail="Account pending admin approval")
 
     return TokenResponse(
         access_token=create_access_token(user.id),

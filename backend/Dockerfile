@@ -15,4 +15,13 @@ RUN uv pip install --system --no-cache -r requirements.txt
 
 COPY . .
 
+# Swagger UI — скачиваем из npm registry (без CDN, работает в любом регионе)
+RUN python3 -c "\
+import urllib.request, tarfile, os, io; \
+os.makedirs('app/static', exist_ok=True); \
+data = urllib.request.urlopen('https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.17.14.tgz', timeout=60).read(); \
+tar = tarfile.open(fileobj=io.BytesIO(data)); \
+[open(f'app/static/{os.path.basename(m.name)}', 'wb').write(tar.extractfile(m).read()) \
+ for m in tar.getmembers() if m.name.endswith(('swagger-ui-bundle.js', 'swagger-ui-standalone-preset.js', 'swagger-ui.css'))]"
+
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

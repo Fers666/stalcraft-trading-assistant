@@ -22,6 +22,7 @@ class User(Base):
     telegram_chat_id  = Column(BigInteger)
     is_active         = Column(Boolean, default=True)
     is_admin          = Column(Boolean, default=False)
+    is_approved       = Column(Boolean, default=False)
     created_at        = Column(DateTime(timezone=True), server_default=func.now())
     updated_at        = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -54,6 +55,7 @@ class MasterItem(Base):
     name_ru             = Column(String(200))
     name_en             = Column(String(200))
     category            = Column(String(50))
+    color               = Column(String(20))    # gray/green/blue/violet/yellow/red → качество предмета
     icon_path           = Column(String(200))   # путь вида /icons/medicine/9mmq.png
     can_be_batch_traded = Column(Boolean, default=True)
     last_updated        = Column(DateTime(timezone=True), server_default=func.now())
@@ -75,6 +77,9 @@ class UserWatchlist(Base):
     user_id               = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     item_id               = Column(String(50), ForeignKey("master_items.item_id"), nullable=False)
     region                = Column(String(10), default="EU")
+    # Фильтры по характеристикам: NULL = без фильтра (показывать все)
+    quality_filter        = Column(Integer, nullable=True)   # qlt 0-5; NULL = любое качество
+    enchant_filter        = Column(Integer, nullable=True)   # заточка 1-15; NULL = любая заточка
     # Выбранные пачки для статистики: [10, 20, 30, 50]
     tracked_batch_sizes   = Column(ARRAY(Integer), default=list)
     is_active             = Column(Boolean, default=True)
@@ -88,8 +93,6 @@ class UserWatchlist(Base):
 
     __table_args__ = (
         Index("ix_watchlist_active", "user_id", "is_active", "region"),
-        # UNIQUE constraint
-        Index("uq_watchlist_user_item_region", "user_id", "item_id", "region", unique=True),
     )
 
 
