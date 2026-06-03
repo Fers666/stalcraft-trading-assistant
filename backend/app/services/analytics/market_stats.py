@@ -229,7 +229,10 @@ async def calculate_market_stats(
             if len(hours_map) >= 1
         }
 
-    # ── 4. Прогноз времени продажи (sell_options) ─────────────────────────────
+    # ── 4. Статистика пачек ───────────────────────────────────────────────────
+    batch_stats = _calculate_batch_stats(sales_30d)
+
+    # ── 5. Прогноз времени продажи (sell_options) ─────────────────────────────
     sell_options = await _calculate_sell_options(
         db=db,
         item_id=item_id,
@@ -241,12 +244,13 @@ async def calculate_market_stats(
         cutoff_30d=cutoff_30d,
     )
 
-    # ── 5. Среднее время продажи из выкупов ──────────────────────────────────
+    # ── 6. Среднее время продажи из выкупов ──────────────────────────────────
     avg_sell_time = _avg_sell_time_from_buyouts(sales_30d)
 
-    # ── 6. Upsert в market_statistics (глобальная запись, user_id=None) ────────
+    # ── 7. Upsert в market_statistics (глобальная запись, user_id=None) ────────
     existing = (await db.execute(
         select(MarketStatistics).where(
+            MarketStatistics.user_id == None,
             MarketStatistics.item_id == item_id,
             MarketStatistics.region  == region,
         )
@@ -277,12 +281,77 @@ async def calculate_market_stats(
     existing.buy_hours_by_day    = buy_hours_by_day or None
     existing.weekend_bonus_percent = weekend_bonus
     existing.avg_sell_time_hours = avg_sell_time
+    existing.batch_stats         = batch_stats
     existing.sell_options        = sell_options
     existing.calculated_at       = now
 
     await db.commit()
     await db.refresh(existing)
     return existing
+
+
+def _calculate_batch_stats(sales: list) -> dict | None:
+    """
+    Анализирует структуру продаж по размерам пачек.
+    Возвращает None если товар торгуется почти исключительно поштучно (<10% пачек).
+    """
+    if not sales:
+        return None
+
+    batch_sales = [s for s in sales if s.amount > 1]
+    batch_ratio = len(batch_sales) / len(sales)
+    if batch_ratio < 0.10:
+        return None
+
+    BUCKETS: list[tuple[str, str, int, int]] = [
+        ("x1",       "1 шт",    1,   1),
+        ("x2_5",     "2-5 шт",  2,   5),
+        ("x6_10",    "6-10 шт", 6,   10),
+        ("x11_25",   "11-25 шт",11,  25),
+        ("x26_50",   "26-50 шт",26,  50),
+        ("x51_plus", "51+ шт",  51,  10_000),
+    ]
+
+    by_size: dict = {}
+    for key, label, lo, hi in BUCKETS:
+        group = [s for s in sales if lo <= s.amount <= hi]
+        if not group:
+            continue
+        prices = [s.price_per_unit for s in group]
+        by_size[key] = {
+            "label":               label,
+            "count":               len(group),
+            "share_pct":           round(len(group) / len(sales) * 100, 1),
+            "avg_price_per_unit":  round(statistics.mean(prices), 2),
+            "median_price_per_unit": round(statistics.median(prices), 2),
+        }
+
+    if not by_size:
+        return None
+
+    amounts = [s.amount for s in sales]
+    median_amount = round(statistics.median(amounts))
+
+    most_popular_bucket = max(by_size, key=lambda k: by_size[k]["count"])
+
+    # Скидка оптом: одиночные продажи vs крупные пачки
+    bulk_discount_pct = None
+    single = by_size.get("x1")
+    large  = by_size.get("x51_plus") or by_size.get("x26_50")
+    if single and large:
+        sp = single["avg_price_per_unit"]
+        lp = large["avg_price_per_unit"]
+        if sp > 0:
+            bulk_discount_pct = round((sp - lp) / sp * 100, 1)
+
+    return {
+        "by_size":            by_size,
+        "median_amount":      median_amount,
+        "bulk_discount_pct":  bulk_discount_pct,
+        "batch_ratio_pct":    round(batch_ratio * 100, 1),
+        "most_popular_bucket": most_popular_bucket,
+        "total_analyzed":     len(sales),
+    }
 
 
 def _avg_sell_time_from_buyouts(sales: list) -> float | None:

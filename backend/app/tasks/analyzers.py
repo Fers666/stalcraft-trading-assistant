@@ -65,6 +65,8 @@ def calculate_all_market_stats(self):
                             f"Stats calculated for {item_id}/{region} | "
                             f"sell_options={len(opts)} variants"
                         )
+                    else:
+                        logger.info(f"No sales data for {item_id}/{region} — stats skipped")
                 except Exception as e:
                     logger.error(f"Failed to calculate stats for {item_id}/{region}: {e}")
 

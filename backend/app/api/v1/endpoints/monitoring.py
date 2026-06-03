@@ -31,6 +31,7 @@ class MonitoringItemResponse(BaseModel):
     weekend_bonus_percent: float | None
     avg_sell_time_hours: float | None
     sell_options: list | None
+    batch_stats: dict | None = None
     calculated_at: datetime | None
 
     class Config:
@@ -177,6 +178,7 @@ async def get_item_stats(
         weekend_bonus_percent=float(stats.weekend_bonus_percent) if stats.weekend_bonus_percent else None,
         avg_sell_time_hours=float(stats.avg_sell_time_hours) if stats.avg_sell_time_hours else None,
         sell_options=filtered_opts or None,
+        batch_stats=stats.batch_stats,
         calculated_at=stats.calculated_at,
     )
 

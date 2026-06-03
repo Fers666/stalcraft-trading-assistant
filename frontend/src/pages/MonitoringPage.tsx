@@ -13,6 +13,23 @@ import { formatPrice, iconUrl } from '../utils/i18n'
 
 import PriceChart from '../components/PriceChart'
 
+interface BatchBucket {
+  label: string
+  count: number
+  share_pct: number
+  avg_price_per_unit: number
+  median_price_per_unit: number
+}
+
+interface BatchStats {
+  by_size: Record<string, BatchBucket>
+  median_amount: number
+  bulk_discount_pct: number | null
+  batch_ratio_pct: number
+  most_popular_bucket: string
+  total_analyzed: number
+}
+
 interface SellOption {
   label: 'fast' | 'normal' | 'premium'
   label_ru: string
@@ -38,6 +55,7 @@ interface MarketStats {
   price_volatility_7d: number | null
   price_volatility_30d: number | null
   sell_options: SellOption[] | null
+  batch_stats: BatchStats | null
 }
 
 interface WatchlistEntry {
@@ -403,7 +421,9 @@ function ItemCard({ entry, stats, onDelete }: {
               />
             </Box>
             <Typography variant="caption" color="text.disabled" sx={{ display: 'block', py: 0.5 }}>
-              Статистика рассчитывается — обновится автоматически через ~1 мин
+              {entry.last_successful_check
+                ? 'Нет данных о продажах за последние 30 дней'
+                : 'Первый сбор данных — готово через ~30 сек'}
             </Typography>
           </>
         )}
@@ -579,6 +599,67 @@ function ItemCard({ entry, stats, onDelete }: {
               </>
             )}
           </Box>
+        )}
+
+        {/* Статистика пачек — только если товар торгуется пачками */}
+        {stats?.batch_stats && (
+          <>
+            <Divider sx={{ my: 1.5 }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
+                ПАЧКИ
+              </Typography>
+              <Tooltip title={`${stats.batch_stats.batch_ratio_pct}% всех продаж за 30 дней шли пачками (amount > 1)`}>
+                <Chip
+                  label={`${stats.batch_stats.batch_ratio_pct}% сделок`}
+                  size="small" variant="outlined"
+                  sx={{ height: 18, fontSize: 10, color: 'text.secondary' }}
+                />
+              </Tooltip>
+              <Tooltip title="Типичный размер одной продажи (медиана)">
+                <Chip
+                  label={`~${stats.batch_stats.median_amount} шт`}
+                  size="small" variant="outlined"
+                  sx={{ height: 18, fontSize: 10, color: 'primary.main', borderColor: 'primary.main' }}
+                />
+              </Tooltip>
+            </Box>
+
+            {/* Мини-таблица по размерам */}
+            {Object.entries(stats.batch_stats.by_size).map(([key, bucket]) => {
+              const isPopular = key === stats.batch_stats!.most_popular_bucket
+              return (
+                <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <Typography sx={{ fontSize: '0.6rem', color: isPopular ? 'primary.main' : 'text.secondary', minWidth: 52, fontWeight: isPopular ? 700 : 400 }}>
+                    {bucket.label}
+                  </Typography>
+                  {/* Бар-индикатор */}
+                  <Box sx={{ flex: 1, height: 4, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.06)', position: 'relative', overflow: 'hidden' }}>
+                    <Box sx={{
+                      width: `${bucket.share_pct}%`, height: '100%', borderRadius: 2,
+                      bgcolor: isPopular ? 'primary.main' : 'rgba(255,255,255,0.18)',
+                      transition: 'width 0.3s',
+                    }} />
+                  </Box>
+                  <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', minWidth: 28, textAlign: 'right' }}>
+                    {bucket.share_pct}%
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.6rem', color: 'text.primary', minWidth: 68, textAlign: 'right', fontFamily: 'monospace', fontWeight: isPopular ? 600 : 400 }}>
+                    {formatPrice(bucket.avg_price_per_unit)}/шт
+                  </Typography>
+                </Box>
+              )
+            })}
+
+            {/* Оптовая скидка / наценка */}
+            {stats.batch_stats.bulk_discount_pct !== null && (
+              <Typography sx={{ fontSize: '0.62rem', mt: 0.75, color: stats.batch_stats.bulk_discount_pct > 0 ? 'success.main' : 'warning.main' }}>
+                {stats.batch_stats.bulk_discount_pct > 0
+                  ? `Оптом дешевле на ${stats.batch_stats.bulk_discount_pct}% — выгоднее покупать пачкой`
+                  : `Оптом дороже на ${Math.abs(stats.batch_stats.bulk_discount_pct)}% — выгоднее покупать поштучно`}
+              </Typography>
+            )}
+          </>
         )}
 
         {/* График истории цен — показываем всегда (данные есть после первого сбора) */}

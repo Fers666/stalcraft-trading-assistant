@@ -1,28 +1,21 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
-  Box, Typography, TextField, InputAdornment, Card, CardContent,
+  Box, Typography, TextField, InputAdornment, Card,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Button, Chip, CircularProgress, MenuItem, Select, FormControl,
   InputLabel, Alert, Avatar, Dialog, DialogTitle, DialogContent,
-  DialogActions,
+  DialogActions, List, ListItemButton, ListItemText, Collapse,
+  Pagination, Divider,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
-import HistoryIcon from '@mui/icons-material/History'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import api from '../api/client'
 import { translateCategory, iconUrl } from '../utils/i18n'
+import { CATEGORY_TREE } from '../utils/categories'
 
-const HISTORY_KEY = 'catalog_search_history'
-const HISTORY_MAX = 10
-
-function loadHistory(): string[] {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { return [] }
-}
-
-function saveHistory(query: string) {
-  const next = [query, ...loadHistory().filter((q) => q !== query)].slice(0, HISTORY_MAX)
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(next))
-}
+const PAGE_SIZE = 50
 
 interface Item {
   id: number
@@ -51,44 +44,64 @@ const ENCHANT_OPTIONS = [
   ...Array.from({ length: 15 }, (_, i) => ({ value: i + 1, label: `+${i + 1}` })),
 ]
 
-export default function CatalogPage() {
-  const [search, setSearch]   = useState('')
-  const [items, setItems]     = useState<Item[]>([])
-  const [total, setTotal]     = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [error, setError]     = useState<string | null>(null)
-  const [history, setHistory] = useState<string[]>(loadHistory)
 
-  // Диалог добавления
+export default function CatalogPage() {
+  const [search, setSearch]             = useState('')
+  const [activeSearch, setActiveSearch] = useState('')
+  const [category, setCategory]         = useState<string | null>(null)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [items, setItems]               = useState<Item[]>([])
+  const [total, setTotal]               = useState(0)
+  const [page, setPage]                 = useState(1)
+  const [loading, setLoading]           = useState(false)
+  const [error, setError]               = useState<string | null>(null)
+  const [success, setSuccess]           = useState<string | null>(null)
+
+  // Диалог добавления в watchlist
   const [dialogItem, setDialogItem]       = useState<Item | null>(null)
   const [region, setRegion]               = useState('RU')
   const [qualityFilter, setQualityFilter] = useState<number | null>(null)
   const [enchantFilter, setEnchantFilter] = useState<number | null>(null)
   const [adding, setAdding]               = useState(false)
 
-  const doSearch = useCallback(async (q: string) => {
-    if (!q.trim()) return
+  const loadItems = useCallback(async (cat: string | null, sq: string, p: number) => {
     setLoading(true)
     setError(null)
     try {
-      const { data } = await api.get('/items', { params: { search: q.trim(), page_size: 50 } })
+      const params: Record<string, unknown> = { page: p, page_size: PAGE_SIZE }
+      if (cat) params.category = cat
+      if (sq)  params.search = sq
+      const { data } = await api.get('/items', { params })
       setItems(data.items)
       setTotal(data.total)
-      saveHistory(q.trim())
-      setHistory(loadHistory())
     } catch {
-      setError('Ошибка поиска')
+      setError('Ошибка загрузки данных')
     } finally {
       setLoading(false)
     }
   }, [])
 
-  const handleSearch = useCallback(() => doSearch(search), [doSearch, search])
+  useEffect(() => {
+    loadItems(category, activeSearch, page)
+  }, [category, activeSearch, page, loadItems])
 
-  const handleHistoryClick = (q: string) => {
-    setSearch(q)
-    doSearch(q)
+  const handleSearch = () => {
+    setPage(1)
+    setActiveSearch(search)
+  }
+
+  const handleCategorySelect = (cat: string | null) => {
+    setCategory(cat)
+    setPage(1)
+  }
+
+  const toggleGroup = (id: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
   const openDialog = (item: Item) => {
@@ -121,16 +134,20 @@ export default function CatalogPage() {
     }
   }
 
+  const totalPages = Math.ceil(total / PAGE_SIZE)
+
   return (
     <Box>
+      {/* Header */}
       <Box sx={{ mb: 3 }}>
         <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.14em', fontWeight: 600, mb: 0.5 }}>
-          ITEM DATABASE // 2 236+ ENTRIES
+          ITEM DATABASE // {total > 0 ? `${total} ITEMS` : '2 236+ ENTRIES'}
         </Typography>
         <Typography variant="h5" fontWeight={700}>Каталог предметов</Typography>
       </Box>
 
-      <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+      {/* Search bar */}
+      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
         <TextField
           placeholder="Поиск по названию..."
           value={search}
@@ -145,99 +162,190 @@ export default function CatalogPage() {
         <Button variant="contained" onClick={handleSearch} disabled={loading}>
           {loading ? <CircularProgress size={20} /> : 'Найти'}
         </Button>
+        {activeSearch && (
+          <Button variant="outlined" color="inherit" onClick={() => { setSearch(''); setActiveSearch(''); setPage(1) }}>
+            Сбросить
+          </Button>
+        )}
       </Box>
-
-      {/* История поиска */}
-      {items.length === 0 && !loading && history.length > 0 && (
-        <Box sx={{ mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-            <HistoryIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
-            <Typography variant="caption" color="text.secondary">Недавние запросы</Typography>
-          </Box>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            {history.map((q) => (
-              <Chip
-                key={q}
-                label={q}
-                size="small"
-                icon={<SearchIcon />}
-                onClick={() => handleHistoryClick(q)}
-                sx={{ cursor: 'pointer' }}
-              />
-            ))}
-          </Box>
-        </Box>
-      )}
 
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
       {error   && <Alert severity="error"   sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
-      {items.length > 0 && (
-        <Card>
-          <CardContent sx={{ p: 0 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ px: 2, pt: 1.5, display: 'block' }}>
-              Найдено: {total}
-            </Typography>
-            <TableContainer>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Название</TableCell>
-                    <TableCell>Категория</TableCell>
-                    <TableCell>Пачки</TableCell>
-                    <TableCell align="right"></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {items.map((item) => (
-                    <TableRow key={item.id} hover>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Avatar
-                            src={iconUrl(item.icon_path) ?? undefined}
-                            variant="rounded"
-                            sx={{ width: 28, height: 28, bgcolor: 'background.default', flexShrink: 0 }}
-                          >
-                            {!item.icon_path && (item.name_ru?.[0] ?? '?')}
-                          </Avatar>
-                          <Box>
-                            <Typography variant="body2" fontWeight={500}>
-                              {item.name_ru || item.name_en}
+      {/* Двухколоночный layout */}
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+
+        {/* Левый сайдбар — дерево категорий */}
+        <Box sx={{
+          width: 230,
+          flexShrink: 0,
+          bgcolor: 'background.paper',
+          borderRadius: 1,
+          border: '1px solid',
+          borderColor: 'divider',
+          maxHeight: '72vh',
+          overflowY: 'auto',
+        }}>
+          <List dense disablePadding>
+            {CATEGORY_TREE.map((group, idx) => {
+              const isSelected  = category === group.id
+              const hasChildren = !!group.children?.length
+              const isExpanded  = hasChildren && group.id != null && expandedGroups.has(group.id)
+
+              return (
+                <Box key={String(group.id)}>
+                  {idx === 1 && <Divider />}
+                  <ListItemButton
+                    selected={isSelected}
+                    onClick={() => {
+                      handleCategorySelect(group.id)
+                      if (hasChildren && group.id != null) toggleGroup(group.id)
+                    }}
+                    sx={{ pl: 2, pr: 1 }}
+                  >
+                    <ListItemText
+                      primary={group.label}
+                      primaryTypographyProps={{
+                        variant: 'body2',
+                        sx: { fontWeight: isSelected ? 700 : 400, color: isSelected ? 'primary.main' : 'text.primary' },
+                      }}
+                    />
+                    {hasChildren && group.id != null && (
+                      isExpanded
+                        ? <ExpandLessIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                        : <ExpandMoreIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                    )}
+                  </ListItemButton>
+
+                  {hasChildren && group.id != null && (
+                    <Collapse in={isExpanded} unmountOnExit>
+                      <List dense disablePadding>
+                        {group.children!.map((child) => {
+                          const childSelected = category === child.id
+                          return (
+                            <ListItemButton
+                              key={child.id}
+                              selected={childSelected}
+                              onClick={() => handleCategorySelect(child.id)}
+                              sx={{ pl: 4, pr: 1 }}
+                            >
+                              <ListItemText
+                                primary={child.label}
+                                primaryTypographyProps={{
+                                  variant: 'body2',
+                                  sx: { color: childSelected ? 'primary.main' : 'text.secondary', fontWeight: childSelected ? 600 : 400 },
+                                }}
+                              />
+                            </ListItemButton>
+                          )
+                        })}
+                      </List>
+                    </Collapse>
+                  )}
+                </Box>
+              )
+            })}
+          </List>
+        </Box>
+
+        {/* Правая часть — список предметов */}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          {loading && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+              <CircularProgress />
+            </Box>
+          )}
+
+          {!loading && items.length === 0 && (
+            <Box sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
+              <Typography>Ничего не найдено</Typography>
+            </Box>
+          )}
+
+          {!loading && items.length > 0 && (
+            <>
+              <Card>
+                <Box sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Найдено: {total}
+                    {totalPages > 1 && ` · стр. ${page} из ${totalPages}`}
+                    {activeSearch && ` · поиск: «${activeSearch}»`}
+                  </Typography>
+                </Box>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Название</TableCell>
+                        <TableCell>Категория</TableCell>
+                        <TableCell>Пачки</TableCell>
+                        <TableCell align="right"></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {items.map((item) => (
+                        <TableRow key={item.id} hover>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Avatar
+                                src={iconUrl(item.icon_path) ?? undefined}
+                                variant="rounded"
+                                sx={{ width: 28, height: 28, bgcolor: 'background.default', flexShrink: 0 }}
+                              >
+                                {!item.icon_path && (item.name_ru?.[0] ?? '?')}
+                              </Avatar>
+                              <Box>
+                                <Typography variant="body2" fontWeight={500}>
+                                  {item.name_ru || item.name_en}
+                                </Typography>
+                                {item.name_en && item.name_ru && (
+                                  <Typography variant="caption" color="text.secondary">{item.name_en}</Typography>
+                                )}
+                              </Box>
+                            </Box>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption" color="text.secondary">
+                              {translateCategory(item.category)}
                             </Typography>
-                            {item.name_en && item.name_ru && (
-                              <Typography variant="caption" color="text.secondary">{item.name_en}</Typography>
-                            )}
-                          </Box>
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="caption" color="text.secondary">
-                          {translateCategory(item.category)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>
-                        {item.can_be_batch_traded
-                          ? <Chip label="Да" size="small" color="success" variant="outlined" />
-                          : <Chip label="Нет" size="small" variant="outlined" />}
-                      </TableCell>
-                      <TableCell align="right">
-                        <Button
-                          size="small"
-                          startIcon={<AddIcon />}
-                          onClick={() => openDialog(item)}
-                          variant="outlined"
-                        >
-                          Избранное
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      )}
+                          </TableCell>
+                          <TableCell>
+                            {item.can_be_batch_traded
+                              ? <Chip label="Да"  size="small" color="success" variant="outlined" />
+                              : <Chip label="Нет" size="small" variant="outlined" />}
+                          </TableCell>
+                          <TableCell align="right">
+                            <Button
+                              size="small"
+                              startIcon={<AddIcon />}
+                              onClick={() => openDialog(item)}
+                              variant="outlined"
+                            >
+                              Избранное
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Card>
+
+              {totalPages > 1 && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                  <Pagination
+                    count={totalPages}
+                    page={page}
+                    onChange={(_, p) => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                    color="primary"
+                    size="small"
+                  />
+                </Box>
+              )}
+            </>
+          )}
+        </Box>
+      </Box>
 
       {/* Диалог добавления в watchlist */}
       <Dialog open={!!dialogItem} onClose={() => setDialogItem(null)} maxWidth="xs" fullWidth>

@@ -140,7 +140,7 @@ def collect_single_item(user_id: int, item_id: str, region: str):
                     UserWatchlist.item_id == item_id,
                     UserWatchlist.region == region,
                 )
-            )).scalar_one_or_none()
+            )).scalars().first()
 
             if entry:
                 await _collect_lots_for_item(db, entry)
@@ -166,7 +166,7 @@ def collect_history_single(user_id: int, item_id: str, region: str):
                     UserWatchlist.item_id == item_id,
                     UserWatchlist.region == region,
                 )
-            )).scalar_one_or_none()
+            )).scalars().first()
 
             if entry:
                 await _collect_history_for_item(db, entry)

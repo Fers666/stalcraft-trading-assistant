@@ -1,11 +1,13 @@
 /** Перевод категорий предметов с английского на русский */
 const CATEGORY_MAP: Record<string, string> = {
+  // Топ-уровень
   weapon:          'Оружие',
   armor:           'Броня',
   artefact:        'Артефакт',
   attachment:      'Обвес',
   bullet:          'Патроны',
   medicine:        'Медицина',
+  supply:          'Расходники',
   food:            'Еда',
   drink:           'Напитки',
   grenade:         'Гранаты',
@@ -13,25 +15,44 @@ const CATEGORY_MAP: Record<string, string> = {
   backpacks:       'Рюкзаки',
   misc:            'Разное',
   other:           'Прочее',
+  device:          'Устройство',
   weapon_modules:  'Модули оружия',
-  // Подкатегории
+  // Оружие
   assault_rifle:   'Штурмовая винтовка',
   sniper_rifle:    'Снайперская винтовка',
   pistol:          'Пистолет',
-  shotgun:         'Дробовик',
-  smg:             'Пистолет-пулемёт',
-  lmg:             'Пулемёт',
+  shotgun_rifle:   'Дробовик',
+  submachine_gun:  'Пистолет-пулемёт',
+  machine_gun:     'Пулемёт',
   melee:           'Холодное оружие',
+  heavy:           'Тяжёлое',
+  // Броня
   combat:          'Боевая',
   light:           'Лёгкая',
-  heavy:           'Тяжёлая',
+  clothes:         'Одежда',
+  combined:        'Комбинированная',
+  scientist:       'Учёного',
+  // Артефакты
   biochemical:     'Биохимический',
   thermal:         'Термический',
-  gravitational:   'Гравитационный',
-  electrical:      'Электрический',
-  collimator_sights: 'Коллиматорный прицел',
+  gravity:         'Гравитационный',
+  electrophysical: 'Электрофизический',
+  other_arts:      'Прочие',
+  // Обвесы
+  collimator_sights: 'Коллиматор',
   barrel:          'Ствол',
   mag:             'Магазин',
+  forend:          'Цевьё',
+  handgrips:       'Рукоять',
+  accessory:       'Аксессуар',
+  pistol_handle:   'Пист. рукоять',
+  // Модули
+  weapon_module:         'Оружейный модуль',
+  weapon_module_core:    'Ядро модуля',
+  weapon_module_remover: 'Квазидеструктор',
+  // Прочие подкатегории
+  armor_motif: 'Мотив брони',
+  skins:       'Скины',
 }
 
 /** Переводит категорию вида "artefact/biochemical" → "Артефакт / Биохимический" */
