@@ -82,7 +82,12 @@ async def list_items(
         )
 
     if category:
-        query = query.where(MasterItem.category.ilike(f"{category}%"))
+        query = query.where(
+            or_(
+                MasterItem.category == category,
+                MasterItem.category.ilike(f"{category}/%"),
+            )
+        )
 
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar()
 
