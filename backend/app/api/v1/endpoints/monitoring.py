@@ -21,6 +21,7 @@ class MonitoringItemResponse(BaseModel):
     max_price_7d: int | None
     sales_volume_7d: int | None
     price_volatility_7d: float | None
+    price_volatility_30d: float | None
     best_sell_hour: int | None
     best_sell_day: str | None
     best_buy_hour: int | None
@@ -117,12 +118,23 @@ async def get_item_stats(
     if quality_filter is None and enchant_filter is None:
         return stats
 
-    # С фильтрами — пересчитываем median/volume/sell_options от отфильтрованных продаж
+    # С фильтрами — пересчитываем median/volume/volatility/sell_options от отфильтрованных продаж
     from datetime import timezone, timedelta
-    cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
+    now = datetime.now(timezone.utc)
+    cutoff_7d  = now - timedelta(days=7)
+    cutoff_30d = now - timedelta(days=30)
 
     extra_conds = _build_sales_filter(quality_filter, enchant_filter)
-    prices = (await db.execute(
+    prices_30d = (await db.execute(
+        select(SalesHistory.price_per_unit).where(
+            SalesHistory.item_id == item_id,
+            SalesHistory.region  == region.upper(),
+            SalesHistory.sale_time >= cutoff_30d,
+            *extra_conds,
+        )
+    )).scalars().all()
+
+    prices_7d = (await db.execute(
         select(SalesHistory.price_per_unit).where(
             SalesHistory.item_id == item_id,
             SalesHistory.region  == region.upper(),
@@ -131,14 +143,20 @@ async def get_item_stats(
         )
     )).scalars().all()
 
-    if prices:
-        filtered_median = _statistics.median(prices)
-        filtered_volume = len(prices)
+    if prices_7d:
+        filtered_median = _statistics.median(prices_7d)
+        filtered_volume = len(prices_7d)
         filtered_opts   = _make_sell_options(filtered_median, filtered_volume)
     else:
         filtered_median = None
         filtered_volume = 0
         filtered_opts   = []
+
+    filtered_volatility_30d = None
+    if len(prices_30d) >= 5:
+        avg30 = _statistics.mean(prices_30d)
+        stdev30 = _statistics.stdev(prices_30d)
+        filtered_volatility_30d = round(stdev30 / avg30 * 100, 2) if avg30 > 0 else None
 
     return MonitoringItemResponse(
         item_id=stats.item_id,
@@ -149,6 +167,7 @@ async def get_item_stats(
         max_price_7d=int(stats.max_price_7d) if stats.max_price_7d else None,
         sales_volume_7d=filtered_volume,
         price_volatility_7d=float(stats.price_volatility_7d) if stats.price_volatility_7d else None,
+        price_volatility_30d=filtered_volatility_30d,
         best_sell_hour=stats.best_sell_hour,
         best_sell_day=stats.best_sell_day,
         best_buy_hour=stats.best_buy_hour,

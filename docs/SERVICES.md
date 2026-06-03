@@ -6,10 +6,10 @@
 
 | Задача | Расписание | Модуль | Описание |
 |--------|-----------|--------|----------|
-| `collect_all_active_lots` | каждые 5 мин | `app.tasks.collectors` | Уникальные пары из всех watchlist, 1 запрос/пару |
+| `collect_all_active_lots` | каждую минуту | `app.tasks.collectors` | Только «просроченные» пары (> 5 мин без обновления), макс. 10/мин, пауза 2 сек |
 | `collect_all_history` | раз в час (мин. 0) | `app.tasks.collectors` | История для watchlist предметов |
 | `calculate_all_market_stats` | раз в час (мин. 5) | `app.tasks.analyzers` | Пересчёт market_statistics |
-| `run_global_feed_batch` | раз в час (мин. 30) | `app.tasks.global_scanner` | ~93 предмета вне watchlist, скользящий цикл |
+| `run_global_feed_batch` | каждую минуту | `app.tasks.global_scanner` | 12 предметов вне watchlist, скользящий цикл ~3 часа, пауза 3 сек |
 | `delete_old_data` | ежедневно 03:00 | `app.tasks.cleanup` | Данные старше 120 дней |
 
 ### Логика дедупликации watchlist
@@ -27,28 +27,52 @@ for item_id, region in unique_pairs:
 
 Результат: 100 пользователей следят за одним товаром → **1 API запрос**.
 
+### Логика collect_all_active_lots (размазывание нагрузки)
+
+Задача запускается каждую минуту, но обрабатывает только предметы у которых подошло время:
+
+```python
+LOTS_REFRESH_INTERVAL = 300   # 5 минут между обновлениями
+LOTS_PER_RUN = 10             # максимум пар за один запуск
+LOTS_REQUEST_DELAY = 2        # секунд между API-запросами
+
+refresh_threshold = now - timedelta(seconds=LOTS_REFRESH_INTERVAL)
+
+# Берём только «просроченные» пары
+due_pairs = {
+    (e.item_id, e.region): e
+    for e in watchlist
+    if e.last_successful_check is None or e.last_successful_check < refresh_threshold
+}
+
+# Ограничиваем батч (защита от всплеска после рестарта сервера)
+pairs_to_collect = dict(list(due_pairs.items())[:LOTS_PER_RUN])
+```
+
+Эффект: предметы, добавленные в разное время, обновляются в разное время.
+Нагрузка на API размазана по минутам, а не концентрируется раз в 5 мин.
+
 ### Логика глобального сканера (run_global_feed_batch)
 
 ```python
-# Каждый час в минуту 30:
+BATCH_SIZE = 12      # предметов за один запуск (каждую минуту)
+REQUEST_DELAY = 3    # секунд между запросами
+
+# Каждую минуту:
 watchlist_pairs = {(e.item_id, e.region) for e in all_active_watchlist}
-all_items = master_items.query(region=DEFAULT_REGION)
+feed_items = [i for i in all_items if (i.item_id, DEFAULT_REGION) not in watchlist_pairs]
 
-# Исключаем watchlist предметы — они уже собираются каждые 5 мин
-feed_items = [i for i in all_items if (i.item_id, region) not in watchlist_pairs]
-
-# Берём следующий батч из скользящего указателя
 cursor = redis.get("global_scan:cursor") or 0
-batch = feed_items[cursor : cursor + BATCH_SIZE]  # ~93 предмета
+batch = feed_items[cursor : cursor + BATCH_SIZE]
 redis.set("global_scan:cursor", (cursor + BATCH_SIZE) % len(feed_items))
 
-# Лёгкий сбор — только /lots, без raw_lots
-for item in batch:
-    data = api.get_lots(item.item_id, region)
-    upsert_global_item_scan(item_id, region, metrics_only(data))
+for i, item_id in enumerate(batch):
+    upsert_global_item_scan(item_id, region, api.get_lots(item_id))
+    if i < len(batch) - 1:
+        await asyncio.sleep(REQUEST_DELAY)
 ```
 
-Полный цикл по всем предметам ≈ 24 часа.
+Полный цикл по всем предметам ≈ 3 часа (было 24 часа).
 Захватывает прайм-тайм естественно — данные актуальны в любое время суток.
 
 ---

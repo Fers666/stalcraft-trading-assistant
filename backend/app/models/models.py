@@ -178,7 +178,8 @@ class MarketStatistics(Base):
     min_price_7d        = Column(BigInteger)
     max_price_7d        = Column(BigInteger)
     sales_volume_7d     = Column(Integer)
-    price_volatility_7d = Column(Numeric(5, 2))
+    price_volatility_7d  = Column(Numeric(5, 2))
+    price_volatility_30d = Column(Numeric(5, 2))
     best_sell_hour      = Column(Integer)           # 0-23 MSK — лучший час продажи (вся неделя)
     best_sell_day       = Column(String(10))        # лучший день продажи
     best_buy_hour       = Column(Integer)           # 0-23 MSK — лучший час покупки (вся неделя)

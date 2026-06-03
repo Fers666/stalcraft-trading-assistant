@@ -1,8 +1,8 @@
 """
 Celery задача глобального скана предметов вне watchlist.
 
-Принцип: скользящий цикл ~24 часа.
-Каждый час берётся батч из ~93 предметов и сканируется.
+Принцип: скользящий цикл ~4 часа.
+Каждую минуту берётся батч из 10 предметов и сканируется.
 Предметы из активных watchlist исключаются — они уже собираются каждые 5 мин.
 
 Почему скользящий, а не ночной:
@@ -10,6 +10,7 @@ Celery задача глобального скана предметов вне 
   естественно — данные актуальны в любое время суток.
 """
 
+import asyncio
 import logging
 import statistics
 from datetime import datetime, timezone, timedelta
@@ -18,7 +19,8 @@ from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-BATCH_SIZE = 93         # предметов за один запуск (~1 час / 24 часа × 2236)
+BATCH_SIZE = 12         # предметов за один запуск (каждую минуту → полный цикл ~3 часа)
+REQUEST_DELAY = 3       # секунд между запросами внутри батча
 CURSOR_KEY = "global_scan:cursor"
 DEFAULT_REGION = "RU"
 EXPIRY_THRESHOLD_HOURS = 2
@@ -37,7 +39,7 @@ def run_async(coro):
 def run_global_feed_batch(self):
     """
     Обрабатывает один батч предметов из глобального скана.
-    Вызывается раз в час (minute=30).
+    Вызывается каждую минуту, 10 предметов за запуск, с паузой между запросами.
     """
 
     async def _run():
@@ -96,11 +98,13 @@ def run_global_feed_batch(self):
             stalcraft_client.region = DEFAULT_REGION
 
             try:
-                for item_id in batch:
+                for i, item_id in enumerate(batch):
                     try:
                         await _scan_single_item(db, item_id, DEFAULT_REGION)
                     except Exception as e:
                         logger.warning(f"Global scan failed for {item_id}: {e}")
+                    if i < len(batch) - 1:
+                        await asyncio.sleep(REQUEST_DELAY)
             finally:
                 stalcraft_client.region = original_region
 

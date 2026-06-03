@@ -9,6 +9,10 @@ from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+LOTS_REFRESH_INTERVAL = 300   # секунд между обновлениями одного предмета (5 мин)
+LOTS_PER_RUN = 10             # максимум предметов за один запуск (раз в минуту)
+LOTS_REQUEST_DELAY = 2        # секунд между API-запросами внутри запуска
+
 
 def run_async(coro):
     loop = asyncio.new_event_loop()
@@ -21,47 +25,69 @@ def run_async(coro):
 @celery_app.task(name="app.tasks.collectors.collect_all_active_lots", bind=True, max_retries=3)
 def collect_all_active_lots(self):
     """
-    Собирает активные лоты для всех watchlist записей.
+    Собирает активные лоты для watchlist записей, у которых подошло время обновления.
 
-    Ключевая оптимизация: дедупликация по (item_id, region).
-    100 пользователей следят за одним товаром → 1 API запрос, не 100.
-    Данные сохраняются с user_id=NULL (глобальный снэпшот).
+    Запускается каждую минуту, но обрабатывает только предметы где
+    last_successful_check IS NULL или last_successful_check < now - 5 мин.
+    Это размазывает нагрузку по времени: предметы обновляются в свой момент,
+    а не все разом по crontab.
+
+    Дедупликация по (item_id, region): 100 пользователей следят за одним
+    товаром → 1 API запрос.
     """
 
     async def _run():
         from app.db.session import get_celery_db_session as get_db_session
         from app.models.models import UserWatchlist
-        from sqlalchemy import select
+        from sqlalchemy import select, or_
+
+        now = datetime.now(timezone.utc)
+        refresh_threshold = now - timedelta(seconds=LOTS_REFRESH_INTERVAL)
 
         async with get_db_session() as db:
             watchlist = (await db.execute(
                 select(UserWatchlist).where(UserWatchlist.is_active == True)
             )).scalars().all()
 
-            # Дедупликация: собираем уникальные пары (item_id, region)
-            unique_pairs = {}
+            # Берём уникальные пары (item_id, region), которым пора обновиться
+            due_pairs = {}
             for entry in watchlist:
                 key = (entry.item_id, entry.region)
-                if key not in unique_pairs:
-                    unique_pairs[key] = entry  # берём первую запись как шаблон
+                if key not in due_pairs:
+                    is_due = (
+                        entry.last_successful_check is None
+                        or entry.last_successful_check < refresh_threshold
+                    )
+                    if is_due:
+                        due_pairs[key] = entry
+
+            # Ограничиваем батч чтобы не создавать всплеск (например, после рестарта)
+            pairs_to_collect = dict(list(due_pairs.items())[:LOTS_PER_RUN])
+
+            if not pairs_to_collect:
+                return
 
             logger.info(
-                f"Collecting lots: {len(watchlist)} watchlist entries → "
-                f"{len(unique_pairs)} unique (item_id, region) pairs"
+                f"Collecting lots: {len(pairs_to_collect)} due / {len(due_pairs)} overdue "
+                f"/ {len(watchlist)} total watchlist entries"
             )
 
-            for entry in unique_pairs.values():
+            collected_keys = set()
+            for i, (key, entry) in enumerate(pairs_to_collect.items()):
                 try:
                     await _collect_lots_for_item(db, entry)
+                    collected_keys.add(key)
                 except Exception as e:
                     logger.error(f"Failed to collect lots for {entry.item_id}/{entry.region}: {e}")
                     entry.error_status = str(e)
                     await db.commit()
+                if i < len(pairs_to_collect) - 1:
+                    await asyncio.sleep(LOTS_REQUEST_DELAY)
 
-            # Обновляем last_successful_check для ВСЕХ watchlist записей этой пары
+            # Обновляем last_successful_check для ВСЕХ записей собранных пар
             for entry in watchlist:
-                if entry.error_status is None:
-                    entry.last_successful_check = datetime.now(timezone.utc)
+                if (entry.item_id, entry.region) in collected_keys and entry.error_status is None:
+                    entry.last_successful_check = now
             await db.commit()
 
     try:

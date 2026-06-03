@@ -7,6 +7,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import InventoryIcon from '@mui/icons-material/Inventory'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import { useAuthStore } from '../store/authStore'
 import { tokens } from '../theme'
 
@@ -107,6 +108,33 @@ function AppNav() {
           </NavLink>
         ))}
       </div>
+
+      {/* Кнопка Админ — только для is_admin */}
+      {user?.is_admin && (
+        <NavLink
+          to="/app/admin"
+          style={({ isActive }) => ({
+            display: 'flex', alignItems: 'center', gap: 4,
+            fontFamily: '"Rajdhani", sans-serif',
+            fontWeight: isActive ? 700 : 500,
+            fontSize: 13, letterSpacing: '0.06em',
+            color: isActive ? G3 : G2,
+            textDecoration: 'none',
+            padding: '0 12px', height: 34, borderRadius: 8,
+            background: isActive ? alpha(G2, 0.12) : 'transparent',
+            border: `1px solid ${alpha(G2, 0.3)}`,
+            transition: 'all 0.2s',
+            flexShrink: 0,
+          })}
+        >
+          {({ isActive }) => (
+            <>
+              <AdminPanelSettingsIcon style={{ fontSize: 14, color: isActive ? G3 : G2 }} />
+              Админ
+            </>
+          )}
+        </NavLink>
+      )}
 
       {/* Пользователь */}
       {user && (

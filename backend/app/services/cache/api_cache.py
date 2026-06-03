@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 TTL_LOTS    = 5 * 60   # секунд
 TTL_HISTORY = 60 * 60  # секунд
 
+# Версия кэша — bump при изменении структуры данных (старые ключи умрут по TTL)
+CACHE_VERSION = "v2"
+
 
 class ApiCache:
     def __init__(self):
@@ -38,10 +41,10 @@ class ApiCache:
         return self._redis
 
     def _lots_key(self, region: str, item_id: str) -> str:
-        return f"stalcraft:cache:{region}:{item_id}:lots"
+        return f"stalcraft:cache:{CACHE_VERSION}:{region}:{item_id}:lots"
 
     def _history_key(self, region: str, item_id: str) -> str:
-        return f"stalcraft:cache:{region}:{item_id}:history"
+        return f"stalcraft:cache:{CACHE_VERSION}:{region}:{item_id}:history"
 
     async def get_lots(self, region: str, item_id: str) -> dict | None:
         """Возвращает закэшированные лоты или None если кэш пуст."""

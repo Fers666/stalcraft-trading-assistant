@@ -36,6 +36,7 @@ interface MarketStats {
   sell_hours_by_day: Record<string, number> | null
   buy_hours_by_day: Record<string, number> | null
   price_volatility_7d: number | null
+  price_volatility_30d: number | null
   sell_options: SellOption[] | null
 }
 
@@ -64,10 +65,10 @@ const DAYS_RU: Record<string, string> = {
   Friday: 'Пт', Saturday: 'Сб', Sunday: 'Вс',
 }
 
-const RISK_LABELS: Record<string, { label: string; color: 'success' | 'warning' | 'error' }> = {
-  low:    { label: 'Стабильный',     color: 'success' },
-  medium: { label: 'Умеренный риск', color: 'warning' },
-  high:   { label: 'Высокий риск',   color: 'error'   },
+const RISK_LABELS: Record<string, { label: string; short: string; color: 'success' | 'warning' | 'error'; desc: string }> = {
+  low:    { label: 'Стабильный',     short: 'С', color: 'success', desc: 'цена стабильна, риск минимален'      },
+  medium: { label: 'Умеренный риск', short: 'У', color: 'warning', desc: 'умеренные колебания'                 },
+  high:   { label: 'Высокий риск',   short: 'В', color: 'error',   desc: 'цена сильно скачет, прогноз ненадёжен' },
 }
 
 const CONFIDENCE_TOOLTIPS: Record<string, string> = {
@@ -85,8 +86,8 @@ const SELL_OPTION_TOOLTIPS: Record<string, string> = {
 const sellOptionColor = (label: string) =>
   ({ fast: '#3ED598', normal: '#D9AF37', premium: '#F5B74F' }[label] ?? '#F5F5F5')
 
-function volatilityRisk(v: number | null): keyof typeof RISK_LABELS {
-  if (v == null) return 'low'
+function volatilityRisk(v: number | null): keyof typeof RISK_LABELS | null {
+  if (v == null) return null
   if (v > 30) return 'high'
   if (v > 15) return 'medium'
   return 'low'
@@ -121,7 +122,10 @@ function ItemCard({ entry, stats, onDelete }: {
   const [lotMode, setLotMode]     = useState<'current' | 'median'>('median')
   const [lots, setLots]           = useState<LotItem[]>([])
   const [lotsLoaded, setLotsLoaded] = useState(false)
-  const risk = stats ? RISK_LABELS[volatilityRisk(stats.price_volatility_7d)] : null
+  const riskKey   = stats ? volatilityRisk(stats.price_volatility_7d)  : null
+  const riskKey30 = stats ? volatilityRisk(stats.price_volatility_30d) : null
+  const risk   = riskKey   ? RISK_LABELS[riskKey]   : null
+  const risk30 = riskKey30 ? RISK_LABELS[riskKey30] : null
 
   // Загружаем лоты независимо от наличия stats
   useEffect(() => {
@@ -188,8 +192,15 @@ function ItemCard({ entry, stats, onDelete }: {
       .slice(0, 5)
   })()
 
+  const totalFilteredLots = lots.filter(l => {
+    if (l.is_expiring) return false
+    if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
+    if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
+    return true
+  }).length
+
   const hasQuality = profitableLots.some(l => l.quality_name || l.enchant_level)
-  const lotGridCols = hasQuality ? '1fr auto auto auto auto' : '1fr auto auto auto'
+  const lotGridCols = hasQuality ? '1fr auto 86px 86px 86px' : '1fr 86px 86px 86px'
 
   // Часы продажи/покупки в зависимости от режима
   const sellHour = timeMode === 'today'
@@ -203,7 +214,7 @@ function ItemCard({ entry, stats, onDelete }: {
 
   return (
     <Card sx={{
-      width: 440,
+      width: 520,
       height: 900,
       display: 'flex',
       flexDirection: 'column',
@@ -250,13 +261,22 @@ function ItemCard({ entry, stats, onDelete }: {
             </Typography>
             <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, mb: 1.5 }}>
               <Chip label={entry.region} size="small" variant="outlined" />
-              {risk && (
-                <Tooltip title={`Волатильность цены за 7 дней. ${risk.label} = ${
-                  risk.color === 'success' ? 'цена стабильна, риск минимален' :
-                  risk.color === 'warning' ? 'умеренные колебания' :
-                  'цена сильно скачет, прогноз ненадёжен'
-                }`}>
-                  <Chip label={risk.label} size="small" color={risk.color} variant="outlined" />
+              {risk ? (
+                <Tooltip title={`Волатильность за 7 дней: ${stats!.price_volatility_7d!.toFixed(1)}% — ${risk.label}. ${risk.desc}`}>
+                  <Chip label={`7д · ${risk.short}`} size="small" color={risk.color} variant="outlined" />
+                </Tooltip>
+              ) : stats && (
+                <Tooltip title="Мало продаж — волатильность за 7 дней не рассчитана">
+                  <Chip label="7д · ?" size="small" variant="outlined" sx={{ color: 'text.disabled', borderColor: 'text.disabled', opacity: 0.5 }} />
+                </Tooltip>
+              )}
+              {risk30 ? (
+                <Tooltip title={`Волатильность за 30 дней: ${stats!.price_volatility_30d!.toFixed(1)}% — ${risk30.label}. ${risk30.desc}`}>
+                  <Chip label={`30д · ${risk30.short}`} size="small" color={risk30.color} variant="outlined" />
+                </Tooltip>
+              ) : stats && (
+                <Tooltip title="Мало продаж — волатильность за 30 дней не рассчитана">
+                  <Chip label="30д · ?" size="small" variant="outlined" sx={{ color: 'text.disabled', borderColor: 'text.disabled', opacity: 0.5 }} />
                 </Tooltip>
               )}
             </Box>
@@ -371,7 +391,18 @@ function ItemCard({ entry, stats, onDelete }: {
         {!stats && lotsLoaded && (
           <>
             <Divider sx={{ my: 1.5 }} />
-            <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'center', py: 0.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
+              <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
+                НА РЫНКЕ
+              </Typography>
+              <Chip
+                label={totalFilteredLots > 0 ? `${totalFilteredLots}` : 'нет'}
+                size="small"
+                variant="outlined"
+                sx={{ height: 18, fontSize: 10, color: 'text.secondary' }}
+              />
+            </Box>
+            <Typography variant="caption" color="text.disabled" sx={{ display: 'block', py: 0.5 }}>
               Статистика рассчитывается — обновится автоматически через ~1 мин
             </Typography>
           </>
@@ -395,8 +426,8 @@ function ItemCard({ entry, stats, onDelete }: {
                     : 'Прибыль если купить сейчас и продать по текущим рыночным ценам.'
                   }>
                     {profitableLots.length > 0
-                      ? <Chip label={`${profitableLots.length}`} size="small" color="success" sx={{ height: 18, fontSize: 10 }} />
-                      : <Chip label="нет" size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'text.disabled' }} />
+                      ? <Chip label={`${profitableLots.length} / ${totalFilteredLots}`} size="small" color="success" sx={{ height: 18, fontSize: 10 }} />
+                      : <Chip label={`нет / ${totalFilteredLots}`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'text.disabled' }} />
                     }
                   </Tooltip>
                   <ToggleButtonGroup
@@ -424,7 +455,10 @@ function ItemCard({ entry, stats, onDelete }: {
                         <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em', textAlign: 'right' }}>КАЧЕСТВО</Typography>
                       )}
                       {sellPrices!.map(sp => (
-                        <Typography key={sp.label} sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em', textAlign: 'right' }}>
+                        <Typography key={sp.label} sx={{
+                          fontSize: '0.58rem', color: sellOptionColor(sp.label),
+                          fontWeight: 700, letterSpacing: '0.06em', textAlign: 'right',
+                        }}>
                           {sp.label_ru.toUpperCase()}
                         </Typography>
                       ))}

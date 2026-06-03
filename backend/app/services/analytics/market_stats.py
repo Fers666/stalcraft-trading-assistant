@@ -26,8 +26,11 @@ from app.models.models import (
 
 logger = logging.getLogger(__name__)
 
-# Минимум продаж для расчёта статистики (волатильность, лучший час/день)
+# Минимум продаж для расчёта лучшего часа/дня продажи
 MIN_SALES_FOR_STATS = 3
+
+# Минимум продаж для расчёта волатильности (меньше → число бессмысленно)
+MIN_SALES_FOR_VOLATILITY = 5
 
 # Минимум точек (lot_start) для nearest-neighbor прогноза времени продажи
 MIN_BUYOUTS_FOR_TIME_MODEL = 5
@@ -85,10 +88,17 @@ async def calculate_market_stats(
     s7d = safe_stats(prices_7d)
 
     volatility_7d = None
-    if len(prices_7d) >= 2:
+    if len(prices_7d) >= MIN_SALES_FOR_VOLATILITY:
         avg = statistics.mean(prices_7d)
         stdev = statistics.stdev(prices_7d)
         volatility_7d = round(stdev / avg * 100, 2) if avg > 0 else None
+
+    prices_30d = [s.price_per_unit for s in sales_30d]
+    volatility_30d = None
+    if len(prices_30d) >= MIN_SALES_FOR_VOLATILITY:
+        avg = statistics.mean(prices_30d)
+        stdev = statistics.stdev(prices_30d)
+        volatility_30d = round(stdev / avg * 100, 2) if avg > 0 else None
 
     # ── 3. Лучшее время продажи (час и день недели) ───────────────────────────
     # Взвешенный скор: 60% цена + 40% объём.
@@ -257,7 +267,8 @@ async def calculate_market_stats(
     existing.min_price_7d        = s7d.get("min")
     existing.max_price_7d        = s7d.get("max")
     existing.sales_volume_7d     = s7d.get("count", 0)
-    existing.price_volatility_7d = volatility_7d
+    existing.price_volatility_7d  = volatility_7d
+    existing.price_volatility_30d = volatility_30d
     existing.best_sell_hour      = best_sell_hour
     existing.best_sell_day       = best_sell_day
     existing.best_buy_hour       = best_buy_hour

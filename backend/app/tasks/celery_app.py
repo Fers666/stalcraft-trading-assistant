@@ -23,10 +23,11 @@ celery_app.conf.update(
     worker_concurrency=1,
     task_routes={"app.tasks.*": {"queue": "collector"}},
     beat_schedule={
-        # Сбор активных лотов каждые 5 минут
+        # Сбор активных лотов: каждую минуту, берёт только "просроченные" записи
+        # (last_successful_check < now - 5 мин). Нагрузка размазана по времени.
         "collect-active-lots": {
             "task": "app.tasks.collectors.collect_all_active_lots",
-            "schedule": crontab(minute="*/5"),
+            "schedule": crontab(minute="*"),
         },
         # Сбор истории раз в час
         "collect-history-and-stats": {
@@ -43,10 +44,10 @@ celery_app.conf.update(
             "task": "app.tasks.analyzers.calculate_all_market_stats",
             "schedule": crontab(minute="5"),
         },
-        # Глобальный скан предметов вне watchlist (скользящий батч ~93 предмета/час)
+        # Глобальный скан предметов вне watchlist (10 предметов/мин → полный цикл ~4 ч)
         "global-feed-batch": {
             "task": "app.tasks.global_scanner.run_global_feed_batch",
-            "schedule": crontab(minute="30"),
+            "schedule": crontab(minute="*"),
         },
         # "process-notification-queue": {
         #     "task": "app.tasks.notifications.process_queue",
