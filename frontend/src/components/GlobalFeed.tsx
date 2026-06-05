@@ -88,7 +88,6 @@ export default function GlobalFeed() {
     return () => clearInterval(t)
   }, [watchlist, loadWatchlistAndStats])
 
-  if (location.pathname === '/app/monitoring') return null
   if (!initialized || watchlist.length === 0) return null
 
   const handleClick = (id: number) => {
@@ -136,7 +135,7 @@ export default function GlobalFeed() {
         '&::-webkit-scrollbar': { height: '3px' },
         '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.09)', borderRadius: '2px' },
       }}>
-        {feedItems.map(({ entry, count }) => (
+        {feedItems.map(({ entry, count, latest_lot_time }) => (
           <Box
             key={entry.id}
             onClick={() => handleClick(entry.id)}
@@ -178,6 +177,11 @@ export default function GlobalFeed() {
               {entry.enchant_filter !== null && (
                 <Typography sx={{ fontSize: '0.62rem', color: 'primary.main', fontWeight: 700, lineHeight: 1 }}>
                   +{entry.enchant_filter}
+                </Typography>
+              )}
+              {latest_lot_time && (
+                <Typography sx={{ fontSize: '0.54rem', color: 'text.disabled', lineHeight: 1 }}>
+                  {new Date(latest_lot_time).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
                 </Typography>
               )}
               <Box sx={{ ml: 'auto' }}>
