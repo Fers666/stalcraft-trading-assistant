@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Box, Avatar, Typography, Skeleton } from '@mui/material'
-import { useFeedStore, QLT_NAMES, FEED_COMMISSION } from '../store/feedStore'
+import { useFeedStore, QLT_NAMES } from '../store/feedStore'
 import { iconUrl } from '../utils/i18n'
 
 export const FEED_HEIGHT = 84
@@ -61,8 +61,8 @@ export default function GlobalFeed() {
   const navigate  = useNavigate()
   const location  = useLocation()
   const {
-    watchlist, stats, lotsMap, lastLotRefresh, initialized,
-    profitableItemIds, loadWatchlistAndStats, loadAllLots,
+    watchlist, feedItems, lastLotRefresh, initialized,
+    loadWatchlistAndStats, loadAllLots,
   } = useFeedStore()
 
   // Stats: каждые 5 мин
@@ -93,6 +93,8 @@ export default function GlobalFeed() {
   // До инициализации и при пустом вотчлисте — не занимаем место
   if (!initialized || watchlist.length === 0) return null
 
+  console.log('[GlobalFeed] state:', { initialized, watchlistLen: watchlist.length, lastLotRefresh, feedItemsLen: feedItems.length })
+
   const handleClick = (id: number) => {
     navigate('/app/monitoring', { state: { scrollTo: id } })
   }
@@ -103,7 +105,7 @@ export default function GlobalFeed() {
       <Box sx={feedBarSx}>
         <FeedLabel lastRefresh={null} hasItems={false} />
         <Box sx={{ width: 1, height: 52, bgcolor: 'rgba(255,255,255,0.07)', flexShrink: 0 }} />
-        <Box sx={{ display: 'flex', gap: 1.25, overflowX: 'hidden', flex: 1 }}>
+        <div style={{ display: 'flex', gap: 10, flex: 1, alignItems: 'center', overflow: 'hidden' }}>
           {[0, 1, 2, 3].map(i => (
             <Skeleton
               key={i}
@@ -113,134 +115,46 @@ export default function GlobalFeed() {
               sx={{ flexShrink: 0, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}
             />
           ))}
-        </Box>
+        </div>
       </Box>
     )
   }
 
-  // Лоты загружены, но выгодных нет — скрываем бар
-  if (profitableItemIds.length === 0) return null
-
-  // Вычисляем детальные данные только для выгодных позиций
-  const feedItems = watchlist
-    .filter(e => profitableItemIds.includes(e.id))
-    .flatMap(entry => {
-      const s    = stats[entry.id]
-      const lots = lotsMap[entry.id]
-      if (!s?.sell_options || !lots) return []
-      const normal = s.sell_options.find(o => o.label === 'normal')
-      if (!normal) return []
-      const count = lots.filter(l => {
-        if (l.is_expiring || l.buyout_price <= 0) return false
-        if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
-        if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
-        return Math.round(normal.price_per_unit * (1 - FEED_COMMISSION) - Math.floor(l.buyout_price / l.amount)) > 0
-      }).length
-      if (count === 0) return []
-      return [{ entry, count }]
-    })
-    .sort((a, b) => b.count - a.count)
-
-  // Промежуточное состояние: profitableItemIds устарел, lotsMap уже обновился
+  // feedItems вычислены в сторе атомарно — нет выгодных позиций
   if (feedItems.length === 0) return null
+
+  console.log('[GlobalFeed] rendering feedItems:', feedItems.length, feedItems)
 
   return (
     <Box sx={feedBarSx}>
-      <FeedLabel lastRefresh={lastLotRefresh} hasItems={feedItems.length > 0} />
+      <FeedLabel lastRefresh={lastLotRefresh} hasItems={true} />
 
       {/* Разделитель */}
       <Box sx={{ width: 1, height: 52, bgcolor: 'rgba(255,255,255,0.07)', flexShrink: 0 }} />
 
-      {/* Карточки */}
-      <Box sx={{
-        display:    'flex',
-        gap:        1.25,
-        overflowX:  'auto',
-        flex:       1,
-        pb:         0.25,
-        '&::-webkit-scrollbar':       { height: '3px' },
-        '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.09)', borderRadius: '2px' },
-      }}>
+      {/* DEBUG: plain divs to test visibility */}
+      <div style={{ display: 'flex', gap: 10, flex: 1, alignItems: 'center', overflowX: 'auto', overflowY: 'hidden', height: FEED_HEIGHT }}>
         {feedItems.map(({ entry, count }) => (
-          <Box
+          <div
             key={entry.id}
             onClick={() => handleClick(entry.id)}
-            sx={{
-              flexShrink:   0,
-              width:        172,
-              p:            '10px 10px 8px',
-              borderRadius: '10px',
-              border:       '1px solid rgba(62,213,152,0.3)',
-              background:   'rgba(62,213,152,0.035)',
-              cursor:       'pointer',
-              transition:   'background 0.15s, border-color 0.15s, transform 0.1s',
-              '&:hover': {
-                background:  'rgba(62,213,152,0.09)',
-                borderColor: 'rgba(62,213,152,0.65)',
-                transform:   'translateY(-1px)',
-              },
-              '&:active': { transform: 'translateY(0)' },
+            style={{
+              width: 172, height: 62,
+              background: 'red',
+              color: 'white',
+              fontSize: 13,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 8,
+              cursor: 'pointer',
             }}
           >
-            {/* Иконка + название */}
-            <Box sx={{ display: 'flex', gap: 0.875, alignItems: 'flex-start', mb: 0.625 }}>
-              <Avatar
-                src={iconUrl(entry.icon_path) ?? undefined}
-                variant="rounded"
-                sx={{
-                  width: 30, height: 30, flexShrink: 0,
-                  bgcolor:      'rgba(255,255,255,0.04)',
-                  border:       '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '5px',
-                  mt:           0.125,
-                }}
-              >
-                {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
-              </Avatar>
-              <Typography sx={{
-                fontSize:        '0.72rem',
-                fontWeight:      600,
-                lineHeight:      1.3,
-                overflow:        'hidden',
-                display:         '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                flex:            1,
-              }}>
-                {entry.name_ru || entry.name_en || entry.item_id}
-              </Typography>
-            </Box>
-
-            {/* Качество + заточка + бейдж */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              {entry.quality_filter !== null && (
-                <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 600, lineHeight: 1 }}>
-                  {QLT_NAMES[entry.quality_filter]}
-                </Typography>
-              )}
-              {entry.enchant_filter !== null && (
-                <Typography sx={{ fontSize: '0.62rem', color: 'primary.main', fontWeight: 700, lineHeight: 1 }}>
-                  +{entry.enchant_filter}
-                </Typography>
-              )}
-              <Box sx={{ ml: 'auto' }}>
-                <Box sx={{
-                  bgcolor:      'success.main',
-                  color:        '#000',
-                  borderRadius: '5px',
-                  px:           0.875,
-                  py:           0.25,
-                  fontSize:     '0.68rem',
-                  fontWeight:   700,
-                  lineHeight:   1.45,
-                }}>
-                  {count}
-                </Box>
-              </Box>
-            </Box>
-          </Box>
+            {entry.name_ru || entry.item_id} ({count})
+          </div>
         ))}
-      </Box>
+      </div>
     </Box>
   )
 }

@@ -43,12 +43,18 @@ export const QLT_NAMES: Record<number, string> = {
 
 export const FEED_COMMISSION = 0.05
 
+export interface FeedItem {
+  entry: FeedWatchlistEntry
+  count: number
+}
+
 interface FeedState {
   watchlist:          FeedWatchlistEntry[]
   stats:              Record<number, FeedMarketStats>
   lotsMap:            Record<number, FeedLotItem[] | undefined>
   lastLotRefresh:     Date | null
   profitableItemIds:  number[]
+  feedItems:          FeedItem[]
   initialized:        boolean
 
   loadWatchlistAndStats: (silent?: boolean) => Promise<void>
@@ -62,6 +68,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
   lotsMap:           {},
   lastLotRefresh:    null,
   profitableItemIds: [],
+  feedItems:         [],
   initialized:       false,
 
   loadWatchlistAndStats: async (silent = false) => {
@@ -102,7 +109,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         set(state => ({ lotsMap: { ...state.lotsMap, [entry.id]: data.lots ?? [] } }))
       } catch { /* keep previous */ }
     }))
-    // Вычисляем выгодные позиции после загрузки всех лотов
+    // Вычисляем выгодные позиции и feedItems атомарно
     const { stats, lotsMap, watchlist: wl } = get()
     const profitableItemIds = wl.filter(entry => {
       const s = stats[entry.id]
@@ -117,7 +124,27 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         return Math.round(normal.price_per_unit * (1 - FEED_COMMISSION) - Math.floor(l.buyout_price / l.amount)) > 0
       })
     }).map(e => e.id)
-    set({ lastLotRefresh: new Date(), profitableItemIds })
+
+    const feedItems: FeedItem[] = wl
+      .filter(entry => profitableItemIds.includes(entry.id))
+      .flatMap(entry => {
+        const s    = stats[entry.id]
+        const lots = lotsMap[entry.id]
+        if (!s?.sell_options || !lots) return []
+        const normal = s.sell_options.find(o => o.label === 'normal')
+        if (!normal) return []
+        const count = lots.filter(l => {
+          if (l.is_expiring || l.buyout_price <= 0) return false
+          if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
+          if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
+          return Math.round(normal.price_per_unit * (1 - FEED_COMMISSION) - Math.floor(l.buyout_price / l.amount)) > 0
+        }).length
+        if (count === 0) return []
+        return [{ entry, count }]
+      })
+      .sort((a, b) => b.count - a.count)
+
+    set({ lastLotRefresh: new Date(), profitableItemIds, feedItems })
   },
 
   removeEntry: (id) => set(state => ({
@@ -125,5 +152,6 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     lotsMap:           Object.fromEntries(Object.entries(state.lotsMap).filter(([k]) => Number(k) !== id)),
     stats:             Object.fromEntries(Object.entries(state.stats).filter(([k]) => Number(k) !== id)),
     profitableItemIds: state.profitableItemIds.filter(i => i !== id),
+    feedItems:         state.feedItems.filter(fi => fi.entry.id !== id),
   })),
 }))

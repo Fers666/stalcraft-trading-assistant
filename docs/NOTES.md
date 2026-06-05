@@ -69,6 +69,55 @@
 
 ---
 
+## Деплой на продакшн (VPS)
+
+### Инфраструктура
+- **Сервер:** 161.104.44.231, Debian 13, 2 vCPU / 4 ГБ / 50 ГБ
+- **Пользователь:** `evgen` (shell: fish)
+- **Проект:** `/home/evgen/app/`
+- **Caddy:** отдельный compose-проект в `/home/evgen/caddytest/`
+- **Docker-сети:** `app_default` (приложение) + `caddytest_default` (Caddy) → Caddy подключён к обеим через `networks.app_net.external: true` в `~/caddytest/docker-compose.yml`
+
+### Накатить обновление кода
+```bash
+cd /home/evgen/app && git pull
+docker compose -f docker-compose.prod.yml build --no-cache backend frontend
+docker compose -f docker-compose.prod.yml up -d
+```
+Если были изменения в моделях — применить миграции:
+```bash
+docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
+```
+
+### Caddy: принудительно применить новый Caddyfile
+```bash
+docker exec caddytest-caddy-1 caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+> Простой `docker compose restart` не помогает — Caddy может загрузить старый autosave.json. Нужен именно `caddy reload`.
+
+### Первый запуск после деплоя
+1. Зарегистрировать первого пользователя на сайте
+2. Выдать права и апрув через SQL:
+```bash
+docker compose -f /home/evgen/app/docker-compose.prod.yml exec postgres psql -U stalcraft -d stalcraft -c \
+  "UPDATE users SET is_admin = true, is_approved = true WHERE username = 'mr_jonson_ponson';"
+```
+3. Заполнить каталог (2295 предметов из GitHub):
+```bash
+bash -c 'TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login -H "Content-Type: application/json" -d "{\"email\":\"nestarnarod@gmail.com\",\"password\":\"ПАРОЛЬ\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)[\"access_token\"])") && curl -s -X POST http://localhost:8000/api/v1/items/refresh-catalog -H "Authorization: Bearer $TOKEN"'
+```
+
+### Нюансы
+- **Fish shell** — не поддерживает `VAR=$(...)`, используй `bash -c '...'` или `set VAR (...)` синтаксис fish
+- **DB credentials:** user=`stalcraft`, db=`stalcraft` (не `scuser`/`scdb`)
+- **Логин через API** — по `email`, не `username`
+- **`version:` в docker-compose** — предупреждение `obsolete` безвредно
+- **Апрув пользователя** требует двух полей: `is_admin = true` И `is_approved = true`
+- **Сеть Caddy → app** — если Caddy пересоздался (после `docker compose up -d`), нужно переподключить: `docker network connect app_default caddytest-caddy-1`; теперь это автоматически через `docker-compose.yml` в caddytest
+- **Каталог** не заполняется автоматически — нужен ручной вызов `/items/refresh-catalog` после первого деплоя
+
+---
+
 ## Идеи на будущее
 
 - Уведомления в реальном времени — WebSocket push

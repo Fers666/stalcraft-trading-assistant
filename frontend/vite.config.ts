@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': 'http://backend:8000',
     },
     // Polling нужен для Docker на Windows — inotify события не пробрасываются
     watch: {
