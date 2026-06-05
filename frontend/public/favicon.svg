@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Dark background -->
+  <rect width="64" height="64" rx="10" fill="#080808"/>
+  <!-- Diamond shape -->
+  <polygon points="32,6 58,32 32,58 6,32" fill="none" stroke="#D9AF37" stroke-width="3.5"/>
+  <!-- Inner chart bars -->
+  <rect x="23" y="35" width="5" height="10" rx="1" fill="#D9AF37"/>
+  <rect x="30" y="28" width="5" height="17" rx="1" fill="#F2C94C"/>
+  <rect x="37" y="31" width="5" height="14" rx="1" fill="#D9AF37"/>
+  <!-- Trend line -->
+  <polyline points="24,33 32,25 40,29" fill="none" stroke="#FFB800" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Dot on trend peak -->
+  <circle cx="32" cy="25" r="2" fill="#FFB800"/>
+</svg>
