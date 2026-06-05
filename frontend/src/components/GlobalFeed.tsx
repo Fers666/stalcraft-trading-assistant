@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Box, Avatar, Typography, Skeleton } from '@mui/material'
 import { useFeedStore, QLT_NAMES } from '../store/feedStore'
 import { iconUrl } from '../utils/i18n'
@@ -59,7 +59,6 @@ function FeedLabel({ lastRefresh, hasItems }: { lastRefresh: Date | null; hasIte
 
 export default function GlobalFeed() {
   const navigate  = useNavigate()
-  const location  = useLocation()
   const {
     watchlist, feedItems, lastLotRefresh, initialized,
     loadWatchlistAndStats, loadAllLots,
