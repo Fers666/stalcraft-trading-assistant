@@ -1,4 +1,8 @@
-import axios from 'axios'
+import axios, { InternalAxiosRequestConfig } from 'axios'
+
+interface RetryConfig extends InternalAxiosRequestConfig {
+  _retry?: boolean
+}
 
 const api = axios.create({
   baseURL: '/api/v1',
@@ -21,7 +25,7 @@ function notifyQueue(token: string) {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const original = error.config
+    const original: RetryConfig = error.config
     if (error.response?.status !== 401 || original._retry) {
       return Promise.reject(error)
     }
