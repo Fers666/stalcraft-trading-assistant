@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     # Telegram
     telegram_bot_token: str = ""
+    telegram_bot_username: str = "SC_TRADING_auc_bot"
     telegram_webhook_url: str = ""
 
     # App

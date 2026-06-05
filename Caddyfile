@@ -1,0 +1,23 @@
+# Stalcraft Trading Assistant — Production Caddyfile
+# Разместить: /etc/caddy/Caddyfile
+# Перезапуск: sudo systemctl reload caddy
+
+:80 {
+    # Backend API
+    handle /api/* {
+        reverse_proxy localhost:8000
+    }
+
+    # Swagger UI
+    handle /docs* {
+        reverse_proxy localhost:8000
+    }
+    handle /openapi.json {
+        reverse_proxy localhost:8000
+    }
+
+    # Frontend SPA (React)
+    handle {
+        reverse_proxy localhost:3000
+    }
+}

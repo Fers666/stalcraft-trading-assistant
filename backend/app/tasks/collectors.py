@@ -9,9 +9,9 @@ from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-LOTS_REFRESH_INTERVAL = 300   # секунд между обновлениями одного предмета (5 мин)
-LOTS_PER_RUN = 10             # максимум предметов за один запуск (раз в минуту)
-LOTS_REQUEST_DELAY = 2        # секунд между API-запросами внутри запуска
+LOTS_REFRESH_INTERVAL = 20    # секунд между обновлениями одного предмета (задача каждые 20 сек)
+LOTS_PER_RUN = 1              # один предмет за запуск → 3 лота/мин при расписании 20 сек
+LOTS_REQUEST_DELAY = 2        # секунд между API-запросами внутри запуска (при LOTS_PER_RUN>1)
 
 
 def run_async(coro):
@@ -27,10 +27,8 @@ def collect_all_active_lots(self):
     """
     Собирает активные лоты для watchlist записей, у которых подошло время обновления.
 
-    Запускается каждую минуту, но обрабатывает только предметы где
-    last_successful_check IS NULL или last_successful_check < now - 5 мин.
-    Это размазывает нагрузку по времени: предметы обновляются в свой момент,
-    а не все разом по crontab.
+    Запускается каждые 20 сек (timedelta), обрабатывает 1 предмет за запуск → 3 лота/мин.
+    Порядок: last_successful_check ASC NULLS FIRST — самые устаревшие идут первыми (очередь по давности).
 
     Дедупликация по (item_id, region): 100 пользователей следят за одним
     товаром → 1 API запрос.
@@ -45,8 +43,11 @@ def collect_all_active_lots(self):
         refresh_threshold = now - timedelta(seconds=LOTS_REFRESH_INTERVAL)
 
         async with get_db_session() as db:
+            from sqlalchemy import asc, nullsfirst
             watchlist = (await db.execute(
-                select(UserWatchlist).where(UserWatchlist.is_active == True)
+                select(UserWatchlist)
+                .where(UserWatchlist.is_active == True)
+                .order_by(nullsfirst(asc(UserWatchlist.last_successful_check)))
             )).scalars().all()
 
             # Берём уникальные пары (item_id, region), которым пора обновиться
@@ -120,6 +121,56 @@ def collect_all_history(self):
         run_async(_run())
     except Exception as exc:
         raise self.retry(exc=exc, countdown=120)
+
+
+@celery_app.task(name="app.tasks.collectors.force_refresh_all_history")
+def force_refresh_all_history():
+    """
+    Принудительный пересбор истории для всех уникальных (item_id, region) из watchlist.
+    Используется после изменений в логике сбора (например, добавление additional=true).
+    После сбора автоматически пересчитывает статистику.
+    """
+    async def _run():
+        from app.db.session import get_celery_db_session as get_db_session
+        from app.models.models import UserWatchlist, MasterItem
+        from app.tasks.analyzers import calculate_market_stats
+        from sqlalchemy import select
+
+        async with get_db_session() as db:
+            watchlist = (await db.execute(
+                select(UserWatchlist).where(UserWatchlist.is_active == True)
+            )).scalars().all()
+
+            # Дедупликация: один API-запрос на пару (item_id, region)
+            seen: set = set()
+            unique_entries = []
+            for entry in watchlist:
+                key = (entry.item_id, entry.region)
+                if key not in seen:
+                    seen.add(key)
+                    unique_entries.append(entry)
+
+            logger.info(f"force_refresh_all_history: {len(unique_entries)} unique items")
+
+            refreshed: set = set()
+            for entry in unique_entries:
+                try:
+                    await _collect_history_for_item(db, entry)
+                    refreshed.add((entry.item_id, entry.region))
+                    logger.info(f"force_refresh: history collected for {entry.item_id}/{entry.region}")
+                except Exception as e:
+                    logger.error(f"force_refresh: failed {entry.item_id}/{entry.region}: {e}")
+
+            # Пересчёт статистики для всех обновлённых пар
+            from app.services.analytics.market_stats import calculate_market_stats as calc
+            for item_id, region in refreshed:
+                try:
+                    await calc(db, item_id, region)
+                    logger.info(f"force_refresh: stats recalculated for {item_id}/{region}")
+                except Exception as e:
+                    logger.error(f"force_refresh: stats failed for {item_id}/{region}: {e}")
+
+    run_async(_run())
 
 
 @celery_app.task(name="app.tasks.collectors.collect_single_item")
@@ -282,7 +333,7 @@ async def _collect_history_for_item(db, entry):
     """
     from app.services.collector.client import stalcraft_client
     from app.models.models import SalesHistory, CollectedData
-    from sqlalchemy import select
+    from sqlalchemy import select, update
     from datetime import timedelta
 
     client_region = stalcraft_client.region
@@ -298,16 +349,21 @@ async def _collect_history_for_item(db, entry):
         now    = datetime.now(timezone.utc)
         cutoff = now - timedelta(days=120)
 
-        # Уже сохранённые сделки — чтобы не дублировать
-        existing_times = set(
-            row[0] for row in (await db.execute(
-                select(SalesHistory.sale_time).where(
-                    SalesHistory.item_id == entry.item_id,
-                    SalesHistory.region  == entry.region,
-                    SalesHistory.sale_time >= now - timedelta(days=7),
-                )
-            )).all()
-        )
+        # Загружаем все существующие записи за 120 дней:
+        # нужны id и additional_info чтобы ретроактивно добавить qlt/ptn
+        # для записей, собранных до добавления additional=true в API запросе.
+        existing_rows = (await db.execute(
+            select(SalesHistory.id, SalesHistory.sale_time, SalesHistory.additional_info).where(
+                SalesHistory.item_id == entry.item_id,
+                SalesHistory.region  == entry.region,
+                SalesHistory.sale_time >= cutoff,
+            )
+        )).all()
+
+        # sale_time → (id, additional_info) для быстрого поиска
+        existing_map: dict = {}
+        for row in existing_rows:
+            existing_map[row.sale_time] = (row.id, row.additional_info)
 
         # Два последних снэпшота для матчинга лотов
         snapshots = (await db.execute(
@@ -319,26 +375,22 @@ async def _collect_history_for_item(db, entry):
                 CollectedData.raw_lots.isnot(None),
             )
             .order_by(CollectedData.collect_time.desc())
-            .limit(10)  # берём последние 10 снэпшотов (~50 минут истории)
+            .limit(200)  # ~1.7 ч при интервале 20 сек — перекрывает окно между hourly сборами
         )).scalars().all()
 
-        def find_lot_start(total_price: int, amount: int, sold_at: datetime) -> str | None:
+        def find_lot_info(total_price: int, amount: int, sold_at: datetime) -> dict:
             """
-            Ищет lot_start (startTime) лота из снэпшотов.
-            Матчинг: (buyoutPrice == total_price) AND (amount == amount)
-                     AND (endTime > sold_at) — лот куплен, не истёк.
-            Лот должен присутствовать в снэпшоте до продажи и отсутствовать после.
+            Ищет лот в снэпшотах по (buyoutPrice, amount, endTime).
+            Возвращает dict с lot_start, qlt, ptn — всё что удалось извлечь.
+            Это единственный способ узнать качество/заточку проданного артефакта,
+            так как Stalcraft API /history не возвращает additional с qlt/ptn.
             """
-            lot_key = (total_price, amount)
-
-            # Снэпшоты до и после продажи
             before = [s for s in snapshots if s.collect_time <= sold_at]
             after  = [s for s in snapshots if s.collect_time > sold_at]
 
             if not before:
-                return None
+                return {}
 
-            # Лоты из последнего снэпшота ДО продажи
             before_lots = before[0].raw_lots or []
             candidates = [
                 lot for lot in before_lots
@@ -348,26 +400,34 @@ async def _collect_history_for_item(db, entry):
             ]
 
             if not candidates:
-                return None
+                return {}
 
-            # Если есть снэпшот после продажи — проверяем что лота там нет
             if after:
                 after_start_times = {
-                    l.get("startTime")
-                    for l in (after[0].raw_lots or [])
+                    l.get("startTime") for l in (after[0].raw_lots or [])
                 }
-                # Оставляем только тех, кто исчез
                 candidates = [
                     c for c in candidates
                     if c.get("startTime") not in after_start_times
                 ]
 
             if not candidates:
-                return None
+                return {}
 
-            # При нескольких кандидатах берём с наиболее ранним startTime
             candidates.sort(key=lambda l: l.get("startTime", ""))
-            return candidates[0].get("startTime")
+            matched = candidates[0]
+
+            result: dict = {}
+            if matched.get("startTime"):
+                result["lot_start"] = matched["startTime"]
+
+            lot_add = matched.get("additional") or {}
+            if "qlt" in lot_add:
+                result["qlt"] = lot_add["qlt"]
+            if "ptn" in lot_add and lot_add["ptn"]:
+                result["ptn"] = lot_add["ptn"]
+
+            return result
 
         for record in prices:
             sold_at_str = record.get("time")
@@ -378,20 +438,32 @@ async def _collect_history_for_item(db, entry):
             if sold_at < cutoff:
                 continue
 
-            # Пропускаем уже сохранённые (с погрешностью 1 секунда)
-            if any(abs((sold_at - t).total_seconds()) < 1 for t in existing_times):
-                continue
-
             total_price    = record.get("price", 0)
             amount         = record.get("amount", 1)
             price_per_unit = total_price // amount if amount > 0 else total_price
 
-            # Пробуем найти соответствующий лот в снэпшотах
-            lot_start = find_lot_start(total_price, amount, sold_at)
+            # Ищем совпадение среди уже сохранённых (погрешность 1 секунда)
+            match_key = next(
+                (t for t in existing_map if abs((sold_at - t).total_seconds()) < 1),
+                None,
+            )
+            if match_key is not None:
+                existing_id, existing_additional = existing_map[match_key]
+                # Если у существующей записи ещё нет qlt — пробуем найти лот и добавить
+                if existing_additional is None or "qlt" not in (existing_additional or {}):
+                    lot_info = find_lot_info(total_price, amount, sold_at)
+                    if lot_info.get("qlt") is not None:
+                        merged = dict(existing_additional or {})
+                        merged.update(lot_info)
+                        await db.execute(
+                            update(SalesHistory)
+                            .where(SalesHistory.id == existing_id)
+                            .values(additional_info=merged)
+                        )
+                continue
 
-            additional = dict(record.get("additional") or {})
-            if lot_start:
-                additional["lot_start"] = lot_start
+            # Новая запись: пробуем сматчить лот из снэпшотов → получаем lot_start + qlt + ptn
+            lot_info = find_lot_info(total_price, amount, sold_at)
 
             db.add(SalesHistory(
                 user_id=entry.user_id,
@@ -401,7 +473,7 @@ async def _collect_history_for_item(db, entry):
                 price_per_unit=price_per_unit,
                 amount=amount,
                 total_price=total_price,
-                additional_info=additional if additional else None,
+                additional_info=lot_info if lot_info else None,
                 will_be_deleted_at=sold_at + timedelta(days=120),
             ))
 

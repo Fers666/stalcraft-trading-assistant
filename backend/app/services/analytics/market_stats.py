@@ -248,9 +248,10 @@ async def calculate_market_stats(
     avg_sell_time = _avg_sell_time_from_buyouts(sales_30d)
 
     # ── 7. Upsert в market_statistics (глобальная запись, user_id=None) ────────
+    # Ищем по (item_id, region) без фильтра user_id — уникальный ключ на паре,
+    # поэтому старые строки с user_id != None тоже найдутся и будут исправлены.
     existing = (await db.execute(
         select(MarketStatistics).where(
-            MarketStatistics.user_id == None,
             MarketStatistics.item_id == item_id,
             MarketStatistics.region  == region,
         )
@@ -261,6 +262,8 @@ async def calculate_market_stats(
             user_id=None, item_id=item_id, region=region,
         )
         db.add(existing)
+    else:
+        existing.user_id = None  # исправляем legacy-записи с user_id != None
 
     existing.avg_price_24h       = s24.get("avg")
     existing.min_price_24h       = s24.get("min")
@@ -271,6 +274,7 @@ async def calculate_market_stats(
     existing.min_price_7d        = s7d.get("min")
     existing.max_price_7d        = s7d.get("max")
     existing.sales_volume_7d     = s7d.get("count", 0)
+    existing.sales_volume_30d    = len(prices_30d)
     existing.price_volatility_7d  = volatility_7d
     existing.price_volatility_30d = volatility_30d
     existing.best_sell_hour      = best_sell_hour

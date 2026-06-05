@@ -8,6 +8,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import BlockIcon from '@mui/icons-material/Block'
 import PendingActionsIcon from '@mui/icons-material/PendingActions'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
+import SyncIcon from '@mui/icons-material/Sync'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import api from '../api/client'
@@ -45,6 +46,8 @@ export default function AdminPage() {
   const [error, setError] = useState('')
   const [filter, setFilter] = useState<FilterType>('pending')
   const [actionLoading, setActionLoading] = useState<number | null>(null)
+  const [refreshLoading, setRefreshLoading] = useState(false)
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null)
 
   useEffect(() => {
     if (user && !user.is_admin) {
@@ -99,6 +102,19 @@ export default function AdminPage() {
   const pendingCount  = users.filter(u => !u.is_approved).length
   const approvedCount = users.filter(u => u.is_approved).length
 
+  const handleForceRefresh = async () => {
+    setRefreshLoading(true)
+    setRefreshMsg(null)
+    try {
+      const { data } = await api.post('/admin/tasks/force-refresh-history')
+      setRefreshMsg(data.message)
+    } catch {
+      setRefreshMsg('Ошибка запуска задачи')
+    } finally {
+      setRefreshLoading(false)
+    }
+  }
+
   const fmtDate = (iso: string | null) => {
     if (!iso) return '—'
     return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -150,6 +166,31 @@ export default function AdminPage() {
             </Typography>
           </Box>
         ))}
+      </Box>
+
+      {/* Tasks */}
+      <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        <Button
+          size="small"
+          variant="outlined"
+          disabled={refreshLoading}
+          onClick={handleForceRefresh}
+          startIcon={refreshLoading ? <CircularProgress size={13} sx={{ color: G2 }} /> : <SyncIcon sx={{ fontSize: '15px !important' }} />}
+          sx={{
+            fontSize: '0.72rem', fontFamily: '"Rajdhani", sans-serif',
+            fontWeight: 600, letterSpacing: '0.06em',
+            color: G2, border: `1px solid ${alpha(G2, 0.4)}`,
+            borderRadius: '8px', px: 2, py: 0.5,
+            '&:hover': { background: alpha(G2, 0.08), border: `1px solid ${alpha(G2, 0.6)}` },
+          }}
+        >
+          {refreshLoading ? 'Запускается...' : 'Пересобрать историю (артефакты)'}
+        </Button>
+        {refreshMsg && (
+          <Typography sx={{ fontSize: '0.72rem', color: refreshMsg.startsWith('Ошибка') ? DANGER : SUCCESS }}>
+            {refreshMsg}
+          </Typography>
+        )}
       </Box>
 
       {/* Filter */}

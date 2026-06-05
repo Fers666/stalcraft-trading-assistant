@@ -1,5 +1,6 @@
 from celery import Celery
 from celery.schedules import crontab
+from datetime import timedelta
 from app.core.config import settings
 
 celery_app = Celery(
@@ -23,11 +24,11 @@ celery_app.conf.update(
     worker_concurrency=1,
     task_routes={"app.tasks.*": {"queue": "collector"}},
     beat_schedule={
-        # Сбор активных лотов: каждую минуту, берёт только "просроченные" записи
-        # (last_successful_check < now - 5 мин). Нагрузка размазана по времени.
+        # Сбор активных лотов: каждые 20 сек, 1 предмет за запуск → 3 лота/мин.
+        # Сортировка по last_successful_check ASC — самые устаревшие идут первыми.
         "collect-active-lots": {
             "task": "app.tasks.collectors.collect_all_active_lots",
-            "schedule": crontab(minute="*"),
+            "schedule": timedelta(seconds=20),
         },
         # Сбор истории раз в час
         "collect-history-and-stats": {

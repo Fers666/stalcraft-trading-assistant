@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { Box, IconButton, Tooltip, Typography, alpha } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
@@ -9,7 +9,9 @@ import MenuBookIcon from '@mui/icons-material/MenuBook'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import { useAuthStore } from '../store/authStore'
+import { useFeedStore } from '../store/feedStore'
 import { tokens } from '../theme'
+import GlobalFeed, { FEED_HEIGHT } from './GlobalFeed'
 
 const { gold: G2, goldAccent: G3, text2: T2, border: BORDER } = tokens
 
@@ -169,10 +171,20 @@ function AppNav() {
 }
 
 export default function Layout() {
+  const location    = useLocation()
+  const { watchlist, initialized, profitableItemIds, lastLotRefresh } = useFeedStore()
+  const onMonitoring = location.pathname === '/app/monitoring'
+  // Бар занимает место если: инициализировано + есть вотчлист + не страница мониторинга
+  // + (лоты ещё грузятся OR есть выгодные позиции)
+  const feedShown   = !onMonitoring && initialized && watchlist.length > 0 &&
+    (lastLotRefresh === null || profitableItemIds.length > 0)
+  const topOffset   = 56 + (feedShown ? FEED_HEIGHT : 0)
+
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppNav />
-      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: '56px' }}>
+      <GlobalFeed />
+      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: `${topOffset}px`, transition: 'margin-top 0.2s' }}>
         <Outlet />
       </Box>
     </Box>

@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: 'http://localhost:8000/api/v1',
+  baseURL: '/api/v1',
 })
 
 // Добавляем JWT токен к каждому запросу
@@ -11,13 +11,16 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Обработка 401 — редирект на логин
+// Обработка 401 — редирект на логин только если сессия была активна
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      const hadToken = !!localStorage.getItem('access_token')
       localStorage.removeItem('access_token')
-      window.location.href = '/login'
+      if (hadToken && window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }

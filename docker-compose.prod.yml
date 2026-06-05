@@ -6,86 +6,81 @@ services:
     environment:
       POSTGRES_DB: stalcraft
       POSTGRES_USER: stalcraft
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stalcraft_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       PGTZ: Europe/Moscow
       TZ: Europe/Moscow
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stalcraft"]
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
 
   backend:
     build: ./backend
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD:-stalcraft_dev}@postgres:5432/stalcraft
+      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "8000:8000"
-    volumes:
-      - ./backend:/app
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    restart: unless-stopped
 
   worker:
     build: ./backend
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD:-stalcraft_dev}@postgres:5432/stalcraft
+      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
-    volumes:
-      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     command: celery -A app.tasks.celery_app worker --loglevel=info -Q collector -c 1
+    restart: unless-stopped
 
   scheduler:
     build: ./backend
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD:-stalcraft_dev}@postgres:5432/stalcraft
+      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
-    volumes:
-      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     command: celery -A app.tasks.celery_app beat --loglevel=info
+    restart: unless-stopped
 
   telegram_bot:
     build: ./backend
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD:-stalcraft_dev}@postgres:5432/stalcraft
+      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
     volumes:
-      - ./backend:/app
       - ./telegram_bot:/tg_bot
     depends_on:
       postgres:
@@ -96,13 +91,12 @@ services:
     restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
     ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend/src:/app/src
-    depends_on:
-      - backend
+      - "127.0.0.1:3000:80"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
