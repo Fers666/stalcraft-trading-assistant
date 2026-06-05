@@ -2,7 +2,7 @@
 # Разместить: /etc/caddy/Caddyfile
 # Перезапуск: sudo systemctl reload caddy
 
-:80 {
+sctrading.ru {
     # Backend API
     handle /api/* {
         reverse_proxy localhost:8000
