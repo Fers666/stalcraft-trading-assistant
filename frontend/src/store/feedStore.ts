@@ -81,7 +81,9 @@ export const useFeedStore = create<FeedState>((set, get) => ({
       )
       set({
         watchlist,
-        stats: Object.fromEntries(pairs.filter(([, v]) => v !== null)),
+        stats: Object.fromEntries(
+          pairs.filter((p): p is [number, FeedMarketStats] => p[1] !== null)
+        ) as Record<number, FeedMarketStats>,
         initialized: true,
       })
     } catch { /* keep previous */ }
