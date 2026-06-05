@@ -18,20 +18,21 @@ Telegram Bot — Stalcraft Trading Assistant.
 import asyncio
 import logging
 import os
+import statistics as _statistics
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 import redis.asyncio as aioredis
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 # /app — backend смонтирован как /app в docker-compose (build: ./backend, volumes: ./backend:/app)
 sys.path.insert(0, "/app")
-from app.models.models import User, UserWatchlist, UserSettings, MarketStatistics, CollectedData, MasterItem
+from app.models.models import User, UserWatchlist, UserSettings, MarketStatistics, CollectedData, MasterItem, SalesHistory
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -150,6 +151,57 @@ def build_lot_message(
     return "\n".join(lines)
 
 
+# ─── Helpers: расчёт sell_options (зеркало monitoring.py) ────────────────────
+
+def _fmt_hours(hours: float) -> str:
+    if hours < 2:
+        return "< 2 ч"
+    if hours < 24:
+        return f"~{round(hours)} ч"
+    days = hours / 24
+    if days < 2:
+        return "~1-2 дня"
+    return f"~{round(days)} дня" if days < 5 else f"~{round(days)} дней"
+
+
+def _make_fresh_sell_options(ref: int, volume_7d: int) -> list[dict]:
+    """
+    Генерирует sell_options от текущей рыночной цены.
+    Зеркало _make_sell_options() из monitoring.py — чтобы бот и фронтенд
+    использовали один и тот же порог выгодности.
+    """
+    fast_price    = int(ref * 0.97)
+    normal_price  = int(ref * 1.00)
+    premium_price = int(ref * 1.05)
+
+    sales_per_day = volume_7d / 7.0
+    if sales_per_day >= 5:
+        fh, nh, ph = 2.0, 8.0, 24.0
+    elif sales_per_day >= 1:
+        fh, nh, ph = 8.0, 24.0, 72.0
+    elif sales_per_day >= 0.14:
+        fh, nh, ph = 24.0, 72.0, 168.0
+    else:
+        fh, nh, ph = 72.0, 168.0, 336.0
+
+    def opt(label, label_ru, price, hours):
+        return {
+            "label": label, "label_ru": label_ru,
+            "price_per_unit": price,
+            "net_price_per_unit": int(price * (1 - COMMISSION)),
+            "estimated_hours": hours,
+            "estimated_hours_display": _fmt_hours(hours),
+            "confidence": "low",
+            "data_points": volume_7d,
+        }
+
+    return [
+        opt("fast",    "Быстро",    fast_price,    fh),
+        opt("normal",  "Нормально", normal_price,  nh),
+        opt("premium", "Выгодно",   premium_price, ph),
+    ]
+
+
 # ─── Логика поиска выгодных лотов ────────────────────────────────────────────
 
 def _is_artefact(category: Optional[str]) -> bool:
@@ -176,15 +228,13 @@ async def _find_profitable_lots(
     """
     Возвращает список выгодных лотов для записи вотчлиста.
     Каждый элемент: {start_time, buyout_per_unit, quality_name, enchant, sell_options}
+
+    Порог выгодности зеркалирует логику monitoring endpoint:
+    - без фильтров: ref = best_liquid_price_per_unit текущего снэпшота
+    - с фильтрами:  ref = медиана SalesHistory по quality/enchant (или фолбэк на снэпшот)
+    Это устраняет рассинхрон когда фронт пересчитывает sell_options по текущей цене,
+    а бот использовал почасовой MarketStatistics.
     """
-    if stats is None or not stats.sell_options:
-        return []
-
-    sell_options: list[dict] = stats.sell_options
-    normal_opt = next((o for o in sell_options if o.get("label") == "normal"), None)
-    if not normal_opt:
-        return []
-
     snap = (await db.execute(
         select(CollectedData)
         .where(
@@ -200,8 +250,60 @@ async def _find_profitable_lots(
     if snap is None or not snap.raw_lots:
         return []
 
-    now       = datetime.now(timezone.utc)
-    is_art    = _is_artefact(master.category)
+    # ── Строим sell_options тем же способом что мониторинг-эндпоинт ─────────
+    volume_7d = (stats.sales_volume_7d or 0) if stats else 0
+
+    if entry.quality_filter is None and entry.enchant_filter is None:
+        # Нет фильтров: опорная цена = текущий минимум ликвидных лотов
+        current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
+        if not current_min:
+            return []
+        fresh_sell_options = _make_fresh_sell_options(int(current_min), volume_7d)
+    else:
+        # С фильтрами: медиана реальных продаж с нужным quality/enchant
+        cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
+        q = select(SalesHistory.price_per_unit).where(
+            SalesHistory.item_id   == entry.item_id,
+            SalesHistory.region    == entry.region,
+            SalesHistory.sale_time >= cutoff_7d,
+        )
+        if entry.quality_filter is not None:
+            if entry.quality_filter == 0:
+                q = q.where(or_(
+                    SalesHistory.additional_info["qlt"].astext.is_(None),
+                    SalesHistory.additional_info["qlt"].astext == "0",
+                ))
+            else:
+                q = q.where(
+                    SalesHistory.additional_info["qlt"].astext == str(entry.quality_filter)
+                )
+        if entry.enchant_filter is not None:
+            q = q.where(
+                SalesHistory.additional_info["ptn"].astext == str(entry.enchant_filter)
+            )
+
+        prices = (await db.execute(q)).scalars().all()
+
+        if prices:
+            ref       = int(_statistics.median(prices))
+            vol       = len(prices)
+        else:
+            # Нет истории продаж для этого фильтра — фолбэк на текущий минимум
+            current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
+            if not current_min:
+                return []
+            ref = int(current_min)
+            vol = volume_7d
+
+        fresh_sell_options = _make_fresh_sell_options(ref, vol)
+
+    normal_opt = next((o for o in fresh_sell_options if o.get("label") == "normal"), None)
+    if not normal_opt:
+        return []
+    normal_net = int(normal_opt["net_price_per_unit"])
+
+    now    = datetime.now(timezone.utc)
+    is_art = _is_artefact(master.category)
     profitable: list[dict] = []
 
     for lot in snap.raw_lots:
@@ -210,7 +312,6 @@ async def _find_profitable_lots(
         if buyout <= 0 or amount <= 0:
             continue
 
-        # Истекающий лот — пропускаем (остаток < 2ч = неликвид)
         end_str = lot.get("endTime", "")
         if end_str:
             try:
@@ -225,29 +326,24 @@ async def _find_profitable_lots(
         ptn        = additional.get("ptn")
         enchant    = int(ptn) if ptn is not None and int(ptn) > 0 else None
 
-        # Фильтр качества
         if entry.quality_filter is not None and qlt_val != entry.quality_filter:
             continue
-        # Фильтр заточки
         if entry.enchant_filter is not None and enchant != entry.enchant_filter:
             continue
 
         buyout_per_unit = buyout // amount
-        # Та же формула что в feedStore.ts:
-        # Math.round(normal.price_per_unit * (1 - COMMISSION) - Math.floor(buyout / amount)) > 0
-        normal_net = int(normal_opt["net_price_per_unit"])
         if normal_net - buyout_per_unit <= 0:
             continue
 
         quality_name = _QLT_NAMES.get(qlt_val) if qlt_val is not None else None
-        start_time   = lot.get("startTime", "")  # уникальный ID лота
+        start_time   = lot.get("startTime", "")
 
         profitable.append({
             "start_time":      start_time,
             "buyout_per_unit": buyout_per_unit,
             "quality_name":    quality_name,
             "enchant":         enchant,
-            "sell_options":    sell_options,
+            "sell_options":    fresh_sell_options,
         })
 
     return profitable
