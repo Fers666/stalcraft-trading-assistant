@@ -828,11 +828,16 @@ export default function MonitoringPage() {
   const [highlightId, setHighlightId] = useState<number | null>(null)
   const cardRefs = useRef<Record<number, HTMLElement | null>>({})
 
-  // Первичная загрузка (если feedStore ещё не инициализирован при прямом входе на страницу)
+  // Загрузка/обновление при каждом входе на страницу
   useEffect(() => {
-    if (initialized) { setLoading(false); return }
+    if (initialized) {
+      setLoading(false)
+      loadWatchlistAndStats(true)  // silent refresh при повторном входе
+      return
+    }
     loadWatchlistAndStats().then(() => setLoading(false))
-  }, [initialized, loadWatchlistAndStats])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Опрос статистики каждые 5 мин
   useEffect(() => {

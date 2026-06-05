@@ -45,6 +45,8 @@ DATABASE_URL  = os.environ["DATABASE_URL"]
 REDIS_URL     = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 BOT_TOKEN     = os.environ["TELEGRAM_BOT_TOKEN"]
 BOT_USERNAME  = os.environ.get("TELEGRAM_BOT_USERNAME", "SC_TRADING_auc_bot")
+APP_ENV       = os.environ.get("APP_ENV", "production").lower()
+IS_STAGE      = APP_ENV == "stage"
 
 COMMISSION      = 0.05
 LINK_CODE_TTL   = 600   # 10 мин — срок жизни кода привязки
@@ -104,7 +106,8 @@ def build_lot_message(
     sales_volume_7d: Optional[int],
     volatility_7d: Optional[float],
 ) -> str:
-    lines: list[str] = [f"💰 <b>Выгодный лот</b> — {item_name}"]
+    prefix = "[STAGE] " if IS_STAGE else ""
+    lines: list[str] = [f"{prefix}💰 <b>Выгодный лот</b> — {item_name}"]
 
     meta: list[str] = []
     if quality_name:
