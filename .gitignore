@@ -10,3 +10,5 @@ build/
 .venv/
 venv/
 backend/app/static/
+celerybeat-schedule
+backend/celerybeat-schedule
