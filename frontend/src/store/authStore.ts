@@ -41,10 +41,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   fetchMe: async () => {
+    const token = localStorage.getItem('access_token')
+    if (!token) return
     try {
       const { data } = await api.get('/auth/me')
       set({ user: data })
     } catch {
+      localStorage.removeItem('access_token')
       set({ user: null })
     }
   },

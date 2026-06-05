@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, Card, CardContent, Grid2, Chip, CircularProgress,
   IconButton, Tooltip, Divider, Alert, Avatar,
@@ -8,8 +9,10 @@ import {
 import DeleteIcon from '@mui/icons-material/Delete'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
+import SearchIcon from '@mui/icons-material/Search'
 import api from '../api/client'
 import { formatPrice, iconUrl } from '../utils/i18n'
+import { useFeedStore } from '../store/feedStore'
 
 import PriceChart from '../components/PriceChart'
 
@@ -45,6 +48,7 @@ interface MarketStats {
   avg_price_7d: number | null
   median_price_7d: number | null
   sales_volume_7d: number | null
+  sales_volume_30d: number | null
   avg_sell_time_hours: number | null
   best_sell_hour: number | null
   best_sell_day: string | null
@@ -131,30 +135,157 @@ interface LotItem {
   enchant_level: number | null
 }
 
-function ItemCard({ entry, stats, onDelete }: {
+// ─── Лента выгодных лотов ────────────────────────────────────────────────────
+
+function ProfitableFeed({ watchlist, stats, lotsMap, lastRefresh, onCardClick }: {
+  watchlist: WatchlistEntry[]
+  stats: Record<number, MarketStats>
+  lotsMap: Record<number, LotItem[] | undefined>
+  lastRefresh: Date | null
+  onCardClick: (id: number) => void
+}) {
+
+  const COMMISSION = 0.05
+
+  const feedItems = watchlist.map(entry => {
+    const entryStats = stats[entry.id]
+    const lots = lotsMap[entry.id]
+
+    if (!entryStats?.sell_options || lots === undefined) {
+      return { entry, profitableCount: null as number | null }
+    }
+
+    const normalOption = entryStats.sell_options.find(o => o.label === 'normal')
+    if (!normalOption) return { entry, profitableCount: null as number | null }
+
+    const count = lots.filter(l => {
+      if (l.is_expiring || l.buyout_price <= 0) return false
+      if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
+      if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
+      const buyPerUnit = Math.floor(l.buyout_price / l.amount)
+      return Math.round(normalOption.price_per_unit * (1 - COMMISSION) - buyPerUnit) > 0
+    }).length
+
+    return { entry, profitableCount: count }
+  }).filter(item => item.profitableCount !== null && item.profitableCount > 0)
+    .sort((a, b) => (b.profitableCount ?? 0) - (a.profitableCount ?? 0))
+
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.14em', fontWeight: 600 }}>
+          ЛЕНТА
+        </Typography>
+        <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: feedItems.length > 0 ? 'success.main' : 'text.disabled', opacity: 0.8 }} />
+        <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.1em' }}>
+          ОПРОС 30 СЕК
+        </Typography>
+        {lastRefresh && (
+          <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', ml: 'auto' }}>
+            {lastRefresh.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </Typography>
+        )}
+      </Box>
+      {feedItems.length === 0 ? (
+        <Typography sx={{ fontSize: '0.68rem', color: 'text.disabled', py: 1 }}>
+          {lastRefresh ? 'Нет выгодных лотов' : '…'}
+        </Typography>
+      ) : (
+      <Box sx={{
+        display: 'flex',
+        gap: 1,
+        overflowX: 'auto',
+        pb: 0.5,
+        '&::-webkit-scrollbar': { height: '3px' },
+        '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.1)', borderRadius: '2px' },
+      }}>
+        {feedItems.map(({ entry, profitableCount }) => (
+            <Box key={entry.id} onClick={() => onCardClick(entry.id)} sx={{
+              flexShrink: 0,
+              width: 148,
+              p: 1,
+              borderRadius: '10px',
+              border: '1px solid rgba(62,213,152,0.35)',
+              background: 'rgba(62,213,152,0.04)',
+              cursor: 'pointer',
+              transition: 'background 0.15s, border-color 0.15s',
+              '&:hover': {
+                background: 'rgba(62,213,152,0.10)',
+                borderColor: 'rgba(62,213,152,0.7)',
+              },
+            }}>
+              {/* Иконка + Название */}
+              <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start', mb: 0.5 }}>
+                <Avatar
+                  src={iconUrl(entry.icon_path) ?? undefined}
+                  variant="rounded"
+                  sx={{
+                    width: 28, height: 28, flexShrink: 0,
+                    bgcolor: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '5px',
+                    mt: 0.125,
+                  }}
+                >
+                  {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
+                </Avatar>
+                <Typography sx={{
+                  fontSize: '0.68rem', fontWeight: 600, lineHeight: 1.3,
+                  overflow: 'hidden', display: '-webkit-box',
+                  WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                  flex: 1,
+                }}>
+                  {entry.name_ru || entry.name_en || entry.item_id}
+                </Typography>
+              </Box>
+
+              {/* Качество + Заточка + Бейдж */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {entry.quality_filter !== null && (
+                  <Typography sx={{ fontSize: '0.57rem', color: 'primary.main', fontWeight: 600, lineHeight: 1 }}>
+                    {QLT_NAMES[entry.quality_filter]}
+                  </Typography>
+                )}
+                {entry.enchant_filter !== null && (
+                  <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 700, lineHeight: 1 }}>
+                    +{entry.enchant_filter}
+                  </Typography>
+                )}
+                <Box sx={{ ml: 'auto' }}>
+                  <Box sx={{
+                    bgcolor: 'success.main', color: '#000',
+                    borderRadius: '5px', px: 0.75, py: 0.125,
+                    fontSize: '0.65rem', fontWeight: 700, lineHeight: 1.5,
+                  }}>
+                    {profitableCount}
+                  </Box>
+                </Box>
+              </Box>
+            </Box>
+        ))}
+      </Box>
+      )}
+    </Box>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData }: {
   entry: WatchlistEntry
   stats: MarketStats | null
   onDelete: () => void
+  onViewLots: () => void
+  lots: LotItem[] | undefined
 }) {
-  const [timeMode, setTimeMode]   = useState<'week' | 'today'>('week')
-  const [lotMode, setLotMode]     = useState<'current' | 'median'>('median')
-  const [lots, setLots]           = useState<LotItem[]>([])
-  const [lotsLoaded, setLotsLoaded] = useState(false)
+  const [timeMode, setTimeMode] = useState<'week' | 'today'>('today')
+  const [lotMode, setLotMode]   = useState<'current' | 'median'>('current')
+  const lots       = lotsData ?? []
+  const lotsLoaded = lotsData !== undefined
   const riskKey   = stats ? volatilityRisk(stats.price_volatility_7d)  : null
   const riskKey30 = stats ? volatilityRisk(stats.price_volatility_30d) : null
   const risk   = riskKey   ? RISK_LABELS[riskKey]   : null
   const risk30 = riskKey30 ? RISK_LABELS[riskKey30] : null
-
-  // Загружаем лоты независимо от наличия stats
-  useEffect(() => {
-    setLotsLoaded(false)
-    const params: Record<string, string | number> = { region: entry.region }
-    if (entry.quality_filter !== null) params.quality_filter = entry.quality_filter
-    if (entry.enchant_filter !== null) params.enchant_filter = entry.enchant_filter
-    api.get(`/lots/${entry.item_id}`, { params })
-      .then(({ data }) => { setLots(data.lots || []); setLotsLoaded(true) })
-      .catch(() => { setLots([]); setLotsLoaded(true) })
-  }, [entry.item_id, entry.region, entry.quality_filter, entry.enchant_filter])
 
   const COMMISSION = 0.05
 
@@ -375,6 +506,11 @@ function ItemCard({ entry, stats, onDelete }: {
                   {formatLastCheck(entry.last_successful_check)}
                 </Typography>
               )}
+              <Tooltip title="Все лоты этого предмета">
+                <IconButton size="small" onClick={onViewLots} sx={{ color: 'text.secondary' }}>
+                  <SearchIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
               <Tooltip title="Удалить из Избранного">
                 <IconButton size="small" onClick={onDelete} sx={{ color: 'error.main' }}>
                   <DeleteIcon fontSize="small" />
@@ -679,45 +815,70 @@ function ItemCard({ entry, stats, onDelete }: {
 }
 
 export default function MonitoringPage() {
-  const [watchlist, setWatchlist] = useState<WatchlistEntry[]>([])
-  const [stats, setStats]         = useState<Record<number, MarketStats>>({})
-  const [loading, setLoading]     = useState(true)
-  const [deleteEntry, setDeleteEntry] = useState<WatchlistEntry | null>(null)
+  const location = useLocation()
+  const navigate = useNavigate()
+  const {
+    watchlist, stats, lotsMap, lastLotRefresh,
+    initialized, loadWatchlistAndStats, loadAllLots: feedLoadAllLots, removeEntry,
+  } = useFeedStore()
 
-  const loadAll = useCallback(async () => {
-    setLoading(true)
-    try {
-      const { data } = await api.get('/watchlist/')
-      setWatchlist(data)
-      const pairs = await Promise.all(
-        data.map(async (entry: WatchlistEntry) => {
-          try {
-            const params: Record<string, string> = { region: entry.region }
-            if (entry.quality_filter !== null) params.quality_filter = String(entry.quality_filter)
-            if (entry.enchant_filter !== null) params.enchant_filter = String(entry.enchant_filter)
-            const { data: s } = await api.get(`/monitoring/item/${entry.item_id}`, { params })
-            return [entry.id, s]
-          } catch { return [entry.id, null] }
-        })
-      )
-      setStats(Object.fromEntries(pairs.filter(([, v]) => v !== null)))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const [loading, setLoading]         = useState(!initialized)
+  const [deleteEntry, setDeleteEntry] = useState<WatchlistEntry | null>(null)
+  const [highlightId, setHighlightId] = useState<number | null>(null)
+  const cardRefs = useRef<Record<number, HTMLElement | null>>({})
+
+  // Первичная загрузка (если feedStore ещё не инициализирован при прямом входе на страницу)
+  useEffect(() => {
+    if (initialized) { setLoading(false); return }
+    loadWatchlistAndStats().then(() => setLoading(false))
+  }, [initialized, loadWatchlistAndStats])
+
+  // Опрос статистики каждые 5 мин
+  useEffect(() => {
+    if (!initialized) return
+    const t = setInterval(() => loadWatchlistAndStats(true), 5 * 60 * 1000)
+    return () => clearInterval(t)
+  }, [initialized, loadWatchlistAndStats])
+
+  // Быстрый опрос пока есть карточки без данных
+  useEffect(() => {
+    const hasPending = (watchlist as WatchlistEntry[]).some(e => !e.last_successful_check)
+    if (!hasPending) return
+    const t = setInterval(() => loadWatchlistAndStats(true), 30_000)
+    return () => clearInterval(t)
+  }, [watchlist, loadWatchlistAndStats])
+
+  // Опрос лотов каждые 30 сек
+  useEffect(() => {
+    if (watchlist.length === 0) return
+    feedLoadAllLots()
+    const t = setInterval(feedLoadAllLots, 30_000)
+    return () => clearInterval(t)
+  }, [watchlist, feedLoadAllLots])
 
   const handleDeleteConfirm = async () => {
     if (!deleteEntry) return
     await api.delete(`/watchlist/${deleteEntry.id}`)
-    setWatchlist((prev) => prev.filter((e) => e.id !== deleteEntry.id))
+    removeEntry(deleteEntry.id)
     setDeleteEntry(null)
   }
 
+  const scrollToCard = useCallback((id: number) => {
+    const el = cardRefs.current[id]
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    setHighlightId(id)
+    setTimeout(() => setHighlightId(null), 1200)
+  }, [])
+
+  // Скролл к карточке при переходе из GlobalFeed
   useEffect(() => {
-    loadAll()
-    const interval = setInterval(loadAll, 5 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [loadAll])
+    const id = (location.state as { scrollTo?: number } | null)?.scrollTo
+    if (!id) return
+    scrollToCard(id)
+    const t = setTimeout(() => scrollToCard(id), 500)
+    return () => clearTimeout(t)
+  }, [location.state, scrollToCard])
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}><CircularProgress /></Box>
 
@@ -730,7 +891,7 @@ export default function MonitoringPage() {
           </Typography>
           <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: 'success.main', opacity: 0.8 }} />
           <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.1em' }}>
-            AUTO-UPDATE 5 MIN
+            STATS 5 MIN · LOTS 30 SEC
           </Typography>
         </Box>
         <Typography variant="h5" fontWeight={700}>Избранное</Typography>
@@ -744,16 +905,40 @@ export default function MonitoringPage() {
           </Typography>
         </Box>
       ) : (
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+        <>
+          <ProfitableFeed watchlist={watchlist} stats={stats} lotsMap={lotsMap} lastRefresh={lastLotRefresh} onCardClick={scrollToCard} />
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           {watchlist.map((entry) => (
-            <ItemCard
+            <Box
               key={entry.id}
-              entry={entry}
-              stats={stats[entry.id] ?? null}
-              onDelete={() => setDeleteEntry(entry)}
-            />
+              ref={(el: HTMLElement | null) => { cardRefs.current[entry.id] = el }}
+              sx={{
+                borderRadius: 1,
+                boxShadow: highlightId === entry.id ? '0 0 0 2px #D9AF37' : '0 0 0 2px transparent',
+                transition: 'box-shadow 0.4s',
+              }}
+            >
+              <ItemCard
+                entry={entry}
+                stats={stats[entry.id] ?? null}
+                onDelete={() => setDeleteEntry(entry)}
+                onViewLots={() => navigate('/app/lots', {
+                  state: {
+                    item_id: entry.item_id,
+                    name_ru: entry.name_ru,
+                    name_en: entry.name_en,
+                    icon_path: entry.icon_path,
+                    region: entry.region,
+                    quality_filter: entry.quality_filter,
+                    enchant_filter: entry.enchant_filter,
+                  },
+                })}
+                lots={lotsMap[entry.id]}
+              />
+            </Box>
           ))}
-        </Box>
+          </Box>
+        </>
       )}
 
       <Dialog

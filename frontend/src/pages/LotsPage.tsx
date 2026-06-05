@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   Box, Typography, TextField, InputAdornment, Card, CardContent,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
@@ -91,6 +92,9 @@ type SortDir = 'asc' | 'desc'
 // ─── Константы ───────────────────────────────────────────────────────────────
 
 const REGIONS = ['RU', 'EU', 'NA', 'SEA']
+const QL_NAMES: Record<number, string> = {
+  0: 'Обычный', 1: 'Необычный', 2: 'Особый', 3: 'Ветеран', 4: 'Мастер', 5: 'Легендарный',
+}
 const HISTORY_KEY = 'lots_search_history'
 const HISTORY_MAX = 10
 const ROWS_PER_PAGE_OPTIONS = [25, 50, 100]
@@ -144,6 +148,10 @@ const LOT_COLS: { key: SortKey | null; label: string }[] = [
 // ─── Компонент ───────────────────────────────────────────────────────────────
 
 export default function LotsPage() {
+  const location = useLocation()
+  const pendingQualityRef = useRef<string | null>(null)
+  const pendingEnchantRef = useRef<string | null>(null)
+
   // Поиск конкретного предмета
   const [query, setQuery]               = useState('')
   const [region, setRegion]             = useState('RU')
@@ -173,6 +181,33 @@ export default function LotsPage() {
   // Watchlist
   const [wlStates, setWlStates] = useState<Record<string, 'loading' | 'added' | 'exists'>>({})
   const [snackbar, setSnackbar] = useState<string | null>(null)
+
+  // ─── Инициализация из navigation state (переход из Избранного) ───────────
+  useEffect(() => {
+    const state = location.state as {
+      item_id?: string
+      name_ru?: string | null
+      name_en?: string | null
+      icon_path?: string | null
+      region?: string
+      quality_filter?: number | null
+      enchant_filter?: number | null
+    } | null
+    if (!state?.item_id) return
+    const item: Item = {
+      item_id: state.item_id,
+      name_ru: state.name_ru ?? null,
+      name_en: state.name_en ?? null,
+      category: null,
+      icon_path: state.icon_path ?? null,
+    }
+    const reg = state.region ?? region
+    if (state.region) setRegion(state.region)
+    if (state.quality_filter != null) pendingQualityRef.current = QL_NAMES[state.quality_filter] ?? null
+    if (state.enchant_filter != null) pendingEnchantRef.current = String(state.enchant_filter)
+    fetchLots(item, reg)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ─── Загрузка лотов категории ──────────────────────────────────────────────
   const fetchCategoryLots = async (cat: string, reg: string) => {
@@ -227,8 +262,10 @@ export default function LotsPage() {
   useEffect(() => { setPage(0) }, [filterQuality, filterEnchant, sortKey, sortDir])
 
   useEffect(() => {
-    setFilterQuality('all')
-    setFilterEnchant('all')
+    setFilterQuality(pendingQualityRef.current ?? 'all')
+    setFilterEnchant(pendingEnchantRef.current ?? 'all')
+    pendingQualityRef.current = null
+    pendingEnchantRef.current = null
     setPage(0)
     setWlStates({})
   }, [result, catResult])
@@ -295,7 +332,7 @@ export default function LotsPage() {
   const toggleGroup = (id: string) => {
     setExpandedGroups(prev => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id) else next.add(id)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
       return next
     })
   }

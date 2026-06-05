@@ -2,12 +2,12 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_admin
 from app.db.session import get_db
-from app.models.models import User
+from app.models.models import User, UserWatchlist
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -47,6 +47,22 @@ async def approve_user(
     user.is_approved = True
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/tasks/force-refresh-history")
+async def force_refresh_history(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    """Принудительный пересбор истории продаж с additional=true для всего watchlist."""
+    count = (await db.execute(
+        select(func.count()).select_from(UserWatchlist).where(UserWatchlist.is_active == True)
+    )).scalar_one()
+
+    from app.tasks.collectors import force_refresh_all_history
+    force_refresh_all_history.delay()
+
+    return {"ok": True, "watchlist_entries": count, "message": f"Запущен пересбор для {count} записей"}
 
 
 @router.post("/users/{user_id}/revoke")

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import statistics as _statistics
 
 from app.db.session import get_db
@@ -20,6 +20,7 @@ class MonitoringItemResponse(BaseModel):
     min_price_7d: int | None
     max_price_7d: int | None
     sales_volume_7d: int | None
+    sales_volume_30d: int | None
     price_volatility_7d: float | None
     price_volatility_30d: float | None
     best_sell_hour: int | None
@@ -54,6 +55,7 @@ def _build_sales_filter(quality_filter: int | None, enchant_filter: int | None) 
         # ptn — прямое целое 1-15 (0 = не зачарован, в watchlist enchant_filter всегда 1-15)
         conds.append(SalesHistory.additional_info['ptn'].astext == str(enchant_filter))
     return conds
+
 
 
 def _make_sell_options(median: float, volume_7d: int) -> list[dict]:
@@ -115,26 +117,59 @@ async def get_item_stats(
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="No stats yet for this item")
 
-    # Без фильтров — возвращаем глобальную статистику напрямую
+    # Без фильтров — возвращаем статистику со свежими sell_options из последнего снапшота.
+    # sell_options в MarketStatistics пересчитываются раз в час — при быстром падении рынка
+    # они устаревают и дают ложные "выгодные лоты". Перегенерируем здесь каждый запрос.
     if quality_filter is None and enchant_filter is None:
-        return stats
+        latest_snap = (await db.execute(
+            select(CollectedData).where(
+                CollectedData.user_id == None,
+                CollectedData.item_id == item_id,
+                CollectedData.region  == region.upper(),
+            ).order_by(CollectedData.collect_time.desc()).limit(1)
+        )).scalar_one_or_none()
 
-    # С фильтрами — пересчитываем median/volume/volatility/sell_options от отфильтрованных продаж
-    from datetime import timezone, timedelta
+        fresh_sell_options = stats.sell_options  # fallback: сохранённые
+        if latest_snap:
+            current_min = (
+                latest_snap.best_liquid_price_per_unit or latest_snap.best_price_per_unit
+            )
+            if current_min:
+                fresh_sell_options = _make_sell_options(
+                    float(current_min), stats.sales_volume_7d or 0
+                )
+
+        return MonitoringItemResponse(
+            item_id=stats.item_id,
+            region=stats.region,
+            avg_price_7d=float(stats.avg_price_7d) if stats.avg_price_7d else None,
+            median_price_7d=float(stats.median_price_7d) if stats.median_price_7d else None,
+            min_price_7d=int(stats.min_price_7d) if stats.min_price_7d else None,
+            max_price_7d=int(stats.max_price_7d) if stats.max_price_7d else None,
+            sales_volume_7d=stats.sales_volume_7d,
+            sales_volume_30d=stats.sales_volume_30d,
+            price_volatility_7d=float(stats.price_volatility_7d) if stats.price_volatility_7d else None,
+            price_volatility_30d=float(stats.price_volatility_30d) if stats.price_volatility_30d else None,
+            best_sell_hour=stats.best_sell_hour,
+            best_sell_day=stats.best_sell_day,
+            best_buy_hour=stats.best_buy_hour,
+            best_buy_day=stats.best_buy_day,
+            sell_hours_by_day=stats.sell_hours_by_day,
+            buy_hours_by_day=stats.buy_hours_by_day,
+            weekend_bonus_percent=float(stats.weekend_bonus_percent) if stats.weekend_bonus_percent else None,
+            avg_sell_time_hours=float(stats.avg_sell_time_hours) if stats.avg_sell_time_hours else None,
+            sell_options=fresh_sell_options,
+            batch_stats=stats.batch_stats,
+            calculated_at=stats.calculated_at,
+        )
+
+    # С фильтрами — пробуем SalesHistory (на случай если когда-нибудь API начнёт
+    # возвращать qlt/ptn в истории), затем фолбэк на raw_lots снэпшотов.
     now = datetime.now(timezone.utc)
     cutoff_7d  = now - timedelta(days=7)
     cutoff_30d = now - timedelta(days=30)
 
     extra_conds = _build_sales_filter(quality_filter, enchant_filter)
-    prices_30d = (await db.execute(
-        select(SalesHistory.price_per_unit).where(
-            SalesHistory.item_id == item_id,
-            SalesHistory.region  == region.upper(),
-            SalesHistory.sale_time >= cutoff_30d,
-            *extra_conds,
-        )
-    )).scalars().all()
-
     prices_7d = (await db.execute(
         select(SalesHistory.price_per_unit).where(
             SalesHistory.item_id == item_id,
@@ -144,20 +179,41 @@ async def get_item_stats(
         )
     )).scalars().all()
 
-    if prices_7d:
-        filtered_median = _statistics.median(prices_7d)
-        filtered_volume = len(prices_7d)
-        filtered_opts   = _make_sell_options(filtered_median, filtered_volume)
-    else:
-        filtered_median = None
-        filtered_volume = 0
-        filtered_opts   = []
+    prices_30d = (await db.execute(
+        select(SalesHistory.price_per_unit).where(
+            SalesHistory.item_id == item_id,
+            SalesHistory.region  == region.upper(),
+            SalesHistory.sale_time >= cutoff_30d,
+            *extra_conds,
+        )
+    )).scalars().all()
 
-    filtered_volatility_30d = None
-    if len(prices_30d) >= 5:
-        avg30 = _statistics.mean(prices_30d)
-        stdev30 = _statistics.stdev(prices_30d)
-        filtered_volatility_30d = round(stdev30 / avg30 * 100, 2) if avg30 > 0 else None
+    # Статистика строится только на реальных продажах (SalesHistory с qlt/ptn).
+    # qlt/ptn попадает в additional_info при матчинге продажи с лотом из снэпшота.
+    # Чем дольше работает коллектор, тем больше покрытие.
+    filtered_median          = None
+    filtered_volume          = 0
+    filtered_sales_30d       = 0
+    filtered_opts            = []
+    filtered_volatility_7d   = None
+    filtered_volatility_30d  = None
+
+    if prices_7d:
+        filtered_median  = _statistics.median(prices_7d)
+        filtered_volume  = len(prices_7d)
+        filtered_opts    = _make_sell_options(filtered_median, filtered_volume)
+
+    if prices_30d:
+        filtered_sales_30d = len(prices_30d)
+        if len(prices_30d) >= 5:
+            avg30 = _statistics.mean(prices_30d)
+            if avg30 > 0:
+                filtered_volatility_30d = round(_statistics.stdev(prices_30d) / avg30 * 100, 2)
+
+    if len(prices_7d) >= 5:
+        avg7 = _statistics.mean(prices_7d)
+        if avg7 > 0:
+            filtered_volatility_7d = round(_statistics.stdev(prices_7d) / avg7 * 100, 2)
 
     return MonitoringItemResponse(
         item_id=stats.item_id,
@@ -167,7 +223,8 @@ async def get_item_stats(
         min_price_7d=int(stats.min_price_7d) if stats.min_price_7d else None,
         max_price_7d=int(stats.max_price_7d) if stats.max_price_7d else None,
         sales_volume_7d=filtered_volume,
-        price_volatility_7d=float(stats.price_volatility_7d) if stats.price_volatility_7d else None,
+        sales_volume_30d=filtered_sales_30d,
+        price_volatility_7d=filtered_volatility_7d,
         price_volatility_30d=filtered_volatility_30d,
         best_sell_hour=stats.best_sell_hour,
         best_sell_day=stats.best_sell_day,
@@ -259,9 +316,8 @@ async def get_sales_chart(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """Продажи из sales_history: scatter (≤48ч) или min/avg/max по дням (7д)."""
-    from datetime import timezone, timedelta
-
+    """История продаж только из SalesHistory (реальные сделки).
+    qlt/ptn попадает в additional_info при матчинге продажи с лотом из снэпшота."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     extra_conds = _build_sales_filter(quality_filter, enchant_filter)
 
@@ -270,19 +326,14 @@ async def get_sales_chart(
             select(SalesHistory.sale_time, SalesHistory.price_per_unit, SalesHistory.amount)
             .where(
                 SalesHistory.item_id == item_id,
-                SalesHistory.region == region.upper(),
+                SalesHistory.region  == region.upper(),
                 SalesHistory.sale_time >= cutoff,
                 *extra_conds,
             )
             .order_by(SalesHistory.sale_time)
         )).all()
-
         sales = [
-            SaleRecord(
-                sale_time=r.sale_time.isoformat(),
-                price_per_unit=r.price_per_unit,
-                amount=r.amount,
-            )
+            SaleRecord(sale_time=r.sale_time.isoformat(), price_per_unit=r.price_per_unit, amount=r.amount)
             for r in rows
         ]
         return SalesChartResponse(mode="scatter", sales=sales, total_count=len(sales))
@@ -299,14 +350,13 @@ async def get_sales_chart(
             )
             .where(
                 SalesHistory.item_id == item_id,
-                SalesHistory.region == region.upper(),
+                SalesHistory.region  == region.upper(),
                 SalesHistory.sale_time >= cutoff,
                 *extra_conds,
             )
             .group_by(trunc_expr)
             .order_by(trunc_expr)
         )).all()
-
         days = [
             DayPoint(
                 period_iso=r.period.isoformat() if hasattr(r.period, 'isoformat') else str(r.period),

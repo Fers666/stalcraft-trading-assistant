@@ -35,10 +35,10 @@ interface Props {
 }
 
 const HOURS_OPTIONS = [
-  { label: '12ч', value: 12 },
   { label: '24ч', value: 24 },
   { label: '48ч', value: 48 },
   { label: '7д',  value: 168 },
+  { label: '30д', value: 720 },
 ]
 
 const fmtPrice = (v: number) => v >= 1_000_000
@@ -57,7 +57,7 @@ function fmtDayLabel(iso: string): string {
 
 export default function PriceChart({ itemId, region, qualityFilter, enchantFilter }: Props) {
   const [resp, setResp]       = useState<SalesChartResponse | null>(null)
-  const [hours, setHours]     = useState(24)
+  const [hours, setHours]     = useState(720)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -78,7 +78,7 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
     load()
   }, [itemId, region, hours, qualityFilter, enchantFilter])
 
-  const periodLabel = hours === 168 ? '7 дней' : `${hours} ч`
+  const periodLabel = hours === 720 ? '30 дней' : hours === 168 ? '7 дней' : `${hours} ч`
 
   const scatterData = resp?.sales.map(s => ({
     x: new Date(s.sale_time).getTime(),
