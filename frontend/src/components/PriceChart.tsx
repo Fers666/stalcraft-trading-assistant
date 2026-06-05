@@ -57,7 +57,7 @@ function fmtDayLabel(iso: string): string {
 
 export default function PriceChart({ itemId, region, qualityFilter, enchantFilter }: Props) {
   const [resp, setResp]       = useState<SalesChartResponse | null>(null)
-  const [hours, setHours]     = useState(720)
+  const [hours, setHours]     = useState(168)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
