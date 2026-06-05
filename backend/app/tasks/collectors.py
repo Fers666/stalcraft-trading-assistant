@@ -424,7 +424,7 @@ async def _collect_history_for_item(db, entry):
             lot_add = matched.get("additional") or {}
             if "qlt" in lot_add:
                 result["qlt"] = lot_add["qlt"]
-            if "ptn" in lot_add and lot_add["ptn"]:
+            if "ptn" in lot_add and lot_add["ptn"] is not None:
                 result["ptn"] = lot_add["ptn"]
 
             return result

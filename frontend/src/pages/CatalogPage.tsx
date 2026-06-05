@@ -41,6 +41,7 @@ const QUALITY_OPTIONS = [
 
 const ENCHANT_OPTIONS = [
   { value: null, label: 'Любая' },
+  { value: 0,    label: 'Не точёный' },
   ...Array.from({ length: 15 }, (_, i) => ({ value: i + 1, label: `+${i + 1}` })),
 ]
 
@@ -123,7 +124,7 @@ export default function CatalogPage() {
         enchant_filter: enchantFilter,
       })
       const qLabel = QUALITY_OPTIONS.find(o => o.value === qualityFilter)?.label ?? 'Любое'
-      const eLabel = enchantFilter != null ? ` +${enchantFilter}` : ''
+      const eLabel = enchantFilter === 0 ? ' Не точёный' : enchantFilter != null ? ` +${enchantFilter}` : ''
       setSuccess(`${dialogItem.name_ru || dialogItem.item_id} [${qLabel}${eLabel}] добавлен в избранное (${region})`)
       setDialogItem(null)
     } catch (err: unknown) {

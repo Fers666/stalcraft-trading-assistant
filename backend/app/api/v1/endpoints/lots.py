@@ -127,10 +127,11 @@ def _parse_lot(
         actual_qlt = qlt if qlt is not None else 0
         quality_name = _QLT_TO_QUALITY.get(actual_qlt)
         quality_value = actual_qlt
+        # ptn для артефактов = точность: 0/None = "Не точёный", 1-15 = уровень качества
+        enchant_level = int(ptn) if ptn is not None else 0
     else:
         quality_name = _QLT_TO_QUALITY.get(qlt) if qlt is not None else item_color_quality
-
-    enchant_level = int(ptn) if ptn is not None and int(ptn) > 0 else None
+        enchant_level = int(ptn) if ptn is not None and int(ptn) > 0 else None
 
     return CategoryLotItem(
         item_id=master.item_id,
@@ -247,11 +248,11 @@ async def get_item_lots(
             actual_qlt = qlt if qlt is not None else 0
             quality_name = _QLT_TO_QUALITY.get(actual_qlt)
             quality_value = actual_qlt
+            # ptn для артефактов = точность: 0/None = "Не точёный", 1-15 = уровень качества
+            enchant_level = int(ptn) if ptn is not None else 0
         else:
             quality_name = _QLT_TO_QUALITY.get(qlt) if qlt is not None else item_color_quality
-
-        # ptn=0 означает "без заточки", показываем None
-        enchant_level = int(ptn) if ptn is not None and int(ptn) > 0 else None
+            enchant_level = int(ptn) if ptn is not None and int(ptn) > 0 else None
 
         lots.append(LotItem(
             item_id=lot.get("itemId", item_id),

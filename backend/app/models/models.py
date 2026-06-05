@@ -79,7 +79,7 @@ class UserWatchlist(Base):
     region                = Column(String(10), default="EU")
     # Фильтры по характеристикам: NULL = без фильтра (показывать все)
     quality_filter        = Column(Integer, nullable=True)   # qlt 0-5; NULL = любое качество
-    enchant_filter        = Column(Integer, nullable=True)   # заточка 1-15; NULL = любая заточка
+    enchant_filter        = Column(Integer, nullable=True)   # точность 0-15; 0 = "Не точёный"; NULL = любая
     # Выбранные пачки для статистики: [10, 20, 30, 50]
     tracked_batch_sizes   = Column(ARRAY(Integer), default=list)
     is_active             = Column(Boolean, default=True)

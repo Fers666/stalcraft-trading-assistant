@@ -22,7 +22,7 @@ class WatchlistCreate(BaseModel):
     item_id: str
     region: str = "RU"
     quality_filter: Optional[int] = None   # qlt 0-5; None = любое качество
-    enchant_filter: Optional[int] = None   # 1-15; None = любая заточка
+    enchant_filter: Optional[int] = None   # точность 0-15; 0 = "Не точёный"; None = любая
     tracked_batch_sizes: List[int] = [10, 20, 30, 50]
 
 
