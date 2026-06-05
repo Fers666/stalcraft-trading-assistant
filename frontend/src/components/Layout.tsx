@@ -1,4 +1,4 @@
-import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { Box, IconButton, Tooltip, Typography, alpha } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
@@ -171,7 +171,6 @@ function AppNav() {
 }
 
 export default function Layout() {
-  const location    = useLocation()
   const { watchlist, initialized, feedItems, lastLotRefresh } = useFeedStore()
   const feedShown = initialized && watchlist.length > 0 &&
     (lastLotRefresh === null || feedItems.length > 0)
