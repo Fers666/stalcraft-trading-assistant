@@ -69,6 +69,7 @@ _COLOR_TO_QLT: dict[str, int] = {
 engine = create_async_engine(DATABASE_URL, pool_size=5, max_overflow=2)
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 _redis: Optional[aioredis.Redis] = None
+_notifier_task: Optional[asyncio.Task] = None
 
 
 async def get_redis() -> aioredis.Redis:
@@ -482,7 +483,8 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 async def post_init(application: Application) -> None:
-    asyncio.create_task(_notifier_loop(application))
+    global _notifier_task
+    _notifier_task = asyncio.create_task(_notifier_loop(application))
     logger.info("Notifier task started")
 
 
