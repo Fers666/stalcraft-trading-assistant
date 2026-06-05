@@ -818,9 +818,10 @@ export default function MonitoringPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const {
-    watchlist, stats, lotsMap, lastLotRefresh,
+    watchlist, stats: feedStats, lotsMap, lastLotRefresh,
     initialized, loadWatchlistAndStats, loadAllLots: feedLoadAllLots, removeEntry,
   } = useFeedStore()
+  const stats = feedStats as unknown as Record<number, MarketStats>
 
   const [loading, setLoading]         = useState(!initialized)
   const [deleteEntry, setDeleteEntry] = useState<WatchlistEntry | null>(null)

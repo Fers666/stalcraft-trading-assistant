@@ -766,7 +766,7 @@ interface LotRow {
 }
 
 function LotsTable({
-  lots, page, rowsPerPage, totalFiltered, sortKey, sortDir, onSort, SortArrow,
+  lots, page, rowsPerPage, totalFiltered, sortKey: _sortKey, sortDir: _sortDir, onSort, SortArrow,
   onSetPage, onSetRowsPerPage, renderWl, showItemCol,
 }: {
   lots: LotRow[]

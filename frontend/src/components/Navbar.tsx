@@ -11,7 +11,7 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import { useAuthStore } from '../store/authStore'
 import { tokens } from '../theme'
 
-const { gold: G2, goldAccent: G3, goldSoft: G1, text1: T1, text2: T2, border: BORDER } = tokens
+const { gold: G2, goldAccent: G3, text1: T1, text2: T2, border: BORDER } = tokens
 
 const navItems = [
   { label: 'Избранное', path: '/app/monitoring', icon: <MonitorHeartIcon sx={{ fontSize: 14 }} /> },
