@@ -224,16 +224,14 @@ async def _find_profitable_lots(
     entry: UserWatchlist,
     master: MasterItem,
     stats: Optional[MarketStatistics],
-) -> list[dict]:
+) -> tuple[list[dict], Optional[int], Optional[float]]:
     """
-    Возвращает список выгодных лотов для записи вотчлиста.
-    Каждый элемент: {start_time, buyout_per_unit, quality_name, enchant, sell_options}
+    Возвращает (lots, sales_volume_7d, volatility_7d) для уведомления.
 
     Порог выгодности зеркалирует логику monitoring endpoint:
     - без фильтров: ref = best_liquid_price_per_unit текущего снэпшота
     - с фильтрами:  ref = медиана SalesHistory по quality/enchant (или фолбэк на снэпшот)
-    Это устраняет рассинхрон когда фронт пересчитывает sell_options по текущей цене,
-    а бот использовал почасовой MarketStatistics.
+    volume/volatility для сообщения тоже фильтруются по quality/enchant, как на мониторинг-пейдж.
     """
     snap = (await db.execute(
         select(CollectedData)
@@ -248,16 +246,20 @@ async def _find_profitable_lots(
     )).scalar_one_or_none()
 
     if snap is None or not snap.raw_lots:
-        return []
+        return [], None, None
 
     # ── Строим sell_options тем же способом что мониторинг-эндпоинт ─────────
     volume_7d = (stats.sales_volume_7d or 0) if stats else 0
+
+    # msg_volume / msg_volatility — то что попадёт в уведомление (зеркало мониторинг-пейдж)
+    msg_volume: Optional[int]   = stats.sales_volume_7d if stats else None
+    msg_volatility: Optional[float] = float(stats.price_volatility_7d) if stats and stats.price_volatility_7d else None
 
     if entry.quality_filter is None and entry.enchant_filter is None:
         # Нет фильтров: опорная цена = текущий минимум ликвидных лотов
         current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
         if not current_min:
-            return []
+            return [], None, None
         fresh_sell_options = _make_fresh_sell_options(int(current_min), volume_7d)
     else:
         # С фильтрами: медиана реальных продаж с нужным quality/enchant
@@ -285,13 +287,23 @@ async def _find_profitable_lots(
         prices = (await db.execute(q)).scalars().all()
 
         if prices:
-            ref       = int(_statistics.median(prices))
-            vol       = len(prices)
+            ref = int(_statistics.median(prices))
+            vol = len(prices)
+            # Фильтрованные метрики — как на мониторинг-пейдж
+            msg_volume = vol
+            if vol >= 5:
+                avg7 = _statistics.mean(prices)
+                if avg7 > 0:
+                    msg_volatility = round(_statistics.stdev(prices) / avg7 * 100, 2)
+                else:
+                    msg_volatility = None
+            else:
+                msg_volatility = None
         else:
             # Нет истории продаж для этого фильтра — фолбэк на текущий минимум
             current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
             if not current_min:
-                return []
+                return [], None, None
             ref = int(current_min)
             vol = volume_7d
 
@@ -299,7 +311,7 @@ async def _find_profitable_lots(
 
     normal_opt = next((o for o in fresh_sell_options if o.get("label") == "normal"), None)
     if not normal_opt:
-        return []
+        return [], None, None
     normal_net = int(normal_opt["net_price_per_unit"])
 
     now    = datetime.now(timezone.utc)
@@ -346,7 +358,7 @@ async def _find_profitable_lots(
             "sell_options":    fresh_sell_options,
         })
 
-    return profitable
+    return profitable, msg_volume, msg_volatility
 
 
 # ─── Notifier loop ────────────────────────────────────────────────────────────
@@ -408,7 +420,7 @@ async def notify_profitable_lots(app: Application) -> None:
                     stats_cache[skey] = s
                 stats = stats_cache.get(skey)
 
-                profitable = await _find_profitable_lots(db, entry, master, stats)
+                profitable, msg_volume_7d, msg_volatility_7d = await _find_profitable_lots(db, entry, master, stats)
 
                 for lot in profitable:
                     # Дедупликация по startTime лота (одно уведомление за 48ч)
@@ -427,8 +439,8 @@ async def notify_profitable_lots(app: Application) -> None:
                         enchant        = lot["enchant"],
                         buyout_per_unit= lot["buyout_per_unit"],
                         sell_options   = lot["sell_options"],
-                        sales_volume_7d= stats.sales_volume_7d if stats else None,
-                        volatility_7d  = float(stats.price_volatility_7d) if stats and stats.price_volatility_7d else None,
+                        sales_volume_7d= msg_volume_7d,
+                        volatility_7d  = msg_volatility_7d,
                     )
 
                     try:
