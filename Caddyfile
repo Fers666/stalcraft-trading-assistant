@@ -5,19 +5,19 @@
 sctrading.ru {
     # Backend API
     handle /api/* {
-        reverse_proxy localhost:8000
+        reverse_proxy backend:8000
     }
 
     # Swagger UI
     handle /docs* {
-        reverse_proxy localhost:8000
+        reverse_proxy backend:8000
     }
     handle /openapi.json {
-        reverse_proxy localhost:8000
+        reverse_proxy backend:8000
     }
 
     # Frontend SPA (React)
     handle {
-        reverse_proxy localhost:3000
+        reverse_proxy frontend:80
     }
 }
