@@ -4,6 +4,7 @@ import api from '../api/client'
 export interface FeedLotItem {
   buyout_price: number
   amount: number
+  start_time: string | null
   hours_remaining: number | null
   is_expiring: boolean
   quality_name: string | null
@@ -46,6 +47,7 @@ export const FEED_COMMISSION = 0.05
 export interface FeedItem {
   entry: FeedWatchlistEntry
   count: number
+  latest_lot_time: string | null
 }
 
 interface FeedState {
@@ -133,14 +135,19 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         if (!s?.sell_options || !lots) return []
         const normal = s.sell_options.find(o => o.label === 'normal')
         if (!normal) return []
-        const count = lots.filter(l => {
+        const profitableLots = lots.filter(l => {
           if (l.is_expiring || l.buyout_price <= 0) return false
           if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
           if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
           return Math.round(normal.price_per_unit * (1 - FEED_COMMISSION) - Math.floor(l.buyout_price / l.amount)) > 0
-        }).length
+        })
+        const count = profitableLots.length
         if (count === 0) return []
-        return [{ entry, count }]
+        const latest_lot_time = profitableLots.reduce<string | null>((max, l) => {
+          if (!l.start_time) return max
+          return max === null || l.start_time > max ? l.start_time : max
+        }, null)
+        return [{ entry, count, latest_lot_time }]
       })
       .sort((a, b) => b.count - a.count)
 

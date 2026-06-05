@@ -135,141 +135,6 @@ interface LotItem {
   enchant_level: number | null
 }
 
-// ─── Лента выгодных лотов ────────────────────────────────────────────────────
-
-function ProfitableFeed({ watchlist, stats, lotsMap, lastRefresh, onCardClick }: {
-  watchlist: WatchlistEntry[]
-  stats: Record<number, MarketStats>
-  lotsMap: Record<number, LotItem[] | undefined>
-  lastRefresh: Date | null
-  onCardClick: (id: number) => void
-}) {
-
-  const COMMISSION = 0.05
-
-  const feedItems = watchlist.map(entry => {
-    const entryStats = stats[entry.id]
-    const lots = lotsMap[entry.id]
-
-    if (!entryStats?.sell_options || lots === undefined) {
-      return { entry, profitableCount: null as number | null }
-    }
-
-    const normalOption = entryStats.sell_options.find(o => o.label === 'normal')
-    if (!normalOption) return { entry, profitableCount: null as number | null }
-
-    const count = lots.filter(l => {
-      if (l.is_expiring || l.buyout_price <= 0) return false
-      if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
-      if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
-      const buyPerUnit = Math.floor(l.buyout_price / l.amount)
-      return Math.round(normalOption.price_per_unit * (1 - COMMISSION) - buyPerUnit) > 0
-    }).length
-
-    return { entry, profitableCount: count }
-  }).filter(item => item.profitableCount !== null && item.profitableCount > 0)
-    .sort((a, b) => (b.profitableCount ?? 0) - (a.profitableCount ?? 0))
-
-  return (
-    <Box sx={{ mb: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-        <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.14em', fontWeight: 600 }}>
-          ЛЕНТА
-        </Typography>
-        <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: feedItems.length > 0 ? 'success.main' : 'text.disabled', opacity: 0.8 }} />
-        <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.1em' }}>
-          ОПРОС 30 СЕК
-        </Typography>
-        {lastRefresh && (
-          <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', ml: 'auto' }}>
-            {lastRefresh.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-          </Typography>
-        )}
-      </Box>
-      {feedItems.length === 0 ? (
-        <Typography sx={{ fontSize: '0.68rem', color: 'text.disabled', py: 1 }}>
-          {lastRefresh ? 'Нет выгодных лотов' : '…'}
-        </Typography>
-      ) : (
-      <Box sx={{
-        display: 'flex',
-        gap: 1,
-        overflowX: 'auto',
-        pb: 0.5,
-        '&::-webkit-scrollbar': { height: '3px' },
-        '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.1)', borderRadius: '2px' },
-      }}>
-        {feedItems.map(({ entry, profitableCount }) => (
-            <Box key={entry.id} onClick={() => onCardClick(entry.id)} sx={{
-              flexShrink: 0,
-              width: 148,
-              p: 1,
-              borderRadius: '10px',
-              border: '1px solid rgba(62,213,152,0.35)',
-              background: 'rgba(62,213,152,0.04)',
-              cursor: 'pointer',
-              transition: 'background 0.15s, border-color 0.15s',
-              '&:hover': {
-                background: 'rgba(62,213,152,0.10)',
-                borderColor: 'rgba(62,213,152,0.7)',
-              },
-            }}>
-              {/* Иконка + Название */}
-              <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'flex-start', mb: 0.5 }}>
-                <Avatar
-                  src={iconUrl(entry.icon_path) ?? undefined}
-                  variant="rounded"
-                  sx={{
-                    width: 28, height: 28, flexShrink: 0,
-                    bgcolor: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: '5px',
-                    mt: 0.125,
-                  }}
-                >
-                  {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
-                </Avatar>
-                <Typography sx={{
-                  fontSize: '0.68rem', fontWeight: 600, lineHeight: 1.3,
-                  overflow: 'hidden', display: '-webkit-box',
-                  WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                  flex: 1,
-                }}>
-                  {entry.name_ru || entry.name_en || entry.item_id}
-                </Typography>
-              </Box>
-
-              {/* Качество + Заточка + Бейдж */}
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                {entry.quality_filter !== null && (
-                  <Typography sx={{ fontSize: '0.57rem', color: 'primary.main', fontWeight: 600, lineHeight: 1 }}>
-                    {QLT_NAMES[entry.quality_filter]}
-                  </Typography>
-                )}
-                {entry.enchant_filter !== null && (
-                  <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 700, lineHeight: 1 }}>
-                    +{entry.enchant_filter}
-                  </Typography>
-                )}
-                <Box sx={{ ml: 'auto' }}>
-                  <Box sx={{
-                    bgcolor: 'success.main', color: '#000',
-                    borderRadius: '5px', px: 0.75, py: 0.125,
-                    fontSize: '0.65rem', fontWeight: 700, lineHeight: 1.5,
-                  }}>
-                    {profitableCount}
-                  </Box>
-                </Box>
-              </Box>
-            </Box>
-        ))}
-      </Box>
-      )}
-    </Box>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData }: {
   entry: WatchlistEntry
@@ -818,7 +683,7 @@ export default function MonitoringPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const {
-    watchlist, stats: feedStats, lotsMap, lastLotRefresh,
+    watchlist, stats: feedStats, lotsMap,
     initialized, loadWatchlistAndStats, loadAllLots: feedLoadAllLots, removeEntry,
   } = useFeedStore()
   const stats = feedStats as unknown as Record<number, MarketStats>
@@ -912,7 +777,6 @@ export default function MonitoringPage() {
         </Box>
       ) : (
         <>
-          <ProfitableFeed watchlist={watchlist} stats={stats} lotsMap={lotsMap} lastRefresh={lastLotRefresh} onCardClick={scrollToCard} />
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
           {watchlist.map((entry) => (
             <Box
