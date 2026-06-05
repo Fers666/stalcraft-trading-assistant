@@ -262,6 +262,7 @@ export default function LotsPage() {
   useEffect(() => { setPage(0) }, [filterQuality, filterEnchant, sortKey, sortDir])
 
   useEffect(() => {
+    if (result === null && catResult === null) return
     setFilterQuality(pendingQualityRef.current ?? 'all')
     setFilterEnchant(pendingEnchantRef.current ?? 'all')
     pendingQualityRef.current = null
