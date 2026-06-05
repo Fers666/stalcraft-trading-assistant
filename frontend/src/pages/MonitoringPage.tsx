@@ -213,7 +213,7 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData }: {
     return true
   }).length
 
-  const hasQuality = profitableLots.some(l => l.quality_name || l.enchant_level)
+  const hasQuality = profitableLots.some(l => l.quality_name || l.enchant_level != null)
   const lotGridCols = hasQuality ? '1fr auto 86px 86px 86px' : '1fr 86px 86px 86px'
 
   // Часы продажи/покупки в зависимости от режима
@@ -265,7 +265,7 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData }: {
               </Typography>
               {entry.enchant_filter !== null && (
                 <Typography sx={{ fontSize: '0.85rem', fontWeight: 700, color: 'primary.main', flexShrink: 0 }}>
-                  +{entry.enchant_filter}
+                  {entry.enchant_filter === 0 ? 'Не точёный' : `+${entry.enchant_filter}`}
                 </Typography>
               )}
             </Box>
@@ -509,9 +509,9 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData }: {
                                 {lot.quality_name}
                               </Typography>
                             )}
-                            {lot.enchant_level && (
+                            {lot.enchant_level != null && (
                               <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 600, lineHeight: 1.3 }}>
-                                +{lot.enchant_level}
+                                {lot.enchant_level === 0 ? 'Не точёный' : `+${lot.enchant_level}`}
                               </Typography>
                             )}
                           </Box>

@@ -379,9 +379,10 @@ export default function LotsPage() {
   const WlButton = ({ itemId, lot }: { itemId: string; lot: { quality_name: string | null; quality_value: number | null; enchant_level: number | null } }) => {
     const key = wlKey(itemId, lot)
     const st = wlStates[key]
-    const label = lot.quality_name && lot.enchant_level != null
-      ? `${lot.quality_name} +${lot.enchant_level}`
-      : lot.quality_name ?? (lot.enchant_level != null ? `+${lot.enchant_level}` : 'Без фильтров')
+    const enchantLabel = lot.enchant_level === 0 ? 'Не точёный' : lot.enchant_level != null ? `+${lot.enchant_level}` : null
+    const label = lot.quality_name && enchantLabel
+      ? `${lot.quality_name} ${enchantLabel}`
+      : lot.quality_name ?? enchantLabel ?? 'Без фильтров'
     return (
       <Tooltip title={st === 'added' || st === 'exists' ? 'Уже в Избранном' : `В Избранное: ${label}`}>
         <span>
@@ -423,7 +424,11 @@ export default function LotsPage() {
             <MenuItem value="all">Все заточки</MenuItem>
             {enchantOptions.map((e) => {
               const count = activeLots.filter((l) => l.enchant_level === e).length
-              return <MenuItem key={e} value={String(e)}>+{e} ({count})</MenuItem>
+              return (
+                <MenuItem key={e} value={String(e)}>
+                  {e === 0 ? `Не точёный (${count})` : `+${e} (${count})`}
+                </MenuItem>
+              )
             })}
           </Select>
         </FormControl>
@@ -852,9 +857,11 @@ function LotsTable({
                       : <Typography variant="caption" color="text.disabled">—</Typography>}
                   </TableCell>
                   <TableCell>
-                    {lot.enchant_level != null
-                      ? <Chip label={`+${lot.enchant_level}`} size="small" color="primary" variant="outlined" />
-                      : <Typography variant="caption" color="text.disabled">—</Typography>}
+                    {lot.enchant_level === 0
+                      ? <Chip label="Не точёный" size="small" variant="outlined" sx={{ color: 'text.secondary' }} />
+                      : lot.enchant_level != null
+                        ? <Chip label={`+${lot.enchant_level}`} size="small" color="primary" variant="outlined" />
+                        : <Typography variant="caption" color="text.disabled">—</Typography>}
                   </TableCell>
                   <TableCell>
                     {lot.hours_remaining != null ? `${lot.hours_remaining.toFixed(1)} ч` : '—'}

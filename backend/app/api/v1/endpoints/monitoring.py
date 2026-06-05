@@ -52,8 +52,14 @@ def _build_sales_filter(quality_filter: int | None, enchant_filter: int | None) 
         else:
             conds.append(SalesHistory.additional_info['qlt'].astext == str(quality_filter))
     if enchant_filter is not None:
-        # ptn — прямое целое 1-15 (0 = не зачарован, в watchlist enchant_filter всегда 1-15)
-        conds.append(SalesHistory.additional_info['ptn'].astext == str(enchant_filter))
+        if enchant_filter == 0:
+            # 0 = "Не точёный" артефакт: ptn отсутствует или явно равен 0
+            conds.append(or_(
+                SalesHistory.additional_info['ptn'].astext.is_(None),
+                SalesHistory.additional_info['ptn'].astext == '0',
+            ))
+        else:
+            conds.append(SalesHistory.additional_info['ptn'].astext == str(enchant_filter))
     return conds
 
 
