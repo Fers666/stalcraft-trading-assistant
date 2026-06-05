@@ -88,24 +88,19 @@ export default function GlobalFeed() {
     return () => clearInterval(t)
   }, [watchlist, loadWatchlistAndStats])
 
-  // Скрываем на странице мониторинга
   if (location.pathname === '/app/monitoring') return null
-  // До инициализации и при пустом вотчлисте — не занимаем место
   if (!initialized || watchlist.length === 0) return null
-
-  console.log('[GlobalFeed] state:', { initialized, watchlistLen: watchlist.length, lastLotRefresh, feedItemsLen: feedItems.length })
 
   const handleClick = (id: number) => {
     navigate('/app/monitoring', { state: { scrollTo: id } })
   }
 
-  // Лоты ещё грузятся — скелетон
   if (lastLotRefresh === null) {
     return (
       <Box sx={feedBarSx}>
         <FeedLabel lastRefresh={null} hasItems={false} />
-        <Box sx={{ width: 1, height: 52, bgcolor: 'rgba(255,255,255,0.07)', flexShrink: 0 }} />
-        <div style={{ display: 'flex', gap: 10, flex: 1, alignItems: 'center', overflow: 'hidden' }}>
+        <Box sx={{ width: '1px', height: 52, bgcolor: 'rgba(255,255,255,0.07)', flexShrink: 0 }} />
+        <Box sx={{ display: 'flex', gap: 1.25, flex: 1, alignItems: 'center', overflow: 'hidden' }}>
           {[0, 1, 2, 3].map(i => (
             <Skeleton
               key={i}
@@ -115,46 +110,85 @@ export default function GlobalFeed() {
               sx={{ flexShrink: 0, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}
             />
           ))}
-        </div>
+        </Box>
       </Box>
     )
   }
 
-  // feedItems вычислены в сторе атомарно — нет выгодных позиций
   if (feedItems.length === 0) return null
-
-  console.log('[GlobalFeed] rendering feedItems:', feedItems.length, feedItems)
 
   return (
     <Box sx={feedBarSx}>
       <FeedLabel lastRefresh={lastLotRefresh} hasItems={true} />
 
-      {/* Разделитель */}
-      <Box sx={{ width: 1, height: 52, bgcolor: 'rgba(255,255,255,0.07)', flexShrink: 0 }} />
+      <Box sx={{ width: '1px', height: 52, bgcolor: 'rgba(255,255,255,0.07)', flexShrink: 0 }} />
 
-      {/* DEBUG: plain divs to test visibility */}
-      <div style={{ display: 'flex', gap: 10, flex: 1, alignItems: 'center', overflowX: 'auto', overflowY: 'hidden', height: FEED_HEIGHT }}>
+      <Box sx={{
+        display: 'flex',
+        alignItems: 'center',
+        alignSelf: 'stretch',
+        gap: 1.25,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        flex: 1,
+        height: `${FEED_HEIGHT}px`,
+        pb: 0.25,
+        '&::-webkit-scrollbar': { height: '3px' },
+        '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.09)', borderRadius: '2px' },
+      }}>
         {feedItems.map(({ entry, count }) => (
-          <div
+          <Box
             key={entry.id}
             onClick={() => handleClick(entry.id)}
-            style={{
-              width: 172, height: 62,
-              background: 'red',
-              color: 'white',
-              fontSize: 13,
+            sx={{
               flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 8,
+              width: 172,
+              p: '10px 10px 8px',
+              borderRadius: '10px',
+              border: '1px solid rgba(62,213,152,0.3)',
+              background: 'rgba(62,213,152,0.035)',
               cursor: 'pointer',
+              transition: 'background 0.15s, border-color 0.15s, transform 0.1s',
+              '&:hover': {
+                background: 'rgba(62,213,152,0.09)',
+                borderColor: 'rgba(62,213,152,0.65)',
+                transform: 'translateY(-1px)',
+              },
+              '&:active': { transform: 'translateY(0)' },
             }}
           >
-            {entry.name_ru || entry.item_id} ({count})
-          </div>
+            <Box sx={{ display: 'flex', gap: 0.875, alignItems: 'flex-start', mb: 0.625 }}>
+              <Avatar
+                src={iconUrl(entry.icon_path) ?? undefined}
+                variant="rounded"
+                sx={{ width: 30, height: 30, flexShrink: 0, bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '5px', mt: 0.125 }}
+              >
+                {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
+              </Avatar>
+              <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', flex: 1 }}>
+                {entry.name_ru || entry.name_en || entry.item_id}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              {entry.quality_filter !== null && (
+                <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 600, lineHeight: 1 }}>
+                  {QLT_NAMES[entry.quality_filter]}
+                </Typography>
+              )}
+              {entry.enchant_filter !== null && (
+                <Typography sx={{ fontSize: '0.62rem', color: 'primary.main', fontWeight: 700, lineHeight: 1 }}>
+                  +{entry.enchant_filter}
+                </Typography>
+              )}
+              <Box sx={{ ml: 'auto' }}>
+                <Box sx={{ bgcolor: 'success.main', color: '#000', borderRadius: '5px', px: 0.875, py: 0.25, fontSize: '0.68rem', fontWeight: 700, lineHeight: 1.45 }}>
+                  {count}
+                </Box>
+              </Box>
+            </Box>
+          </Box>
         ))}
-      </div>
+      </Box>
     </Box>
   )
 }
