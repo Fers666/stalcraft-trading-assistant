@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr
 
 from app.db.session import get_db
 from app.models.models import User, UserSettings
-from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
+from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
 from app.core.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -74,6 +74,33 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     if not user.is_approved:
         raise HTTPException(status_code=403, detail="Account pending admin approval")
+
+    return TokenResponse(
+        access_token=create_access_token(user.id),
+        refresh_token=create_refresh_token(user.id),
+    )
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(payload: RefreshRequest, db: AsyncSession = Depends(get_db)):
+    from jose import jwt as _jwt
+    from app.core.config import settings as _settings
+    from app.core.security import ALGORITHM
+    try:
+        data = _jwt.decode(payload.refresh_token, _settings.secret_key, algorithms=[ALGORITHM])
+        if data.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        user_id = int(data["sub"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user or not user.is_approved:
+        raise HTTPException(status_code=401, detail="User not found or not approved")
 
     return TokenResponse(
         access_token=create_access_token(user.id),

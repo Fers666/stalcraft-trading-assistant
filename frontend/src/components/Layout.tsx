@@ -172,12 +172,12 @@ function AppNav() {
 
 export default function Layout() {
   const location    = useLocation()
-  const { watchlist, initialized, profitableItemIds, lastLotRefresh } = useFeedStore()
+  const { watchlist, initialized, feedItems, lastLotRefresh } = useFeedStore()
   const onMonitoring = location.pathname === '/app/monitoring'
   // Бар занимает место если: инициализировано + есть вотчлист + не страница мониторинга
-  // + (лоты ещё грузятся OR есть выгодные позиции)
+  // + (лоты ещё грузятся OR feedItems согласованы со стором и > 0)
   const feedShown   = !onMonitoring && initialized && watchlist.length > 0 &&
-    (lastLotRefresh === null || profitableItemIds.length > 0)
+    (lastLotRefresh === null || feedItems.length > 0)
   const topOffset   = 56 + (feedShown ? FEED_HEIGHT : 0)
 
   return (

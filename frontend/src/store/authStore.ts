@@ -26,6 +26,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: async (email, password) => {
     const { data } = await api.post('/auth/login', { email, password })
     localStorage.setItem('access_token', data.access_token)
+    localStorage.setItem('refresh_token', data.refresh_token)
     const me = await api.get('/auth/me')
     set({ user: me.data })
   },
@@ -37,6 +38,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: () => {
     localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
     set({ user: null })
   },
 
