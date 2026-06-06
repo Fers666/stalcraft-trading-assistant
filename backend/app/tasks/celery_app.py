@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.tasks.cleanup",
         "app.tasks.analyzers",
         "app.tasks.global_scanner",
+        "app.tasks.notifications",
     ],
 )
 
@@ -50,9 +51,10 @@ celery_app.conf.update(
             "task": "app.tasks.global_scanner.run_global_feed_batch",
             "schedule": crontab(minute="*"),
         },
-        # "process-notification-queue": {
-        #     "task": "app.tasks.notifications.process_queue",
-        #     "schedule": crontab(minute="*/2"),
-        # },
+        # Telegram-уведомления о выгодных лотах — каждые 2 минуты
+        "notify-profitable-lots": {
+            "task": "app.tasks.notifications.scan_and_notify",
+            "schedule": timedelta(minutes=2),
+        },
     },
 )

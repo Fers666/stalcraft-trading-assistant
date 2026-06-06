@@ -211,9 +211,10 @@ class PurchaseRecommendation(Base):
     lot_price_per_unit          = Column(BigInteger, nullable=False)
     lot_total_price             = Column(BigInteger, nullable=False)
     lot_end_time                = Column(DateTime(timezone=True))
-    expected_sell_price_per_unit = Column(BigInteger, nullable=False)
-    expected_profit_per_unit    = Column(BigInteger, nullable=False)
-    expected_profit_percent     = Column(Numeric(5, 2), nullable=False)
+    expected_listing_price_per_unit = Column(BigInteger, nullable=False)  # за сколько выставить лот
+    expected_net_revenue_per_unit   = Column(BigInteger, nullable=False)  # получишь на руки (listing * 0.95)
+    expected_profit_per_unit        = Column(BigInteger, nullable=False)  # net_revenue - buy_price
+    expected_profit_percent         = Column(Numeric(5, 2), nullable=False)
     confidence_score            = Column(Numeric(3, 2))
     recommend_sell_hour         = Column(Integer)
     recommend_sell_day          = Column(String(10))

@@ -27,12 +27,13 @@ class MarketStats:
 class ProfitabilityResult:
     is_profitable: bool
     profit_percent: float
-    score: float                 # profit_percent * confidence
-    expected_sell_price: int     # после комиссии
-    expected_profit_per_unit: int
+    score: float                    # profit_percent * confidence
+    expected_listing_price: int     # за сколько выставить лот (до комиссии)
+    expected_net_revenue: int       # получишь на руки (listing_price * 0.95)
+    expected_profit_per_unit: int   # net_revenue - buy_price
     recommend_sell_hour: Optional[int]
     recommend_sell_day: Optional[str]
-    risk_level: str              # low | medium | high
+    risk_level: str                 # low | medium | high
     confidence: float
 
 
@@ -51,10 +52,12 @@ def calculate_profitability(
       confidence       = min(1.0, sales_volume_7d / 100)
       score            = profit_percent * confidence
     """
-    # Ожидаемая выручка с учётом комиссии продажи
-    expected_revenue = market_stats.avg_sell_price_7d * (1 - SELL_COMMISSION)
+    # Листинговая цена = историческая средняя (за сколько выставить лот)
+    # Выручка на руки = listing_price * (1 - 5% комиссии)
+    listing_price = market_stats.avg_sell_price_7d
+    net_revenue = listing_price * (1 - SELL_COMMISSION)
 
-    profit_per_unit = expected_revenue - lot.price_per_unit
+    profit_per_unit = net_revenue - lot.price_per_unit
     profit_percent = (profit_per_unit / lot.price_per_unit * 100) if lot.price_per_unit > 0 else 0.0
 
     # Уверенность на основе объёма продаж
@@ -75,7 +78,8 @@ def calculate_profitability(
         is_profitable=profit_percent >= min_margin_percent,
         profit_percent=round(profit_percent, 1),
         score=round(score, 1),
-        expected_sell_price=int(expected_revenue),
+        expected_listing_price=int(listing_price),
+        expected_net_revenue=int(net_revenue),
         expected_profit_per_unit=int(profit_per_unit),
         recommend_sell_hour=market_stats.best_sell_hour,
         recommend_sell_day=market_stats.best_sell_day,
