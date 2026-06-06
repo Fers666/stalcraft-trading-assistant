@@ -95,6 +95,14 @@ const REGIONS = ['RU', 'EU', 'NA', 'SEA']
 const QL_NAMES: Record<number, string> = {
   0: 'Обычный', 1: 'Необычный', 2: 'Особый', 3: 'Ветеран', 4: 'Мастер', 5: 'Легендарный',
 }
+const QUALITY_CHIP_COLOR: Record<string, string> = {
+  'Обычный': '#555',
+  'Необычный': '#4caf50',
+  'Особый': '#2196f3',
+  'Ветеран': '#9c27b0',
+  'Мастер': '#ff9800',
+  'Легендарный': '#f44336',
+}
 const HISTORY_KEY = 'lots_search_history'
 const HISTORY_MAX = 10
 const ROWS_PER_PAGE_OPTIONS = [25, 50, 100]
@@ -852,8 +860,18 @@ function LotsTable({
                   <TableCell>{lot.amount} шт.</TableCell>
                   <TableCell>{formatPrice(Math.floor(lot.buyout_price / lot.amount))}</TableCell>
                   <TableCell>
-                    {lot.quality_name
-                      ? <Chip label={lot.quality_name} size="small" variant="outlined" />
+                    {lot.quality_name && QUALITY_CHIP_COLOR[lot.quality_name]
+                      ? <Chip
+                          label={lot.quality_name}
+                          size="small"
+                          variant="outlined"
+                          sx={{
+                            fontSize: '0.65rem',
+                            height: 18,
+                            borderColor: QUALITY_CHIP_COLOR[lot.quality_name],
+                            color: QUALITY_CHIP_COLOR[lot.quality_name],
+                          }}
+                        />
                       : <Typography variant="caption" color="text.disabled">—</Typography>}
                   </TableCell>
                   <TableCell>

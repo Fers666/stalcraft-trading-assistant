@@ -108,6 +108,19 @@ const SELL_OPTION_TOOLTIPS: Record<string, string> = {
 const sellOptionColor = (label: string) =>
   ({ fast: '#3ED598', normal: '#D9AF37', premium: '#F5B74F' }[label] ?? '#F5F5F5')
 
+const qualityColor = (quality: string | null): string | null => {
+  if (!quality) return null
+  const colors: Record<string, string> = {
+    'Обычный': '#555',
+    'Необычный': '#4caf50',
+    'Особый': '#2196f3',
+    'Ветеран': '#9c27b0',
+    'Мастер': '#ff9800',
+    'Легендарный': '#f44336',
+  }
+  return colors[quality] ?? null
+}
+
 function volatilityRisk(v: number | null): keyof typeof RISK_LABELS | null {
   if (v == null) return null
   if (v > 30) return 'high'
@@ -441,12 +454,18 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals 
             </Avatar>
             {/* Качество под иконкой */}
             {entry.quality_filter !== null && (
-              <Typography sx={{
-                fontSize: '0.6rem', fontWeight: 600, letterSpacing: '0.04em',
-                color: 'primary.main', textAlign: 'center', mt: 0.5,
-              }}>
-                {QLT_NAMES[entry.quality_filter] ?? `qlt${entry.quality_filter}`}
-              </Typography>
+              <Chip
+                label={QLT_NAMES[entry.quality_filter] ?? `qlt${entry.quality_filter}`}
+                size="small"
+                variant="outlined"
+                sx={{
+                  fontSize: '0.6rem',
+                  height: 16,
+                  mt: 0.5,
+                  borderColor: qualityColor(QLT_NAMES[entry.quality_filter]) ?? 'primary.main',
+                  color: qualityColor(QLT_NAMES[entry.quality_filter]) ?? 'primary.main',
+                }}
+              />
             )}
           </Box>
         </Box>
@@ -547,16 +566,32 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals 
                           )}
                         </Box>
                         {hasQuality && (
-                          <Box sx={{ textAlign: 'right', alignSelf: 'center' }}>
-                            {lot.quality_name && (
-                              <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
-                                {lot.quality_name}
-                              </Typography>
+                          <Box sx={{ textAlign: 'right', alignSelf: 'center', display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                            {lot.quality_name && qualityColor(lot.quality_name) && (
+                              <Chip
+                                label={lot.quality_name}
+                                size="small"
+                                variant="outlined"
+                                sx={{
+                                  fontSize: '0.6rem',
+                                  height: 16,
+                                  borderColor: qualityColor(lot.quality_name),
+                                  color: qualityColor(lot.quality_name),
+                                }}
+                              />
                             )}
                             {lot.enchant_level != null && (
-                              <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 600, lineHeight: 1.3 }}>
-                                {lot.enchant_level === 0 ? 'Не точёный' : `+${lot.enchant_level}`}
-                              </Typography>
+                              <Chip
+                                label={lot.enchant_level === 0 ? 'Не точёный' : `+${lot.enchant_level}`}
+                                size="small"
+                                variant="outlined"
+                                sx={{
+                                  fontSize: '0.6rem',
+                                  height: 16,
+                                  borderColor: lot.enchant_level === 0 ? 'text.secondary' : 'primary.main',
+                                  color: lot.enchant_level === 0 ? 'text.secondary' : 'primary.main',
+                                }}
+                              />
                             )}
                           </Box>
                         )}
