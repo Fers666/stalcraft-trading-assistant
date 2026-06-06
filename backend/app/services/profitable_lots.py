@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 COMMISSION = 0.05
-SIGNALS_TTL = 150       # секунд — TTL ключа сигналов в Redis
+SIGNALS_TTL = 300       # секунд — TTL ключа сигналов (запас на случай задержки цикла)
 NOTIF_DEDUP_TTL = 48 * 3600  # 48ч — один лот нотифицируется один раз
 
 _QLT_NAMES: dict[int, str] = {
