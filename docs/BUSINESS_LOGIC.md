@@ -367,6 +367,41 @@ else:
 | `delete_old_data` | ежедневно 03:00 | Удаление данных старше 120 дней |
 | `force_refresh_all_history` | вручную (Admin) | Принудительный пересбор истории + пересчёт статистики |
 
+### Архитектура сбора лотов (`collect_all_active_lots`)
+
+**Дедупликация по (item_id, region):** если 100 пользователей следят за одним товаром в одном регионе — делается ровно 1 API-запрос. Обновление `last_successful_check` распространяется на все записи watchlist с совпадающей парой.
+
+**Очередь по давности:** записи сортируются `last_successful_check ASC NULLS FIRST` — самые устаревшие обрабатываются первыми. Новые записи (NULL) всегда идут в начало.
+
+**Анти-всплесковый механизм:** `LOTS_PER_RUN = 1` — один предмет за запуск. После рестарта воркера все записи одновременно устаревают, но ограничение предотвращает спайк из десятков одновременных API-запросов.
+
+**Константы:**
+```
+LOTS_REFRESH_INTERVAL = 20 сек   — интервал обновления одного предмета
+LOTS_PER_RUN          = 1        — предметов за один запуск задачи
+LOTS_REQUEST_DELAY    = 2 сек    — пауза между запросами (при LOTS_PER_RUN > 1)
+```
+
+**Redis-кэш:** обновляется сразу после получения ответа от Stalcraft API, до коммита в БД. Это гарантирует, что `GET /lots/{id}` отдаёт свежие данные без задержки на запись в PostgreSQL.
+
+### Триггерный сбор при добавлении в watchlist
+
+При добавлении нового предмета в избранное API немедленно запускает две задачи без ожидания планировщика:
+- `collect_single_item` — снэпшот активных лотов (throttle Redis: не чаще раза в 2 минуты)
+- `collect_history_single` — начальная история продаж
+
+### Ретроактивное обогащение qlt/ptn
+
+`collect_all_history` при каждом запуске не только добавляет новые продажи, но и обогащает **уже существующие** записи, у которых отсутствует `qlt`:
+
+```
+Если запись в sales_history не имеет additional_info.qlt:
+  → пробуем сматчить с текущими снэпшотами
+  → если лот найден — UPDATE additional_info с qlt + ptn + lot_start
+```
+
+Это позволяет ретроактивно восстанавливать качество/заточку для продаж, собранных до того как в API-запрос был добавлен параметр `additional=true`.
+
 ---
 
 ## 12. Пользовательские настройки
@@ -437,15 +472,28 @@ Notifications (Telegram, Browser Push)
 Для каждого пользователя с telegram_chat_id:
   Если user_settings.notify_telegram = true:
     Для каждой записи user_watchlist (is_active=True):
-      1. Берём последний CollectedData снапшот (raw_lots, user_id=NULL)
-      2. Берём MarketStatistics.sell_options (user_id=NULL)
-      3. Применяем фильтры quality_filter + enchant_filter
-      4. Проверяем: normal.net_price_per_unit − lot.buyoutPrice/amount > 0
-      5. Для каждого выгодного лота:
+      1. Берём последний CollectedData снапшот (raw_lots отсортированы по цене, user_id=NULL)
+      2. Берём MarketStatistics (median_price_7d, sales_volume_7d, price_volatility_7d)
+      3. Строим ref (опорную цену для выгодности):
+         - БЕЗ фильтра quality/enchant:
+             ref = median_price_7d (7-д медиана)
+             фолбэк: snap.best_liquid_price_per_unit если истории нет
+         - С фильтром quality/enchant:
+             ref = median(SalesHistory за 7д, отфильтрованная по qlt/ptn)
+             фолбэк: median_price_7d → best_liquid_price_per_unit если истории нет
+      4. normal_net = ref × 0.95 (цена продавца после 5% комиссии)
+      5. Для каждого лота из snap.raw_lots (отфильтровано по quality/enchant):
+         Пропустить: истекающий (<2ч), buyout ≤ 0, не совпадает фильтр
+         Для артефактов: ptn=None → enchant=0 («Не точёный»)
+         Выгодный: buyout_per_unit < normal_net
+      6. Для каждого выгодного лота:
          - Dedup: Redis key tg_sent:{user_id}:{item_id}:{region}:{qf}:{ef}:{startTime}
            TTL = 48ч (один лот — одно уведомление за 48 ч)
          - Отправить HTML-сообщение в telegram_chat_id
 ```
+
+**Почему ref = median_price_7d, а не current_min:**
+Использование `ref = current_min_liquid` (текущий минимум рынка) делало условие `buyout < ref × 0.95` математически невозможным — ref сам является минимумом, все лоты имеют `price ≥ ref > ref × 0.95`. Медиана за 7 дней позволяет находить лоты, выставленные ниже исторического уровня (аналог режима «Неделя» на фронтенде).
 
 **Содержимое уведомления:**
 - Название предмета
