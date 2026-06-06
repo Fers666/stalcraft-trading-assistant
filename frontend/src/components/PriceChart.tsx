@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Box, Typography, CircularProgress, ToggleButtonGroup, ToggleButton, Chip } from '@mui/material'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip,
@@ -57,10 +57,24 @@ function fmtDayLabel(iso: string): string {
 
 export default function PriceChart({ itemId, region, qualityFilter, enchantFilter }: Props) {
   const [resp, setResp]       = useState<SalesChartResponse | null>(null)
-  const [hours, setHours]     = useState(168)
+  const [hours, setHours]     = useState(48)
   const [loading, setLoading] = useState(false)
+  const [visible, setVisible] = useState(false)
+  const containerRef          = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setVisible(true) },
+      { rootMargin: '100px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!visible) return
     const load = async () => {
       setLoading(true)
       try {
@@ -76,7 +90,7 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
       }
     }
     load()
-  }, [itemId, region, hours, qualityFilter, enchantFilter])
+  }, [visible, itemId, region, hours, qualityFilter, enchantFilter])
 
   const periodLabel = hours === 720 ? '30 дней' : hours === 168 ? '7 дней' : `${hours} ч`
 
@@ -97,7 +111,7 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
   const isEmpty = !resp || (resp.mode === 'scatter' ? resp.sales.length === 0 : resp.days.length === 0)
 
   return (
-    <Box>
+    <Box ref={containerRef}>
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

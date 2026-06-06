@@ -280,9 +280,15 @@ async def _find_profitable_lots(
                     SalesHistory.additional_info["qlt"].astext == str(entry.quality_filter)
                 )
         if entry.enchant_filter is not None:
-            q = q.where(
-                SalesHistory.additional_info["ptn"].astext == str(entry.enchant_filter)
-            )
+            if entry.enchant_filter == 0:
+                q = q.where(or_(
+                    SalesHistory.additional_info["ptn"].astext.is_(None),
+                    SalesHistory.additional_info["ptn"].astext == "0",
+                ))
+            else:
+                q = q.where(
+                    SalesHistory.additional_info["ptn"].astext == str(entry.enchant_filter)
+                )
 
         prices = (await db.execute(q)).scalars().all()
 
@@ -336,7 +342,7 @@ async def _find_profitable_lots(
         additional = lot.get("additional") or {}
         qlt_val    = _get_quality_value(additional, master.color, is_art)
         ptn        = additional.get("ptn")
-        enchant    = int(ptn) if ptn is not None and int(ptn) > 0 else None
+        enchant    = int(ptn) if ptn is not None else None
 
         if entry.quality_filter is not None and qlt_val != entry.quality_filter:
             continue
