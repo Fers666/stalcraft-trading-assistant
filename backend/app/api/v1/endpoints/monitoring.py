@@ -120,8 +120,48 @@ async def get_item_stats(
     )).scalar_one_or_none()
 
     if stats is None:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="No stats yet for this item")
+        # MarketStatistics ещё нет (история продаж не накоплена),
+        # но CollectedData может уже быть — генерируем минимальный ответ из снапшота.
+        latest_snap = (await db.execute(
+            select(CollectedData).where(
+                CollectedData.user_id == None,
+                CollectedData.item_id == item_id,
+                CollectedData.region  == region.upper(),
+            ).order_by(CollectedData.collect_time.desc()).limit(1)
+        )).scalar_one_or_none()
+
+        if latest_snap is None:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="No stats yet for this item")
+
+        current_min = (
+            latest_snap.best_liquid_price_per_unit or latest_snap.best_price_per_unit
+        )
+        fresh_sell_options = _make_sell_options(float(current_min), 0) if current_min else None
+
+        return MonitoringItemResponse(
+            item_id=item_id,
+            region=region.upper(),
+            avg_price_7d=None,
+            median_price_7d=None,
+            min_price_7d=None,
+            max_price_7d=None,
+            sales_volume_7d=None,
+            sales_volume_30d=None,
+            price_volatility_7d=None,
+            price_volatility_30d=None,
+            best_sell_hour=None,
+            best_sell_day=None,
+            best_buy_hour=None,
+            best_buy_day=None,
+            sell_hours_by_day=None,
+            buy_hours_by_day=None,
+            weekend_bonus_percent=None,
+            avg_sell_time_hours=None,
+            sell_options=fresh_sell_options,
+            batch_stats=None,
+            calculated_at=latest_snap.collect_time,
+        )
 
     # Без фильтров — возвращаем статистику со свежими sell_options из последнего снапшота.
     # sell_options в MarketStatistics пересчитываются раз в час — при быстром падении рынка

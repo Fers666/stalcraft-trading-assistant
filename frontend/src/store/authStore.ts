@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import api from '../api/client'
+import { useFeedStore } from './feedStore'
 
 interface User {
   id: number
@@ -40,6 +41,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
     set({ user: null })
+    useFeedStore.getState().reset()
   },
 
   fetchMe: async () => {

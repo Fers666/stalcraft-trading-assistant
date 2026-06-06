@@ -62,6 +62,7 @@ interface FeedState {
   loadWatchlistAndStats: (silent?: boolean) => Promise<void>
   loadAllLots:           () => Promise<void>
   removeEntry:           (id: number) => void
+  reset:                 () => void
 }
 
 export const useFeedStore = create<FeedState>((set, get) => ({
@@ -161,4 +162,14 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     profitableItemIds: state.profitableItemIds.filter(i => i !== id),
     feedItems:         state.feedItems.filter(fi => fi.entry.id !== id),
   })),
+
+  reset: () => set({
+    watchlist:         [],
+    stats:             {},
+    lotsMap:           {},
+    lastLotRefresh:    null,
+    profitableItemIds: [],
+    feedItems:         [],
+    initialized:       false,
+  }),
 }))
