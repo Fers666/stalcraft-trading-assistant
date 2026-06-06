@@ -36,6 +36,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
+      TELEGRAM_WEBHOOK_URL: https://sctrading.ru
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,22 +71,6 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.tasks.celery_app beat --loglevel=info
-    restart: unless-stopped
-
-  telegram_bot:
-    build: ./backend
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
-      REDIS_URL: redis://redis:6379/0
-    volumes:
-      - ./telegram_bot:/tg_bot
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    command: python /tg_bot/bot.py
     restart: unless-stopped
 
   frontend:

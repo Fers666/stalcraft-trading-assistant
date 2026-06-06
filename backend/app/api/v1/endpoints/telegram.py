@@ -151,8 +151,58 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
             "👋 <b>Stalcraft Trading Assistant</b>\n\n"
             "Для привязки аккаунта:\n"
             "1. Зайдите в приложение → Настройки\n"
-            "2. Получите код и отправьте боту: <code>/link 123456</code>",
+            "2. Получите код и отправьте боту: <code>/link 123456</code>\n\n"
+            "Проверить статус: /status\n"
+            "Отключить уведомления: /stop",
         )
+        return Response(status_code=200)
+
+    # /status — статус привязки
+    if text in ("/status", "/status@" + settings.telegram_bot_username):
+        user = (await db.execute(
+            select(User).where(User.telegram_chat_id == chat_id)
+        )).scalar_one_or_none()
+        if user:
+            from sqlalchemy import func
+            from app.models.models import UserWatchlist
+            wl_count = (await db.execute(
+                select(func.count()).select_from(UserWatchlist).where(
+                    UserWatchlist.user_id == user.id,
+                    UserWatchlist.is_active == True,
+                )
+            )).scalar_one()
+            await _bot_send(
+                chat_id,
+                f"✅ <b>Аккаунт привязан</b>\n"
+                f"Логин: <b>{user.username}</b>\n"
+                f"Предметов в вотчлисте: <b>{wl_count}</b>\n\n"
+                f"Уведомления о выгодных лотах активны.\n"
+                f"Отключить: /stop",
+            )
+        else:
+            await _bot_send(
+                chat_id,
+                "❌ <b>Аккаунт не привязан</b>\n\n"
+                "Используйте /start для инструкции по привязке.",
+            )
+        return Response(status_code=200)
+
+    # /stop — отвязать аккаунт
+    if text in ("/stop", "/stop@" + settings.telegram_bot_username):
+        user = (await db.execute(
+            select(User).where(User.telegram_chat_id == chat_id)
+        )).scalar_one_or_none()
+        if user:
+            user.telegram_chat_id  = None
+            user.telegram_username = None
+            await db.commit()
+            await _bot_send(
+                chat_id,
+                "✅ Уведомления отключены. Аккаунт отвязан от Telegram.\n"
+                "Для повторной привязки используйте /start.",
+            )
+        else:
+            await _bot_send(chat_id, "Аккаунт и так не привязан.")
         return Response(status_code=200)
 
     # /link {code}
