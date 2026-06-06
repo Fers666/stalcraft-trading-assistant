@@ -256,11 +256,16 @@ async def _find_profitable_lots(
     msg_volatility: Optional[float] = float(stats.price_volatility_7d) if stats and stats.price_volatility_7d else None
 
     if entry.quality_filter is None and entry.enchant_filter is None:
-        # Нет фильтров: опорная цена = текущий минимум ликвидных лотов
-        current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
-        if not current_min:
-            return [], None, None
-        fresh_sell_options = _make_fresh_sell_options(int(current_min), volume_7d)
+        # Опорная цена = 7-дневная медиана (ищет лоты дешевле исторического уровня).
+        # Фолбэк на current_min только если истории ещё нет.
+        if stats and stats.median_price_7d:
+            ref = int(stats.median_price_7d)
+        else:
+            current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
+            if not current_min:
+                return [], None, None
+            ref = int(current_min)
+        fresh_sell_options = _make_fresh_sell_options(ref, volume_7d)
     else:
         # С фильтрами: медиана реальных продаж с нужным quality/enchant
         cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
@@ -306,11 +311,14 @@ async def _find_profitable_lots(
             else:
                 msg_volatility = None
         else:
-            # Нет истории продаж для этого фильтра — фолбэк на текущий минимум
-            current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
-            if not current_min:
-                return [], None, None
-            ref = int(current_min)
+            # Нет истории для этого фильтра — фолбэк на 7-д медиану (или current_min)
+            if stats and stats.median_price_7d:
+                ref = int(stats.median_price_7d)
+            else:
+                current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
+                if not current_min:
+                    return [], None, None
+                ref = int(current_min)
             vol = volume_7d
 
         fresh_sell_options = _make_fresh_sell_options(ref, vol)
@@ -342,7 +350,8 @@ async def _find_profitable_lots(
         additional = lot.get("additional") or {}
         qlt_val    = _get_quality_value(additional, master.color, is_art)
         ptn        = additional.get("ptn")
-        enchant    = int(ptn) if ptn is not None else None
+        # Для артефактов ptn=None означает "Не точёный" (0), как в lots.py
+        enchant    = (0 if ptn is None else int(ptn)) if is_art else (int(ptn) if ptn is not None and int(ptn) > 0 else None)
 
         if entry.quality_filter is not None and qlt_val != entry.quality_filter:
             continue
