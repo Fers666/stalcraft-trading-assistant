@@ -86,7 +86,8 @@
       "Bash(curl -s -X POST http://localhost:8000/api/v1/auth/login -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"nestarnarod@gmail.com\\\\\",\\\\\"password\\\\\":\\\\\"***REMOVED***\\\\\"}\")",
       "Bash(docker restart *)",
       "Bash(git commit -m 'fix: type RetryConfig to silence strict TS on _retry field in axios interceptor *)",
-      "Bash(python3)"
+      "Bash(python3)",
+      "Bash(git commit *)"
     ]
   }
 }
