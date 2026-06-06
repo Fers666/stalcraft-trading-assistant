@@ -43,7 +43,11 @@
 React 18 + Vite + MUI (gold: #D9AF37, bg: #080808, font: Rajdhani)  
 Docker Compose. Данные глобальные (user_id=NULL), персонализация на уровне запроса.
 
-**API:** OAuth2 Client Credentials, client_id=3042, **400 запросов/мин** (verified 2026-06-07)  
-/lots = 2, /history = 2, /emission = 1 (Request-based, не token-based). Token Bucket → Redis (Lua). Fallback: in-memory.
+**API Rate Limit:** 400 запросов/мин (verified experimentally 2026-06-07, NOT документация 100 токенов!)
+- /lots = 2, /history = 2, /emission = 1 (Request-based, не token-based)
+- Текущее: 54.5 запросов/мин (13.6% от лимита) — БЕЗОПАСНО
+- Reserve: 345.5 запросов/мин (86.4%)
+- **При оптимизации:** спрашивай разрешение перед изменением LOTS_PER_RUN / BATCH_SIZE / REFRESH_INTERVAL
+- Token Bucket → Redis (Lua). Fallback: in-memory.
 
 Детали → читай docs/
