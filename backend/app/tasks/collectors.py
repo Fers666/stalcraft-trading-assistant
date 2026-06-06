@@ -297,7 +297,7 @@ async def _collect_lots_for_item(db, entry):
             expiring_lots_count=len(expiring_lots),
             detected_buyouts_count=None,
             best_liquid_price_per_unit=min(liquid_prices) if liquid_prices else None,
-            raw_lots=lots[:50],
+            raw_lots=sorted(lots, key=lot_price_per_unit)[:200],
         )
         db.add(snapshot)
 
