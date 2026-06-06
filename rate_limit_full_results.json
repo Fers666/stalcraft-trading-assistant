@@ -1,0 +1,445 @@
+{
+  "initial": {
+    "name": "Baseline: /emission",
+    "endpoint": "/RU/emission",
+    "method": "GET",
+    "status": 200,
+    "timestamp": "2026-06-07T01:40:08.462063",
+    "x-ratelimit-limit": "400",
+    "x-ratelimit-remaining": "371",
+    "x-ratelimit-reset": "1780785633216"
+  },
+  "emission_tests": [
+    {
+      "name": "Emission-1",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:08.700933",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "370",
+      "x-ratelimit-reset": "1780785633216",
+      "remaining": 370
+    },
+    {
+      "name": "Emission-2",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:09.056428",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "369",
+      "x-ratelimit-reset": "1780785633216",
+      "remaining": 369
+    },
+    {
+      "name": "Emission-3",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:09.420645",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "368",
+      "x-ratelimit-reset": "1780785633215",
+      "remaining": 368
+    },
+    {
+      "name": "Emission-4",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:09.778032",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "367",
+      "x-ratelimit-reset": "1780785633216",
+      "remaining": 367
+    },
+    {
+      "name": "Emission-5",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:10.122769",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "366",
+      "x-ratelimit-reset": "1780785633216",
+      "remaining": 366
+    }
+  ],
+  "lots_tests": [
+    {
+      "name": "Lots-0001",
+      "endpoint": "/RU/auction/0001/lots",
+      "method": "GET",
+      "status": 400,
+      "timestamp": "2026-06-07T01:40:10.534966",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "362",
+      "x-ratelimit-reset": "1780785633215",
+      "remaining": 362,
+      "item_id": "0001"
+    },
+    {
+      "name": "Lots-04yr",
+      "endpoint": "/RU/auction/04yr/lots",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:10.903632",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "360",
+      "x-ratelimit-reset": "1780785633216",
+      "remaining": 360,
+      "item_id": "04yr"
+    }
+  ],
+  "history_tests": [
+    {
+      "name": "History-0001",
+      "endpoint": "/RU/auction/0001/history",
+      "method": "GET",
+      "status": 400,
+      "timestamp": "2026-06-07T01:40:11.268690",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "356",
+      "x-ratelimit-reset": "1780785633215",
+      "remaining": 356,
+      "item_id": "0001"
+    },
+    {
+      "name": "History-04yr",
+      "endpoint": "/RU/auction/04yr/history",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:11.707350",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "354",
+      "x-ratelimit-reset": "1780785633216",
+      "remaining": 354,
+      "item_id": "04yr"
+    }
+  ],
+  "stress_test": [
+    353,
+    352,
+    399,
+    351,
+    399,
+    399,
+    348,
+    399,
+    399,
+    399,
+    345,
+    399,
+    344,
+    343,
+    342,
+    341,
+    340,
+    339,
+    336,
+    333
+  ],
+  "all_results": [
+    {
+      "name": "Baseline: /emission",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:08.462063",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "371",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Emission-1",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:08.700933",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "370",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Emission-2",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:09.056428",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "369",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Emission-3",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:09.420645",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "368",
+      "x-ratelimit-reset": "1780785633215"
+    },
+    {
+      "name": "Emission-4",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:09.778032",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "367",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Emission-5",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:10.122769",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "366",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Lots-0001",
+      "endpoint": "/RU/auction/0001/lots",
+      "method": "GET",
+      "status": 400,
+      "timestamp": "2026-06-07T01:40:10.534966",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "362",
+      "x-ratelimit-reset": "1780785633215"
+    },
+    {
+      "name": "Lots-04yr",
+      "endpoint": "/RU/auction/04yr/lots",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:10.903632",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "360",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "History-0001",
+      "endpoint": "/RU/auction/0001/history",
+      "method": "GET",
+      "status": 400,
+      "timestamp": "2026-06-07T01:40:11.268690",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "356",
+      "x-ratelimit-reset": "1780785633215"
+    },
+    {
+      "name": "History-04yr",
+      "endpoint": "/RU/auction/04yr/history",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:11.707350",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "354",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-1",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:12.059344",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "353",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-2",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:12.356249",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "352",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-3",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:12.588894",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "399",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-4",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:12.873807",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "351",
+      "x-ratelimit-reset": "1780785633215"
+    },
+    {
+      "name": "Stress-5",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:13.124600",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "399",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-6",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:13.353153",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "399",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-7",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:13.658484",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "348",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-8",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:13.892488",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "399",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-9",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:14.153056",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "399",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-10",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:14.397743",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "399",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-11",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:14.706530",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "345",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-12",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:14.938535",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "399",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-13",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:15.269955",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "344",
+      "x-ratelimit-reset": "1780785633215"
+    },
+    {
+      "name": "Stress-14",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:15.590870",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "343",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-15",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:15.876541",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "342",
+      "x-ratelimit-reset": "1780785633215"
+    },
+    {
+      "name": "Stress-16",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:16.192186",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "341",
+      "x-ratelimit-reset": "1780785633215"
+    },
+    {
+      "name": "Stress-17",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:16.518959",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "340",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-18",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:16.818970",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "339",
+      "x-ratelimit-reset": "1780785633216"
+    },
+    {
+      "name": "Stress-19",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:17.117139",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "336",
+      "x-ratelimit-reset": "1780785633215"
+    },
+    {
+      "name": "Stress-20",
+      "endpoint": "/RU/emission",
+      "method": "GET",
+      "status": 200,
+      "timestamp": "2026-06-07T01:40:17.428528",
+      "x-ratelimit-limit": "400",
+      "x-ratelimit-remaining": "333",
+      "x-ratelimit-reset": "1780785633216"
+    }
+  ]
+}

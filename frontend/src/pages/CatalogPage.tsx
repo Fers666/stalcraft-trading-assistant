@@ -23,6 +23,8 @@ interface Item {
   name_ru: string | null
   name_en: string | null
   category: string | null
+  color: string | null
+  quality_name: string | null
   icon_path: string | null
   can_be_batch_traded: boolean
 }
@@ -44,6 +46,32 @@ const ENCHANT_OPTIONS = [
   { value: 0,    label: 'Не точёный' },
   ...Array.from({ length: 15 }, (_, i) => ({ value: i + 1, label: `+${i + 1}` })),
 ]
+
+// Цвет чипа качества по color из БД
+const QUALITY_CHIP_COLOR: Record<string, string> = {
+  default:      '#555',
+  rank_newbie:  '#4caf50',
+  rank_stalker: '#2196f3',
+  rank_veteran: '#9c27b0',
+  rank_master:  '#ff9800',
+  rank_legend:  '#f44336',
+  quest_item:   '#f44336',
+  gray:         '#555',
+  grey:         '#555',
+  white:        '#555',
+  green:        '#4caf50',
+  blue:         '#2196f3',
+  violet:       '#9c27b0',
+  purple:       '#9c27b0',
+  yellow:       '#ff9800',
+  black:        '#ff9800',
+  red:          '#f44336',
+}
+
+// Quality/enchant фильтры имеют смысл только для артефактов — у них additional.qlt/ptn
+function isArtefact(category: string | null): boolean {
+  return !!category && category.startsWith('artefact')
+}
 
 
 export default function CatalogPage() {
@@ -117,15 +145,22 @@ export default function CatalogPage() {
     setSuccess(null)
     setError(null)
     try {
-      await api.post('/watchlist/', {
-        item_id: dialogItem.item_id,
-        region,
-        quality_filter: qualityFilter,
-        enchant_filter: enchantFilter,
-      })
-      const qLabel = QUALITY_OPTIONS.find(o => o.value === qualityFilter)?.label ?? 'Любое'
-      const eLabel = enchantFilter === 0 ? ' Не точёный' : enchantFilter != null ? ` +${enchantFilter}` : ''
-      setSuccess(`${dialogItem.name_ru || dialogItem.item_id} [${qLabel}${eLabel}] добавлен в избранное (${region})`)
+      const payload: Record<string, unknown> = { item_id: dialogItem.item_id, region }
+      if (isArtefact(dialogItem.category)) {
+        payload.quality_filter = qualityFilter
+        payload.enchant_filter = enchantFilter
+      }
+      await api.post('/watchlist/', payload)
+
+      let suffix = ''
+      if (isArtefact(dialogItem.category)) {
+        const qLabel = QUALITY_OPTIONS.find(o => o.value === qualityFilter)?.label ?? 'Любое'
+        const eLabel = enchantFilter === 0 ? ' Не точёный' : enchantFilter != null ? ` +${enchantFilter}` : ''
+        suffix = ` [${qLabel}${eLabel}]`
+      } else if (dialogItem.quality_name) {
+        suffix = ` [${dialogItem.quality_name}]`
+      }
+      setSuccess(`${dialogItem.name_ru || dialogItem.item_id}${suffix} добавлен в избранное (${region})`)
       setDialogItem(null)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -279,54 +314,73 @@ export default function CatalogPage() {
                       <TableRow>
                         <TableCell>Название</TableCell>
                         <TableCell>Категория</TableCell>
+                        <TableCell>Качество</TableCell>
                         <TableCell>Пачки</TableCell>
                         <TableCell align="right"></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {items.map((item) => (
-                        <TableRow key={item.id} hover>
-                          <TableCell>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Avatar
-                                src={iconUrl(item.icon_path) ?? undefined}
-                                variant="rounded"
-                                sx={{ width: 28, height: 28, bgcolor: 'background.default', flexShrink: 0 }}
-                              >
-                                {!item.icon_path && (item.name_ru?.[0] ?? '?')}
-                              </Avatar>
-                              <Box>
-                                <Typography variant="body2" fontWeight={500}>
-                                  {item.name_ru || item.name_en}
-                                </Typography>
-                                {item.name_en && item.name_ru && (
-                                  <Typography variant="caption" color="text.secondary">{item.name_en}</Typography>
-                                )}
+                      {items.map((item) => {
+                        const chipColor = item.color ? (QUALITY_CHIP_COLOR[item.color.toLowerCase()] ?? '#555') : null
+                        return (
+                          <TableRow key={item.id} hover>
+                            <TableCell>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Avatar
+                                  src={iconUrl(item.icon_path) ?? undefined}
+                                  variant="rounded"
+                                  sx={{ width: 28, height: 28, bgcolor: 'background.default', flexShrink: 0 }}
+                                >
+                                  {!item.icon_path && (item.name_ru?.[0] ?? '?')}
+                                </Avatar>
+                                <Box>
+                                  <Typography variant="body2" fontWeight={500}>
+                                    {item.name_ru || item.name_en}
+                                  </Typography>
+                                  {item.name_en && item.name_ru && (
+                                    <Typography variant="caption" color="text.secondary">{item.name_en}</Typography>
+                                  )}
+                                </Box>
                               </Box>
-                            </Box>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="caption" color="text.secondary">
-                              {translateCategory(item.category)}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>
-                            {item.can_be_batch_traded
-                              ? <Chip label="Да"  size="small" color="success" variant="outlined" />
-                              : <Chip label="Нет" size="small" variant="outlined" />}
-                          </TableCell>
-                          <TableCell align="right">
-                            <Button
-                              size="small"
-                              startIcon={<AddIcon />}
-                              onClick={() => openDialog(item)}
-                              variant="outlined"
-                            >
-                              Избранное
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="caption" color="text.secondary">
+                                {translateCategory(item.category)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              {item.quality_name && chipColor && (
+                                <Chip
+                                  label={item.quality_name}
+                                  size="small"
+                                  sx={{
+                                    fontSize: '0.65rem',
+                                    height: 18,
+                                    borderColor: chipColor,
+                                    color: chipColor,
+                                  }}
+                                  variant="outlined"
+                                />
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              {item.can_be_batch_traded
+                                ? <Chip label="Да"  size="small" color="success" variant="outlined" />
+                                : <Chip label="Нет" size="small" variant="outlined" />}
+                            </TableCell>
+                            <TableCell align="right">
+                              <Button
+                                size="small"
+                                startIcon={<AddIcon />}
+                                onClick={() => openDialog(item)}
+                                variant="outlined"
+                              >
+                                Избранное
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -363,35 +417,40 @@ export default function CatalogPage() {
             </Select>
           </FormControl>
 
-          <FormControl size="small" fullWidth>
-            <InputLabel>Качество</InputLabel>
-            <Select
-              value={qualityFilter ?? ''}
-              label="Качество"
-              onChange={(e) => setQualityFilter(e.target.value === '' ? null : Number(e.target.value))}
-            >
-              {QUALITY_OPTIONS.map((o) => (
-                <MenuItem key={String(o.value)} value={o.value ?? ''}>
-                  {o.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {/* Quality/enchant — только для артефактов (у них additional.qlt/ptn в API) */}
+          {isArtefact(dialogItem?.category ?? null) && (
+            <>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Качество</InputLabel>
+                <Select
+                  value={qualityFilter ?? ''}
+                  label="Качество"
+                  onChange={(e) => setQualityFilter(e.target.value === '' ? null : Number(e.target.value))}
+                >
+                  {QUALITY_OPTIONS.map((o) => (
+                    <MenuItem key={String(o.value)} value={o.value ?? ''}>
+                      {o.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
 
-          <FormControl size="small" fullWidth>
-            <InputLabel>Заточка</InputLabel>
-            <Select
-              value={enchantFilter ?? ''}
-              label="Заточка"
-              onChange={(e) => setEnchantFilter(e.target.value === '' ? null : Number(e.target.value))}
-            >
-              {ENCHANT_OPTIONS.map((o) => (
-                <MenuItem key={String(o.value)} value={o.value ?? ''}>
-                  {o.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Заточка</InputLabel>
+                <Select
+                  value={enchantFilter ?? ''}
+                  label="Заточка"
+                  onChange={(e) => setEnchantFilter(e.target.value === '' ? null : Number(e.target.value))}
+                >
+                  {ENCHANT_OPTIONS.map((o) => (
+                    <MenuItem key={String(o.value)} value={o.value ?? ''}>
+                      {o.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </>
+          )}
 
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
