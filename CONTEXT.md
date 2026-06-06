@@ -43,7 +43,7 @@
 React 18 + Vite + MUI (gold: #D9AF37, bg: #080808, font: Rajdhani)  
 Docker Compose. Данные глобальные (user_id=NULL), персонализация на уровне запроса.
 
-**API:** OAuth2 Client Credentials, client_id=3042, 100 токенов/мин  
-/lots = 2т, /history = 2т, /emission = 1т. Token Bucket → Redis (Lua). Fallback: in-memory.
+**API:** OAuth2 Client Credentials, client_id=3042, **400 запросов/мин** (verified 2026-06-07)  
+/lots = 2, /history = 2, /emission = 1 (Request-based, не token-based). Token Bucket → Redis (Lua). Fallback: in-memory.
 
 Детали → читай docs/
