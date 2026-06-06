@@ -286,7 +286,7 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals 
   return (
     <Card sx={{
       width: 520,
-      height: 900,
+      height: 980,
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
