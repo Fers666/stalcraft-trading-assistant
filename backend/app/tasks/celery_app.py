@@ -51,10 +51,7 @@ celery_app.conf.update(
             "task": "app.tasks.global_scanner.run_global_feed_batch",
             "schedule": crontab(minute="*"),
         },
-        # Telegram-уведомления о выгодных лотах — каждые 2 минуты
-        "notify-profitable-lots": {
-            "task": "app.tasks.notifications.scan_and_notify",
-            "schedule": timedelta(minutes=2),
-        },
+        # Telegram-уведомления — обрабатываются telegram_bot сервисом (polling),
+        # scan_and_notify отключён во избежание дублирования.
     },
 )

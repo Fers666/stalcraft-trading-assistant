@@ -109,44 +109,43 @@ def build_lot_message(
     volatility_7d: Optional[float],
 ) -> str:
     prefix = "[STAGE] " if IS_STAGE else ""
-    lines: list[str] = [f"{prefix}💰 <b>Выгодный лот</b> — {item_name}"]
 
-    meta: list[str] = []
+    title_extra = ""
     if quality_name:
-        meta.append(f"⭐ <b>{quality_name}</b>")
-    if enchant:
-        meta.append(f"⚡ <b>+{enchant}</b>")
-    if meta:
-        lines.append("  ".join(meta))
+        title_extra += f" · {quality_name}"
+    if enchant is not None:
+        enchant_str = "Не точёный" if enchant == 0 else f"+{enchant}"
+        title_extra += f" · {enchant_str}"
 
-    lines.append(f"💵 Цена выкупа: <b>{fmt(buyout_per_unit)} ₽/шт</b>")
-    lines.append("")
-    lines.append("📈 <b>Прогноз продажи:</b>")
+    lines: list[str] = [
+        f"{prefix}🟢 <b>{item_name}{title_extra}</b>",
+        "",
+        f"💰 Купить: <b>{fmt(buyout_per_unit)} ₽/шт</b>",
+        "",
+        "📈 <b>Варианты продажи (−5% комиссия):</b>",
+    ]
 
-    confidence = "low"
+    label_map = {"fast": "Быстро   ", "normal": "Нормально", "premium": "Выгодно  "}
     for opt in sell_options:
-        profit = opt["net_price_per_unit"] - buyout_per_unit
-        if profit <= 0:
-            continue
-        pct = profit / buyout_per_unit * 100
-        label_ru = opt.get("label_ru", opt["label"])
-        time_str  = opt.get("estimated_hours_display", "?")
-        confidence = opt.get("confidence", "low")
-        sign = "+" if profit >= 0 else ""
+        net    = opt["net_price_per_unit"]
+        profit = net - buyout_per_unit
+        sign   = "+" if profit >= 0 else ""
+        marker = "✅" if profit > 0 else "❌"
+        label  = label_map.get(opt.get("label", ""), opt.get("label_ru", ""))
         lines.append(
-            f"  ▸ <b>{label_ru}</b> (~{time_str}): {fmt(opt['net_price_per_unit'])} ₽"
-            f"  →  <b>{sign}{fmt(profit)} ₽</b> ({sign}{pct:.1f}%)"
+            f"{marker} <code>{label}</code>"
+            f" → выставить <b>{fmt(opt['price_per_unit'])} ₽</b>"
+            f" · получишь {fmt(net)} ₽"
+            f" · <b>{sign}{fmt(profit)} ₽</b>"
         )
 
-    lines.append("")
     footer: list[str] = []
     if sales_volume_7d is not None:
         footer.append(f"📦 Продаж за 7д: <b>{sales_volume_7d}</b> шт")
     if volatility_7d is not None:
         footer.append(f"📉 Волатильность: <b>{volatility_7d:.1f}%</b> ({volatility_label(volatility_7d)})")
     if footer:
-        lines.append("  ".join(footer))
-    lines.append(f"🎯 Точность: <b>{confidence_label(confidence)}</b>")
+        lines += [""] + footer
 
     return "\n".join(lines)
 
