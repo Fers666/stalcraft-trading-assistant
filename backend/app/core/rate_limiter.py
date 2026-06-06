@@ -10,10 +10,17 @@ Token Bucket Rate Limiter для Stalcraft API.
 API отслеживает через headers: x-ratelimit-limit, x-ratelimit-remaining, x-ratelimit-reset
 
 Реализация через Redis:
-  - Ключ: stalcraft:rate_limit (глобальный для всех API)
+  - Ключ: stalcraft:rate_limit (глобальный для всех воркеров)
   - Пополнение: 400 запросов каждую минуту
   - Lua-скрипт для атомарного acquire
   - Period: 60 секунд (ровно)
+
+Архитектурное решение — без кеширования соединения:
+  Celery создаёт новый asyncio.new_event_loop() для каждой задачи.
+  Синглтон с кешированным Redis-соединением становится невалидным в новом loop.
+  Решение: создавать свежее соединение в каждом вызове acquire() через
+  aioredis.from_url() (синхронный вызов, возвращает новый объект без привязки к loop).
+  Состояние bucket живёт в Redis (HMSET), а не в Python-объекте — всё корректно.
 """
 
 import asyncio
@@ -29,8 +36,8 @@ logger = logging.getLogger(__name__)
 
 # Стоимость каждого типа запроса
 class TokenCost(IntEnum):
-    LOTS    = 2
-    HISTORY = 2
+    LOTS     = 2
+    HISTORY  = 2
     EMISSION = 1
 
 
@@ -39,23 +46,24 @@ class TokenCost(IntEnum):
 # ARGV[1] = tokens_needed
 # ARGV[2] = capacity
 # ARGV[3] = current_time (unix seconds, float)
-# ARGV[4] = refill_rate (tokens per second = 100/60)
-# Возвращает: 1 если успешно, 0 если недостаточно, -1 если нужно ждать N секунд
+# ARGV[4] = refill_rate (tokens per second = 400/60)
+# Возвращает: 1 если успешно, -N если нужно ждать N секунд
 _LUA_ACQUIRE = """
-local key        = KEYS[1]
-local needed     = tonumber(ARGV[1])
-local capacity   = tonumber(ARGV[2])
-local now        = tonumber(ARGV[3])
-local rate       = tonumber(ARGV[4])
+local key         = KEYS[1]
+local needed      = tonumber(ARGV[1])
+local capacity    = tonumber(ARGV[2])
+local now         = tonumber(ARGV[3])
+local rate        = tonumber(ARGV[4])
 
-local data = redis.call('HMGET', key, 'tokens', 'last_refill')
-local tokens     = tonumber(data[1]) or capacity
-local last_refill = tonumber(data[2]) or now
+local data        = redis.call('HMGET', key, 'tokens', 'last_refill')
+local tokens      = tonumber(data[1])
+local last_refill = tonumber(data[2])
 
--- пополнение пропорционально прошедшему времени
+if tokens == nil then tokens = capacity end
+if last_refill == nil then last_refill = now end
+
 local elapsed = now - last_refill
-local refilled = elapsed * rate
-tokens = math.min(capacity, tokens + refilled)
+tokens = math.min(capacity, tokens + elapsed * rate)
 
 if tokens >= needed then
     tokens = tokens - needed
@@ -63,7 +71,6 @@ if tokens >= needed then
     redis.call('EXPIRE', key, 120)
     return 1
 else
-    -- сколько секунд ждать до накопления нужного количества
     local wait = (needed - tokens) / rate
     return -math.ceil(wait)
 end
@@ -73,40 +80,18 @@ end
 class TokenBucketRateLimiter:
     """
     Глобальный rate limiter для Stalcraft API.
-    Использует Redis для хранения состояния (работает корректно
-    при нескольких воркерах Celery).
+    Bucket state хранится в Redis — корректно при нескольких воркерах Celery.
+    Соединение не кешируется: создаётся свежее на каждый acquire().
     """
 
     CAPACITY    = 400          # запросов в корзине (проверено экспериментально)
-    REFILL_RATE = 400 / 60.0  # запросов в секунду (400/мин)
+    REFILL_RATE = 400 / 60.0  # запросов в секунду
     BUCKET_KEY  = "stalcraft:rate_limit"
 
     def __init__(self):
-        self._redis: aioredis.Redis | None = None
-        self._script_sha: str | None = None
-        self._fallback_lock = asyncio.Lock()
-        self._fallback_tokens = float(self.CAPACITY)
-        self._fallback_last_refill = time.monotonic()
-
-    async def _get_redis(self) -> aioredis.Redis:
-        if self._redis is not None:
-            try:
-                await self._redis.ping()
-                return self._redis
-            except Exception:
-                self._redis = None
-                self._script_sha = None
-        self._redis = await aioredis.from_url(
-            settings.redis_url,
-            encoding="utf-8",
-            decode_responses=True,
-        )
-        return self._redis
-
-    async def _load_script(self, r: aioredis.Redis) -> str:
-        if self._script_sha is None:
-            self._script_sha = await r.script_load(_LUA_ACQUIRE)
-        return self._script_sha
+        self._fallback_lock         = asyncio.Lock()
+        self._fallback_tokens       = float(self.CAPACITY)
+        self._fallback_last_refill  = time.monotonic()
 
     async def acquire(self, cost: int = TokenCost.LOTS, max_wait: float = 60.0):
         """
@@ -115,38 +100,32 @@ class TokenBucketRateLimiter:
         """
         waited = 0.0
         while True:
+            r = aioredis.from_url(settings.redis_url, decode_responses=True)
             try:
-                r = await self._get_redis()
-                sha = await self._load_script(r)
-                result = await r.evalsha(
-                    sha, 1,
-                    self.BUCKET_KEY,
-                    cost,
-                    self.CAPACITY,
-                    time.time(),
-                    self.REFILL_RATE,
-                )
-                result = int(result)
-
-                if result == 1:
-                    logger.debug(f"Token acquired (cost={cost})")
-                    return
-
-                wait_sec = abs(result)
-                if waited + wait_sec > max_wait:
-                    raise TimeoutError(
-                        f"Rate limit: need to wait {wait_sec:.1f}s but max_wait={max_wait}s"
-                    )
-
-                logger.info(f"Rate limit: waiting {wait_sec:.1f}s for {cost} tokens")
-                await asyncio.sleep(wait_sec)
-                waited += wait_sec
-
-            except (aioredis.RedisError, ConnectionError) as e:
-                # Fallback: in-memory bucket если Redis недоступен
-                logger.warning(f"Redis unavailable, using in-memory fallback: {e}")
+                result = int(await r.eval(
+                    _LUA_ACQUIRE, 1,
+                    self.BUCKET_KEY, cost, self.CAPACITY, time.time(), self.REFILL_RATE,
+                ))
+            except (aioredis.RedisError, ConnectionError, OSError) as e:
+                logger.warning(f"Rate limiter Redis error, using in-memory fallback: {e}")
+                await r.aclose()
                 await self._acquire_fallback(cost, max_wait)
                 return
+            finally:
+                await r.aclose()
+
+            if result == 1:
+                logger.debug(f"Token acquired (cost={cost})")
+                return
+
+            wait_sec = abs(result)
+            if waited + wait_sec > max_wait:
+                raise TimeoutError(
+                    f"Rate limit: need to wait {wait_sec:.1f}s but max_wait={max_wait}s"
+                )
+            logger.info(f"Rate limit: waiting {wait_sec:.1f}s for {cost} tokens")
+            await asyncio.sleep(wait_sec)
+            waited += wait_sec
 
     async def _acquire_fallback(self, cost: int, max_wait: float):
         """In-memory fallback когда Redis недоступен."""
@@ -157,7 +136,7 @@ class TokenBucketRateLimiter:
                 elapsed = now - self._fallback_last_refill
                 self._fallback_tokens = min(
                     self.CAPACITY,
-                    self._fallback_tokens + elapsed * self.REFILL_RATE
+                    self._fallback_tokens + elapsed * self.REFILL_RATE,
                 )
                 self._fallback_last_refill = now
 
@@ -175,28 +154,25 @@ class TokenBucketRateLimiter:
 
     async def get_status(self) -> dict:
         """Текущее состояние корзины (для мониторинга в UI)."""
+        r = aioredis.from_url(settings.redis_url, decode_responses=True)
         try:
-            r = await self._get_redis()
             data = await r.hmget(self.BUCKET_KEY, "tokens", "last_refill")
             tokens = float(data[0]) if data[0] else float(self.CAPACITY)
             return {
-                "tokens_available": round(tokens, 1),
-                "capacity": self.CAPACITY,
-                "refill_rate_per_min": 100,
-                "source": "redis",
+                "tokens_available":    round(tokens, 1),
+                "capacity":            self.CAPACITY,
+                "refill_rate_per_min": 400,
+                "source":              "redis",
             }
         except Exception:
             return {
-                "tokens_available": round(self._fallback_tokens, 1),
-                "capacity": self.CAPACITY,
-                "refill_rate_per_min": 100,
-                "source": "fallback",
+                "tokens_available":    round(self._fallback_tokens, 1),
+                "capacity":            self.CAPACITY,
+                "refill_rate_per_min": 400,
+                "source":              "fallback",
             }
-
-    async def close(self):
-        if self._redis:
-            await self._redis.aclose()
-            self._redis = None
+        finally:
+            await r.aclose()
 
 
 # Глобальный экземпляр
