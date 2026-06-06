@@ -294,37 +294,38 @@ Token Bucket алгоритм для соблюдения лимита Stalcraft
 
 ---
 
-## Telegram-интеграция — текущая архитектура (webhook)
+## Telegram-интеграция — текущая архитектура (polling)
 
-### Поток команд (webhook)
+### Почему polling, а не webhook
+
+Хостинг-провайдер (`161.104.44.231`) блокирует исходящие TCP-соединения к диапазону Telegram Bot API (`149.154.x.x:443`). Webhook требует исходящего соединения для регистрации и для отправки сообщений. Polling работает, потому что использует long-polling GET к тем же IP, но через уже установленное соединение — видимо проходит в другой момент времени или через другой путь.
+
+### Поток
 
 ```
-Telegram → POST https://sctrading.ru/api/v1/telegram/webhook
-         → backend (FastAPI) → команды /start /link /status /stop
+telegram_bot (polling) ←→ api.telegram.org  (команды + уведомления)
+backend (FastAPI)          → /api/v1/telegram/* (link-code, status, unlink)
 ```
 
-Webhook регистрируется **автоматически при старте** `backend` через `lifespan` → `register_webhook()`.  
-Требуется `TELEGRAM_WEBHOOK_URL=https://sctrading.ru` (задан в `docker-compose.prod.yml` в секции `environment` бэкенда).
-
-**Обработчики команд:** `backend/app/api/v1/endpoints/telegram.py`  
-**Отправка уведомлений:** `backend/app/services/telegram_sender.py` (используется Celery задачей)  
-**Celery задача:** `app.tasks.notifications.scan_and_notify` (каждые 2 мин)
+**Сервис:** `telegram_bot` в `docker-compose.prod.yml` → `python /tg_bot/bot.py`  
+**Код:** `telegram_bot/bot.py` — команды `/start /link /status /stop` + цикл уведомлений (каждые 30 сек)  
+**Celery `scan_and_notify`:** **отключён** (дубль с polling-циклом бота)
 
 ### Поток привязки аккаунта
 
 1. Пользователь нажимает «Получить код» → `GET /api/v1/telegram/link-code` → 6-значный код в Redis (TTL 10 мин)
 2. Отправляет боту: `/link 123456`
-3. Webhook-обработчик ищет код в Redis → сохраняет `telegram_chat_id` в таблицу `users`
+3. Бот (polling) читает команду, ищет код в Redis → сохраняет `telegram_chat_id` в таблицу `users`
 4. `GET /api/v1/telegram/status` → `is_linked: true`
 
-### Celery задача уведомлений
+### Цикл уведомлений (`bot.py`)
 
 | Параметр | Значение |
 |----------|----------|
-| Расписание | каждые 2 минуты |
-| Dedup TTL | 2 часа (Redis ключ `notif:{user_id}:{item_id}:{region}`) |
-| Snapshot TTL | отбрасывает снэпшоты старше 5 минут |
-| Порог прибыли | `normal_net_price > buy_price AND profit_pct >= min_margin_pct` |
+| Интервал | каждые 30 сек |
+| Dedup TTL | 48 ч (Redis ключ `tg_sent:{user_id}:{item_id}:{region}:{qlt}:{enchant}:{startTime}`) |
+| Порог прибыли | `normal_net_price > buy_price` |
+| Формат сообщения | все 3 опции с ✅/❌, явно "выставить X → получишь Y → прибыль Z" |
 
 ---
 
