@@ -303,6 +303,8 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals 
       <CardContent sx={{
         flex: 1,
         overflowY: 'auto',
+        contain: 'layout style paint',
+        willChange: 'scroll-position',
         '&::-webkit-scrollbar': { width: '3px' },
         '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.08)', borderRadius: '2px' },
       }}>

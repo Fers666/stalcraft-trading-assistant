@@ -6,7 +6,7 @@
 
 | Задача | Расписание | Модуль | Описание |
 |--------|-----------|--------|----------|
-| `collect_all_active_lots` | каждые 20 сек | `app.tasks.collectors` | По 1 товару за запуск → ~3 лота/мин, самые устаревшие в приоритете |
+| `collect_all_active_lots` | каждые 20 сек | `app.tasks.collectors` | Динамический batch: ceil(due/6), min=5, max=35. Цель: полный цикл ≤2 мин при любом объёме watchlist |
 | `collect_all_history` | раз в час (мин. 0) | `app.tasks.collectors` | История для watchlist предметов |
 | `calculate_all_market_stats` | раз в час (мин. 5) | `app.tasks.analyzers` | Пересчёт market_statistics |
 | `run_global_feed_batch` | каждую минуту | `app.tasks.global_scanner` | 12 предметов вне watchlist, скользящий цикл ~3 часа, пауза 3 сек |
