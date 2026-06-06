@@ -320,20 +320,27 @@ avg_sell_time_hours = mean(time_on_market) по всем продажам за 3
 
 ---
 
-## 9. Rate Limiting (Token Bucket)
+## 9. Rate Limiting (Request-Based)
 
-**Лимиты Stalcraft API:** 100 токенов / минута
+**⚠️ ОБНОВЛЕНО 2026-06-07: Реальные лимиты Stalcraft API (экспериментально проверены)**
 
-| Запрос | Стоимость |
-|--------|----------|
-| `/auction/{id}/lots` | 2 токена |
-| `/auction/{id}/history` | 2 токена |
-| `/emission` | 1 токен |
+**Лимиты:** 400 запросов / минута (НЕ 100 токенов!)
+
+| Запрос | Стоимость | Примечание |
+|--------|----------|-----------|
+| `/auction/{id}/lots` | 2 запроса | Активные лоты |
+| `/auction/{id}/history` | 2 запроса | История продаж |
+| `/emission` | 1 запрос | Статус радиации |
+
+**Система отслеживания:**
+- API возвращает headers: `x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-reset`
+- Period: ровно 60 секунд
+- Reset timestamp в миллисекундах (Unix time × 1000)
 
 **Алгоритм:**
 ```
-CAPACITY     = 100 токенов
-REFILL_RATE  = 100/60 ≈ 1.667 токена/сек
+CAPACITY     = 400 запросов (проверено экспериментально)
+REFILL_RATE  = 400/60 ≈ 6.667 запросов/сек
 
 tokens = min(CAPACITY, tokens + elapsed × REFILL_RATE)
 
@@ -429,7 +436,7 @@ user_settings = {
 | `COVERAGE_HIGH` | 30% | Покрытие lot_start ≥30% + ≥10 точек → высокая точность прогноза |
 | `COVERAGE_MEDIUM` | 10% | Покрытие lot_start 10–30% + ≥3 точки → средняя точность |
 | `MIN_PROFIT_MARGIN_PERCENT` | 10% | Маржа по умолчанию в настройках пользователя |
-| `RATE_LIMIT_CAPACITY` | 100 токенов | Ёмкость корзины rate limiter (токенов в минуту) |
+| `RATE_LIMIT_CAPACITY` | 400 запросов | Ёмкость корзины rate limiter (запросов в минуту, verified 2026-06-07) |
 | `DATA_RETENTION` | 120 дней | Хранение sales_history, после — автоудаление |
 
 ---

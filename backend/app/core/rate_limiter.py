@@ -1,16 +1,19 @@
 """
 Token Bucket Rate Limiter для Stalcraft API.
 
-Лимиты (из официального ТЗ):
-  - 100 токенов / минута
-  - /auction/.../lots    = 2 токена
-  - /auction/.../history = 2 токена
-  - /emission            = 1 токен
+РЕАЛЬНЫЕ ЛИМИТЫ (экспериментально проверены 2026-06-07):
+  - 400 запросов / минута (НЕ 100 токенов!)
+  - /auction/.../lots    = 2 запроса
+  - /auction/.../history = 2 запроса
+  - /emission            = 1 запрос
+
+API отслеживает через headers: x-ratelimit-limit, x-ratelimit-remaining, x-ratelimit-reset
 
 Реализация через Redis:
-  - Ключ: stalcraft:rate_limit (глобальный для demo API)
-  - Пополнение: 100 токенов каждую минуту
+  - Ключ: stalcraft:rate_limit (глобальный для всех API)
+  - Пополнение: 400 запросов каждую минуту
   - Lua-скрипт для атомарного acquire
+  - Period: 60 секунд (ровно)
 """
 
 import asyncio
@@ -74,8 +77,8 @@ class TokenBucketRateLimiter:
     при нескольких воркерах Celery).
     """
 
-    CAPACITY    = 100          # токенов в корзине
-    REFILL_RATE = 100 / 60.0  # токенов в секунду (100/мин)
+    CAPACITY    = 400          # запросов в корзине (проверено экспериментально)
+    REFILL_RATE = 400 / 60.0  # запросов в секунду (400/мин)
     BUCKET_KEY  = "stalcraft:rate_limit"
 
     def __init__(self):
