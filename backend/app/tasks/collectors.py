@@ -3,6 +3,7 @@ Celery задачи сбора данных аукциона.
 """
 import asyncio
 import logging
+import math
 from datetime import datetime, timezone, timedelta
 
 from app.tasks.celery_app import celery_app
@@ -10,8 +11,10 @@ from app.tasks.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 LOTS_REFRESH_INTERVAL = 20    # секунд между обновлениями одного предмета (задача каждые 20 сек)
-LOTS_PER_RUN = 5              # предметов за запуск → 15 лотов/мин при расписании 20 сек
-LOTS_REQUEST_DELAY = 1        # секунд между API-запросами внутри запуска
+LOTS_REQUEST_DELAY    = 0.5   # секунд между API-запросами (0.5 → 35 шт. умещаются в 20 сек)
+TARGET_CYCLE_SEC      = 120   # целевой полный цикл обновления всех уникальных предметов
+MAX_LOTS_PER_RUN      = 35    # потолок: 35 × 0.5s = 17.5s < 20s расписания
+MIN_LOTS_PER_RUN      = 5     # минимум при малом вотчлисте
 
 
 def run_async(coro):
@@ -62,15 +65,21 @@ def collect_all_active_lots(self):
                     if is_due:
                         due_pairs[key] = entry
 
-            # Ограничиваем батч чтобы не создавать всплеск (например, после рестарта)
-            pairs_to_collect = dict(list(due_pairs.items())[:LOTS_PER_RUN])
+            # Динамический batch: берём столько предметов, чтобы полный цикл уложился
+            # в TARGET_CYCLE_SEC — при росте watchlist автоматически увеличиваем батч.
+            runs_per_cycle = TARGET_CYCLE_SEC / LOTS_REFRESH_INTERVAL
+            dynamic_batch = max(
+                MIN_LOTS_PER_RUN,
+                min(math.ceil(len(due_pairs) / runs_per_cycle), MAX_LOTS_PER_RUN),
+            )
+            pairs_to_collect = dict(list(due_pairs.items())[:dynamic_batch])
 
             if not pairs_to_collect:
                 return
 
             logger.info(
-                f"Collecting lots: {len(pairs_to_collect)} due / {len(due_pairs)} overdue "
-                f"/ {len(watchlist)} total watchlist entries"
+                f"Collecting lots: batch={dynamic_batch} due={len(due_pairs)} "
+                f"total={len(watchlist)} (target cycle {TARGET_CYCLE_SEC}s)"
             )
 
             collected_keys = set()
