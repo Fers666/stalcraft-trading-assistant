@@ -135,13 +135,32 @@ interface LotItem {
   enchant_level: number | null
 }
 
+// Сигналы — предвычисленные выгодные лоты из Redis (публикуются коллектором)
+interface SignalLot {
+  start_time: string
+  buyout_per_unit: number
+  buyout_price: number
+  amount: number
+  quality_name: string | null
+  enchant: number | null
+}
 
-function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData }: {
+interface SignalsData {
+  lots: SignalLot[]
+  sell_options: SellOption[] | null
+  volume_7d: number | null
+  volatility_7d: number | null
+  computed_at: string | null
+}
+
+
+function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals }: {
   entry: WatchlistEntry
   stats: MarketStats | null
   onDelete: () => void
   onViewLots: () => void
   lots: LotItem[] | undefined
+  signals?: SignalsData | null
 }) {
   const [timeMode, setTimeMode] = useState<'week' | 'today'>('today')
   const [lotMode, setLotMode]   = useState<'current' | 'median'>('current')
@@ -175,8 +194,33 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData }: {
     ]
   })()
 
-  // Выгодные лоты — те где прибыль по "Нормально" > 0
+  // Выгодные лоты — предпочитаем сигналы из Redis (те же данные что у бота),
+  // фолбэк на клиентский расчёт пока Redis-ключ ещё не заполнен.
   const profitableLots = (() => {
+    if (signals?.lots?.length) {
+      const opts = signals.sell_options ?? []
+      return signals.lots
+        .map(l => ({
+          buyout_price:   l.buyout_price,
+          amount:         l.amount,
+          hours_remaining: null as number | null,
+          is_expiring:    false,
+          quality_name:   l.quality_name,
+          enchant_level:  l.enchant ?? null,
+          buyPerUnit:     l.buyout_per_unit,
+          profits: opts.map(sp => ({
+            label:    sp.label,
+            label_ru: sp.label_ru,
+            perUnit:  sp.net_price_per_unit - l.buyout_per_unit,
+            total:    (sp.net_price_per_unit - l.buyout_per_unit) * l.amount,
+          })),
+        }))
+        .filter(l => (l.profits.find(p => p.label === 'normal')?.perUnit ?? -1) > 0)
+        .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
+        .slice(0, 5)
+    }
+
+    // Фолбэк: клиентский расчёт (пока коллектор не заполнил Redis)
     if (!sellPrices || lots.length === 0) return []
     const normalPrice = sellPrices.find(p => p.label === 'normal')?.price
     if (!normalPrice) return []
@@ -736,6 +780,7 @@ export default function MonitoringPage() {
   const [loading, setLoading]         = useState(!initialized)
   const [deleteEntry, setDeleteEntry] = useState<WatchlistEntry | null>(null)
   const [highlightId, setHighlightId] = useState<number | null>(null)
+  const [signalsMap, setSignalsMap]   = useState<Record<number, SignalsData>>({})
   const cardRefs = useRef<Record<number, HTMLElement | null>>({})
 
   // Загрузка/обновление при каждом входе на страницу
@@ -772,6 +817,37 @@ export default function MonitoringPage() {
     return () => clearInterval(t)
   }, [watchlist, feedLoadAllLots])
 
+  // Опрос сигналов каждые 30 сек (предвычисленные выгодные лоты из Redis)
+  const loadAllSignals = useCallback(async () => {
+    const entries = watchlist as WatchlistEntry[]
+    if (entries.length === 0) return
+    const results = await Promise.all(
+      entries.map(async (entry) => {
+        try {
+          const params: Record<string, string | number> = { region: entry.region }
+          if (entry.quality_filter !== null) params.quality_filter = entry.quality_filter
+          if (entry.enchant_filter  !== null) params.enchant_filter  = entry.enchant_filter
+          const { data } = await api.get<SignalsData>(`/monitoring/signals/${entry.item_id}`, { params })
+          return [entry.id, data] as [number, SignalsData]
+        } catch { return null }
+      })
+    )
+    setSignalsMap(prev => {
+      const next = { ...prev }
+      for (const r of results) {
+        if (r) next[r[0]] = r[1]
+      }
+      return next
+    })
+  }, [watchlist])
+
+  useEffect(() => {
+    if (watchlist.length === 0) return
+    loadAllSignals()
+    const t = setInterval(loadAllSignals, 30_000)
+    return () => clearInterval(t)
+  }, [watchlist, loadAllSignals])
+
   const handleDeleteConfirm = async () => {
     if (!deleteEntry) return
     await api.delete(`/watchlist/${deleteEntry.id}`)
@@ -807,7 +883,7 @@ export default function MonitoringPage() {
           </Typography>
           <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: 'success.main', opacity: 0.8 }} />
           <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.1em' }}>
-            STATS 5 MIN · LOTS 30 SEC
+            STATS 5 MIN · LOTS 30 SEC · SIGNALS 30 SEC
           </Typography>
         </Box>
         <Typography variant="h5" fontWeight={700}>Избранное</Typography>
@@ -849,6 +925,7 @@ export default function MonitoringPage() {
                   },
                 })}
                 lots={lotsMap[entry.id]}
+                signals={signalsMap[entry.id] ?? null}
               />
             </Box>
           ))}

@@ -8,31 +8,31 @@ Telegram Bot — Stalcraft Trading Assistant.
   /status      — показать статус привязки
   /stop        — отвязать аккаунт и отключить уведомления
 
-Фоновый цикл (каждые 30 сек):
-  - Находит выгодные лоты для каждого пользователя с привязанным Telegram
-  - Применяет те же фильтры что и лента "СИГНАЛЫ" в веб-приложении
-  - Отправляет отдельное сообщение на каждый выгодный лот
+Фоновый цикл (каждые 15 сек):
+  - Читает предвычисленные сигналы из Redis (ключи signals:user_id:…)
+  - Сигналы публикуются коллектором сразу после сбора свежего снапшота
   - Дедуплицирует по startTime лота (одно уведомление на лот за 48ч)
+  - Отправляет отдельное сообщение на каждый выгодный лот
 """
 
 import asyncio
+import json
 import logging
 import os
-import statistics as _statistics
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 import redis.asyncio as aioredis
-from sqlalchemy import select, or_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
-# /app — backend смонтирован как /app в docker-compose (build: ./backend, volumes: ./backend:/app)
 sys.path.insert(0, "/app")
-from app.models.models import User, UserWatchlist, UserSettings, MarketStatistics, CollectedData, MasterItem, SalesHistory
+from app.models.models import User, UserWatchlist, UserSettings
+from app.services.profitable_lots import signals_key, NOTIF_DEDUP_TTL
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -42,33 +42,19 @@ logger = logging.getLogger(__name__)
 
 # ─── Конфиг из env ────────────────────────────────────────────────────────────
 
-DATABASE_URL  = os.environ["DATABASE_URL"]
-REDIS_URL     = os.environ.get("REDIS_URL", "redis://redis:6379/0")
-BOT_TOKEN     = os.environ["TELEGRAM_BOT_TOKEN"]
-BOT_USERNAME  = os.environ.get("TELEGRAM_BOT_USERNAME", "SC_TRADING_auc_bot")
-APP_ENV       = os.environ.get("APP_ENV", "production").lower()
-IS_STAGE      = APP_ENV == "stage"
+DATABASE_URL = os.environ["DATABASE_URL"]
+REDIS_URL    = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+BOT_TOKEN    = os.environ["TELEGRAM_BOT_TOKEN"]
+BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "SC_TRADING_auc_bot")
+APP_ENV      = os.environ.get("APP_ENV", "production").lower()
+IS_STAGE     = APP_ENV == "stage"
 
-COMMISSION      = 0.05
-LINK_CODE_TTL   = 600   # 10 мин — срок жизни кода привязки
-NOTIF_DEDUP_TTL = 48 * 3600  # 48ч — один лот нотифицируется один раз
-POLL_INTERVAL   = 30    # сек — интервал проверки
-
-_QLT_NAMES: dict[int, str] = {
-    0: "Обычный", 1: "Необычный", 2: "Особый",
-    3: "Ветеран",  4: "Мастер",   5: "Легендарный",
-}
-_COLOR_TO_QLT: dict[str, int] = {
-    "default": 0, "rank_newbie": 1, "rank_stalker": 2, "rank_veteran": 3,
-    "rank_master": 4, "rank_legend": 5, "quest_item": 5,
-    "gray": 0, "grey": 0, "white": 0, "green": 1, "blue": 2,
-    "violet": 3, "purple": 3, "yellow": 4, "black": 4, "red": 5,
-}
+POLL_INTERVAL = 15    # сек — интервал проверки Redis (просто чтение, быстро)
 
 # ─── DB / Redis ───────────────────────────────────────────────────────────────
 
-engine = create_async_engine(DATABASE_URL, pool_size=5, max_overflow=2)
-SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+engine        = create_async_engine(DATABASE_URL, pool_size=5, max_overflow=2)
+SessionLocal  = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 _redis: Optional[aioredis.Redis] = None
 _notifier_task: Optional[asyncio.Task] = None
 
@@ -83,8 +69,7 @@ async def get_redis() -> aioredis.Redis:
 # ─── Форматирование ───────────────────────────────────────────────────────────
 
 def fmt(n: int) -> str:
-    """1234567 → '1 234 567'"""
-    return f"{n:,}".replace(",", " ")
+    return f"{n:,}".replace(",", " ")
 
 
 def volatility_label(v: float) -> str:
@@ -93,10 +78,6 @@ def volatility_label(v: float) -> str:
     elif v <= 30:
         return "средняя"
     return "высокая"
-
-
-def confidence_label(c: str) -> str:
-    return {"high": "высокая", "medium": "средняя", "low": "мало данных"}.get(c, c)
 
 
 def build_lot_message(
@@ -150,235 +131,15 @@ def build_lot_message(
     return "\n".join(lines)
 
 
-# ─── Helpers: расчёт sell_options (зеркало monitoring.py) ────────────────────
-
-def _fmt_hours(hours: float) -> str:
-    if hours < 2:
-        return "< 2 ч"
-    if hours < 24:
-        return f"~{round(hours)} ч"
-    days = hours / 24
-    if days < 2:
-        return "~1-2 дня"
-    return f"~{round(days)} дня" if days < 5 else f"~{round(days)} дней"
-
-
-def _make_fresh_sell_options(ref: int, volume_7d: int) -> list[dict]:
-    """
-    Генерирует sell_options от текущей рыночной цены.
-    Зеркало _make_sell_options() из monitoring.py — чтобы бот и фронтенд
-    использовали один и тот же порог выгодности.
-    """
-    fast_price    = int(ref * 0.97)
-    normal_price  = int(ref * 1.00)
-    premium_price = int(ref * 1.05)
-
-    sales_per_day = volume_7d / 7.0
-    if sales_per_day >= 5:
-        fh, nh, ph = 2.0, 8.0, 24.0
-    elif sales_per_day >= 1:
-        fh, nh, ph = 8.0, 24.0, 72.0
-    elif sales_per_day >= 0.14:
-        fh, nh, ph = 24.0, 72.0, 168.0
-    else:
-        fh, nh, ph = 72.0, 168.0, 336.0
-
-    def opt(label, label_ru, price, hours):
-        return {
-            "label": label, "label_ru": label_ru,
-            "price_per_unit": price,
-            "net_price_per_unit": int(price * (1 - COMMISSION)),
-            "estimated_hours": hours,
-            "estimated_hours_display": _fmt_hours(hours),
-            "confidence": "low",
-            "data_points": volume_7d,
-        }
-
-    return [
-        opt("fast",    "Быстро",    fast_price,    fh),
-        opt("normal",  "Нормально", normal_price,  nh),
-        opt("premium", "Выгодно",   premium_price, ph),
-    ]
-
-
-# ─── Логика поиска выгодных лотов ────────────────────────────────────────────
-
-def _is_artefact(category: Optional[str]) -> bool:
-    return bool(category and "artefact" in category.lower())
-
-
-def _get_quality_value(additional: dict, master_color: Optional[str], is_art: bool) -> Optional[int]:
-    qlt = additional.get("qlt")
-    if is_art:
-        return int(qlt) if qlt is not None else 0
-    if qlt is not None:
-        return int(qlt)
-    if master_color:
-        return _COLOR_TO_QLT.get(master_color.lower())
-    return None
-
-
-async def _find_profitable_lots(
-    db: AsyncSession,
-    entry: UserWatchlist,
-    master: MasterItem,
-    stats: Optional[MarketStatistics],
-) -> tuple[list[dict], Optional[int], Optional[float]]:
-    """
-    Возвращает (lots, sales_volume_7d, volatility_7d) для уведомления.
-
-    Порог выгодности зеркалирует логику monitoring endpoint:
-    - без фильтров: ref = best_liquid_price_per_unit текущего снэпшота
-    - с фильтрами:  ref = медиана SalesHistory по quality/enchant (или фолбэк на снэпшот)
-    volume/volatility для сообщения тоже фильтруются по quality/enchant, как на мониторинг-пейдж.
-    """
-    snap = (await db.execute(
-        select(CollectedData)
-        .where(
-            CollectedData.user_id == None,
-            CollectedData.item_id == entry.item_id,
-            CollectedData.region  == entry.region,
-            CollectedData.raw_lots.isnot(None),
-        )
-        .order_by(CollectedData.collect_time.desc())
-        .limit(1)
-    )).scalar_one_or_none()
-
-    if snap is None or not snap.raw_lots:
-        return [], None, None
-
-    # ── Строим sell_options тем же способом что мониторинг-эндпоинт ─────────
-    volume_7d = (stats.sales_volume_7d or 0) if stats else 0
-
-    # msg_volume / msg_volatility — то что попадёт в уведомление (зеркало мониторинг-пейдж)
-    msg_volume: Optional[int]   = stats.sales_volume_7d if stats else None
-    msg_volatility: Optional[float] = float(stats.price_volatility_7d) if stats and stats.price_volatility_7d else None
-
-    if entry.quality_filter is None and entry.enchant_filter is None:
-        # Опорная цена = 7-дневная медиана (ищет лоты дешевле исторического уровня).
-        # Фолбэк на current_min только если истории ещё нет.
-        if stats and stats.median_price_7d:
-            ref = int(stats.median_price_7d)
-        else:
-            current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
-            if not current_min:
-                return [], None, None
-            ref = int(current_min)
-        fresh_sell_options = _make_fresh_sell_options(ref, volume_7d)
-    else:
-        # С фильтрами: медиана реальных продаж с нужным quality/enchant
-        cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
-        q = select(SalesHistory.price_per_unit).where(
-            SalesHistory.item_id   == entry.item_id,
-            SalesHistory.region    == entry.region,
-            SalesHistory.sale_time >= cutoff_7d,
-        )
-        if entry.quality_filter is not None:
-            if entry.quality_filter == 0:
-                q = q.where(or_(
-                    SalesHistory.additional_info["qlt"].astext.is_(None),
-                    SalesHistory.additional_info["qlt"].astext == "0",
-                ))
-            else:
-                q = q.where(
-                    SalesHistory.additional_info["qlt"].astext == str(entry.quality_filter)
-                )
-        if entry.enchant_filter is not None:
-            if entry.enchant_filter == 0:
-                q = q.where(or_(
-                    SalesHistory.additional_info["ptn"].astext.is_(None),
-                    SalesHistory.additional_info["ptn"].astext == "0",
-                ))
-            else:
-                q = q.where(
-                    SalesHistory.additional_info["ptn"].astext == str(entry.enchant_filter)
-                )
-
-        prices = (await db.execute(q)).scalars().all()
-
-        if prices:
-            ref = int(_statistics.median(prices))
-            vol = len(prices)
-            # Фильтрованные метрики — как на мониторинг-пейдж
-            msg_volume = vol
-            if vol >= 5:
-                avg7 = _statistics.mean(prices)
-                if avg7 > 0:
-                    msg_volatility = round(_statistics.stdev(prices) / avg7 * 100, 2)
-                else:
-                    msg_volatility = None
-            else:
-                msg_volatility = None
-        else:
-            # Нет истории для этого фильтра — фолбэк на 7-д медиану (или current_min)
-            if stats and stats.median_price_7d:
-                ref = int(stats.median_price_7d)
-            else:
-                current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
-                if not current_min:
-                    return [], None, None
-                ref = int(current_min)
-            vol = volume_7d
-
-        fresh_sell_options = _make_fresh_sell_options(ref, vol)
-
-    normal_opt = next((o for o in fresh_sell_options if o.get("label") == "normal"), None)
-    if not normal_opt:
-        return [], None, None
-    normal_net = int(normal_opt["net_price_per_unit"])
-
-    now    = datetime.now(timezone.utc)
-    is_art = _is_artefact(master.category)
-    profitable: list[dict] = []
-
-    for lot in snap.raw_lots:
-        buyout = lot.get("buyoutPrice", 0)
-        amount = lot.get("amount", 1)
-        if buyout <= 0 or amount <= 0:
-            continue
-
-        end_str = lot.get("endTime", "")
-        if end_str:
-            try:
-                end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-                if (end_dt - now).total_seconds() / 3600 < 2:
-                    continue
-            except Exception:
-                pass
-
-        additional = lot.get("additional") or {}
-        qlt_val    = _get_quality_value(additional, master.color, is_art)
-        ptn        = additional.get("ptn")
-        # Для артефактов ptn=None означает "Не точёный" (0), как в lots.py
-        enchant    = (0 if ptn is None else int(ptn)) if is_art else (int(ptn) if ptn is not None and int(ptn) > 0 else None)
-
-        if entry.quality_filter is not None and qlt_val != entry.quality_filter:
-            continue
-        if entry.enchant_filter is not None and enchant != entry.enchant_filter:
-            continue
-
-        buyout_per_unit = buyout // amount
-        if normal_net - buyout_per_unit <= 0:
-            continue
-
-        quality_name = _QLT_NAMES.get(qlt_val) if qlt_val is not None else None
-        start_time   = lot.get("startTime", "")
-
-        profitable.append({
-            "start_time":      start_time,
-            "buyout_per_unit": buyout_per_unit,
-            "quality_name":    quality_name,
-            "enchant":         enchant,
-            "sell_options":    fresh_sell_options,
-        })
-
-    return profitable, msg_volume, msg_volatility
-
-
 # ─── Notifier loop ────────────────────────────────────────────────────────────
 
 async def notify_profitable_lots(app: Application) -> None:
-    """Ищет выгодные лоты и отправляет уведомления в Telegram."""
+    """
+    Читает предвычисленные сигналы из Redis и отправляет Telegram-уведомления.
+
+    Сигналы публикуются коллектором сразу после каждого успешного сбора,
+    поэтому бот видит те же данные что и сайт — рассинхрон невозможен.
+    """
     r = await get_redis()
 
     async with SessionLocal() as db:
@@ -398,63 +159,62 @@ async def notify_profitable_lots(app: Application) -> None:
         if not users_to_notify:
             return
 
-        masters_cache: dict[str, MasterItem]                    = {}
-        stats_cache:   dict[tuple, Optional[MarketStatistics]]  = {}
-
         for user, _ in users_to_notify:
             watchlist = (await db.execute(
                 select(UserWatchlist)
                 .where(
-                    UserWatchlist.user_id  == user.id,
+                    UserWatchlist.user_id   == user.id,
                     UserWatchlist.is_active == True,
                 )
             )).scalars().all()
 
             for entry in watchlist:
-                # Кэш MasterItem
-                if entry.item_id not in masters_cache:
-                    m = (await db.execute(
-                        select(MasterItem).where(MasterItem.item_id == entry.item_id)
-                    )).scalar_one_or_none()
-                    masters_cache[entry.item_id] = m
-                master = masters_cache.get(entry.item_id)
-                if not master:
+                key = signals_key(
+                    user.id, entry.item_id, entry.region,
+                    entry.quality_filter, entry.enchant_filter,
+                )
+                raw = await r.get(key)
+                if not raw:
                     continue
 
-                # Кэш MarketStatistics (глобальная, user_id=None)
-                skey = (entry.item_id, entry.region)
-                if skey not in stats_cache:
-                    s = (await db.execute(
-                        select(MarketStatistics).where(
-                            MarketStatistics.user_id == None,
-                            MarketStatistics.item_id == entry.item_id,
-                            MarketStatistics.region  == entry.region,
-                        )
-                    )).scalar_one_or_none()
-                    stats_cache[skey] = s
-                stats = stats_cache.get(skey)
+                try:
+                    signals = json.loads(raw)
+                except Exception:
+                    continue
 
-                profitable, msg_volume_7d, msg_volatility_7d = await _find_profitable_lots(db, entry, master, stats)
+                lots        = signals.get("lots", [])
+                sell_options = signals.get("sell_options", [])
+                volume_7d   = signals.get("volume_7d")
+                volatility  = signals.get("volatility_7d")
 
-                for lot in profitable:
-                    # Дедупликация по startTime лота (одно уведомление за 48ч)
+                for lot in lots:
+                    start_time = lot.get("start_time", "")
                     dedup = (
                         f"tg_sent:{user.id}:{entry.item_id}:{entry.region}"
                         f":{entry.quality_filter}:{entry.enchant_filter}"
-                        f":{lot['start_time']}"
+                        f":{start_time}"
                     )
                     if await r.exists(dedup):
                         continue
 
-                    item_name = master.name_ru or master.name_en or entry.item_id
+                    # Получаем имя предмета из БД (можно закэшировать, но watchlist небольшой)
+                    from app.models.models import MasterItem
+                    master = (await db.execute(
+                        select(MasterItem).where(MasterItem.item_id == entry.item_id)
+                    )).scalar_one_or_none()
+                    item_name = (
+                        (master.name_ru or master.name_en or entry.item_id)
+                        if master else entry.item_id
+                    )
+
                     msg = build_lot_message(
-                        item_name      = item_name,
-                        quality_name   = lot["quality_name"],
-                        enchant        = lot["enchant"],
-                        buyout_per_unit= lot["buyout_per_unit"],
-                        sell_options   = lot["sell_options"],
-                        sales_volume_7d= msg_volume_7d,
-                        volatility_7d  = msg_volatility_7d,
+                        item_name       = item_name,
+                        quality_name    = lot.get("quality_name"),
+                        enchant         = lot.get("enchant"),
+                        buyout_per_unit = lot["buyout_per_unit"],
+                        sell_options    = sell_options,
+                        sales_volume_7d = volume_7d,
+                        volatility_7d   = volatility,
                     )
 
                     try:
@@ -536,7 +296,7 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("❌ Пользователь не найден.")
             return
 
-        user.telegram_chat_id  = chat_id
+        user.telegram_chat_id = chat_id
         if tg_username:
             user.telegram_username = tg_username
         await db.commit()

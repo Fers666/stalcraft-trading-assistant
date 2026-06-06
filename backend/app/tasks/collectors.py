@@ -10,8 +10,8 @@ from app.tasks.celery_app import celery_app
 logger = logging.getLogger(__name__)
 
 LOTS_REFRESH_INTERVAL = 20    # секунд между обновлениями одного предмета (задача каждые 20 сек)
-LOTS_PER_RUN = 1              # один предмет за запуск → 3 лота/мин при расписании 20 сек
-LOTS_REQUEST_DELAY = 2        # секунд между API-запросами внутри запуска (при LOTS_PER_RUN>1)
+LOTS_PER_RUN = 5              # предметов за запуск → 15 лотов/мин при расписании 20 сек
+LOTS_REQUEST_DELAY = 1        # секунд между API-запросами внутри запуска
 
 
 def run_async(coro):
@@ -310,8 +310,72 @@ async def _collect_lots_for_item(db, entry):
             f"liquid={len(liquid_lots)} expiring={len(expiring_lots)}"
         )
 
+        # После коммита — публикуем предвычисленные сигналы в Redis.
+        # Бот и API читают из одного ключа → рассинхрон исключён.
+        await _publish_signals(db, entry.item_id, entry.region, snapshot)
+
     finally:
         stalcraft_client.region = client_region
+
+
+async def _publish_signals(db, item_id: str, region: str, snap) -> None:
+    """
+    Вычисляет выгодные лоты для каждой watchlist-записи (item_id, region)
+    и записывает результат в Redis.
+
+    Вызывается сразу после успешного сбора снапшота — пока данные максимально свежие.
+    Использует shared-логику из profitable_lots.py, чтобы бот и API видели одно и то же.
+    """
+    import json
+    import redis.asyncio as aioredis
+    from app.core.config import settings
+    from app.models.models import UserWatchlist, MasterItem, MarketStatistics
+    from app.services.profitable_lots import compute_signals_for_entry, signals_key, SIGNALS_TTL
+    from sqlalchemy import select
+
+    entries = (await db.execute(
+        select(UserWatchlist)
+        .where(
+            UserWatchlist.item_id   == item_id,
+            UserWatchlist.region    == region,
+            UserWatchlist.is_active == True,
+        )
+    )).scalars().all()
+
+    if not entries:
+        return
+
+    master = (await db.execute(
+        select(MasterItem).where(MasterItem.item_id == item_id)
+    )).scalar_one_or_none()
+    if not master:
+        return
+
+    stats = (await db.execute(
+        select(MarketStatistics).where(
+            MarketStatistics.user_id == None,
+            MarketStatistics.item_id == item_id,
+            MarketStatistics.region  == region,
+        )
+    )).scalar_one_or_none()
+
+    r = aioredis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        for entry in entries:
+            try:
+                result = await compute_signals_for_entry(db, entry, master, stats, snap)
+                if result is not None:
+                    key = signals_key(
+                        entry.user_id, item_id, region,
+                        entry.quality_filter, entry.enchant_filter,
+                    )
+                    await r.setex(key, SIGNALS_TTL, json.dumps(result))
+            except Exception as e:
+                logger.error(
+                    f"_publish_signals: entry user={entry.user_id} {item_id}/{region}: {e}"
+                )
+    finally:
+        await r.aclose()
 
 
 async def _collect_history_for_item(db, entry):

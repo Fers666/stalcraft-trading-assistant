@@ -114,17 +114,18 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     }))
     // Вычисляем выгодные позиции и feedItems атомарно
     const { stats, lotsMap, watchlist: wl } = get()
+    // Используем median_price_7d как ref — та же логика что у бота и Redis-сигналов.
+    // Находит лоты когда рынок просел ниже исторического уровня.
     const profitableItemIds = wl.filter(entry => {
       const s = stats[entry.id]
       const lots = lotsMap[entry.id]
-      if (!s?.sell_options || !lots || lots.length === 0) return false
-      const normal = s.sell_options.find(o => o.label === 'normal')
-      if (!normal) return false
+      if (!s?.median_price_7d || !lots || lots.length === 0) return false
+      const medianNet = Math.round(s.median_price_7d * (1 - FEED_COMMISSION))
       return lots.some(l => {
         if (l.is_expiring || l.buyout_price <= 0) return false
         if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
         if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
-        return Math.round(normal.price_per_unit * (1 - FEED_COMMISSION) - Math.floor(l.buyout_price / l.amount)) > 0
+        return medianNet - Math.floor(l.buyout_price / l.amount) > 0
       })
     }).map(e => e.id)
 
@@ -133,14 +134,13 @@ export const useFeedStore = create<FeedState>((set, get) => ({
       .flatMap(entry => {
         const s    = stats[entry.id]
         const lots = lotsMap[entry.id]
-        if (!s?.sell_options || !lots) return []
-        const normal = s.sell_options.find(o => o.label === 'normal')
-        if (!normal) return []
+        if (!s?.median_price_7d || !lots) return []
+        const medianNet = Math.round(s.median_price_7d * (1 - FEED_COMMISSION))
         const profitableLots = lots.filter(l => {
           if (l.is_expiring || l.buyout_price <= 0) return false
           if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
           if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
-          return Math.round(normal.price_per_unit * (1 - FEED_COMMISSION) - Math.floor(l.buyout_price / l.amount)) > 0
+          return medianNet - Math.floor(l.buyout_price / l.amount) > 0
         })
         const count = profitableLots.length
         if (count === 0) return []

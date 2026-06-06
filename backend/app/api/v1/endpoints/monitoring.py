@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
@@ -8,6 +10,7 @@ import statistics as _statistics
 from app.db.session import get_db
 from app.models.models import User, MarketStatistics, CollectedData, GlobalItemScan, MasterItem, SalesHistory
 from app.core.dependencies import get_current_user
+from app.services.profitable_lots import signals_key
 
 router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
 
@@ -414,6 +417,66 @@ async def get_sales_chart(
             for r in rows
         ]
         return SalesChartResponse(mode="daily", days=days, total_count=sum(d.count for d in days))
+
+
+class SignalLot(BaseModel):
+    start_time: str
+    buyout_price: int
+    buyout_per_unit: int
+    amount: int
+    quality_name: str | None = None
+    enchant: int | None = None
+
+
+class SignalsResponse(BaseModel):
+    lots: list[SignalLot]
+    sell_options: list | None
+    volume_7d: int | None
+    volatility_7d: float | None
+    ref: int | None
+    computed_at: str | None
+
+
+@router.get("/signals/{item_id}", response_model=SignalsResponse)
+async def get_signals(
+    item_id: str,
+    region: str = Query(default="RU"),
+    quality_filter: int | None = Query(default=None),
+    enchant_filter: int | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Предвычисленные выгодные лоты для watchlist-записи из Redis.
+
+    Обновляется коллектором после каждого успешного сбора снапшота (~каждые 1-2 мин).
+    Та же логика что и Telegram-уведомления — рассинхрон невозможен.
+    """
+    import redis.asyncio as aioredis
+    from app.core.config import settings
+
+    key = signals_key(
+        current_user.id, item_id, region.upper(), quality_filter, enchant_filter
+    )
+    r = aioredis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        raw = await r.get(key)
+        if raw:
+            data = json.loads(raw)
+            return SignalsResponse(
+                lots         = data.get("lots", []),
+                sell_options = data.get("sell_options"),
+                volume_7d    = data.get("volume_7d"),
+                volatility_7d= data.get("volatility_7d"),
+                ref          = data.get("ref"),
+                computed_at  = data.get("computed_at"),
+            )
+    finally:
+        await r.aclose()
+
+    return SignalsResponse(
+        lots=[], sell_options=None, volume_7d=None,
+        volatility_7d=None, ref=None, computed_at=None,
+    )
 
 
 class FeedItem(BaseModel):
