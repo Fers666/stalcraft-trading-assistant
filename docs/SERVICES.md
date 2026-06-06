@@ -27,14 +27,17 @@ for item_id, region in unique_pairs:
 
 Результат: 100 пользователей следят за одним товаром → **1 API запрос**.
 
-### Логика collect_all_active_lots (размазывание нагрузки)
+### Логика collect_all_active_lots (динамический batch)
 
-Задача запускается каждые 20 секунд, обрабатывает только предметы, которым пора обновиться:
+Задача запускается каждые 20 секунд, обрабатывает только предметы, которым пора обновиться.
+Размер батча вычисляется динамически — чтобы полный цикл обновления всех предметов укладывался в ~2 мин при любом объёме watchlist:
 
 ```python
-LOTS_REFRESH_INTERVAL = 20    # секунд между обновлениями одного предмета
-LOTS_PER_RUN = 1              # один предмет за запуск
-LOTS_REQUEST_DELAY = 2        # секунд между API-запросами
+LOTS_REFRESH_INTERVAL = 20    # секунд между запусками задачи
+LOTS_REQUEST_DELAY    = 0.5   # секунд между API-запросами внутри запуска
+TARGET_CYCLE_SEC      = 120   # целевой полный цикл (2 мин)
+MAX_LOTS_PER_RUN      = 35    # потолок: 35 × 0.5с = 17.5с < 20с расписания
+MIN_LOTS_PER_RUN      = 5     # минимум
 
 refresh_threshold = now - timedelta(seconds=LOTS_REFRESH_INTERVAL)
 
@@ -45,12 +48,22 @@ due_pairs = {
     if e.last_successful_check is None or e.last_successful_check < refresh_threshold
 }
 
-# Ограничиваем батч (защита от всплеска после рестарта сервера)
-pairs_to_collect = dict(list(due_pairs.items())[:LOTS_PER_RUN])
+# Динамический batch: сколько нужно взять чтобы покрыть всё за TARGET_CYCLE_SEC
+runs_per_cycle = TARGET_CYCLE_SEC / LOTS_REFRESH_INTERVAL   # = 6 запусков за 2 мин
+dynamic_batch  = max(MIN_LOTS_PER_RUN, min(ceil(len(due_pairs) / runs_per_cycle), MAX_LOTS_PER_RUN))
+pairs_to_collect = dict(list(due_pairs.items())[:dynamic_batch])
 ```
 
-Эффект: каждый товар обновляется каждые 20 сек, но за один запуск обрабатывается только 1 пара.
-Распределение: ~3 лота в минуту, нагрузка размазана равномерно, самые устаревшие обновляются в приоритете.
+| Уникальных предметов | batch | Цикл | Токены/мин | % лимита |
+|---|---|---|---|---|
+| 15 | 5 | ~1 мин | ~54 | 13.5% |
+| 50 | 9 | ~2 мин | ~60 | 15% |
+| 100 | 17 | ~2 мин | ~80 | 20% |
+| 200 | 34 | ~2 мин | ~130 | 32.5% |
+| 800 | 35 (max) | ~4 мин | ~135 | 33.8% |
+
+Лимит архитектуры: ~800 уникальных предметов (после этого цикл начинает расти).
+Rate limit запас большой — потолок по токенам наступит позже чем потолок по MAX_LOTS_PER_RUN.
 
 ### Логика глобального сканера (run_global_feed_batch)
 
@@ -177,6 +190,18 @@ OAuth2 Client Credentials flow для Stalcraft API.
 2. Разделяет на **ликвидные** (endTime > now + 2ч) и **истекающие** (< 2ч)
 3. Рассчитывает цены только по ликвидным лотам (`best_liquid_price_per_unit`)
 4. Сохраняет снэпшот в `collected_data` с `user_id=None` (глобальный)
+5. Вызывает `_publish_signals` — записывает предвычисленные выгодные лоты в Redis
+
+### `_publish_signals(db, item_id, region, snap)`
+
+После каждого успешного сбора пишет в Redis ключ `signals:{user_id}:{item_id}:{region}:{qf}:{ef}` (TTL 300 сек) для каждой watchlist-записи с этим предметом.
+
+Логика из `app/services/profitable_lots.py` (`compute_signals_for_entry`):
+- `ref = median_price_7d` из market_statistics (или current_min как fallback)
+- Отфильтровывает истекающие лоты (< 2ч) и лоты где `normal_net ≤ buyout`
+- Возвращает: `{lots, sell_options, volume_7d, volatility_7d, ref, computed_at}`
+
+Бот (`telegram_bot/bot.py`) и API (`GET /monitoring/signals/{item_id}`) читают из одного ключа — рассинхрон невозможен.
 
 ### Разовые задачи (цепочка при добавлении в watchlist)
 
@@ -328,7 +353,7 @@ backend (FastAPI)          → /api/v1/telegram/* (link-code, status, unlink)
 
 | Параметр | Значение |
 |----------|----------|
-| Интервал | каждые 30 сек |
+| Интервал | каждые 15 сек (только чтение Redis — быстро) |
 | Dedup TTL | 48 ч (Redis ключ `tg_sent:{user_id}:{item_id}:{region}:{qlt}:{enchant}:{startTime}`) |
 | Порог прибыли | `normal_net_price > buy_price` |
 | Формат сообщения | все 3 опции с ✅/❌, явно "выставить X → получишь Y → прибыль Z" |
