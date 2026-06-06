@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,13 +13,21 @@ from app.api.v1.endpoints.monitoring import router as monitoring_router
 from app.api.v1.endpoints.settings import router as settings_router
 from app.api.v1.endpoints.inventory import router as inventory_router
 from app.api.v1.endpoints.admin import router as admin_router
-from app.api.v1.endpoints.telegram import router as telegram_router
+from app.api.v1.endpoints.telegram import router as telegram_router, register_webhook
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    await register_webhook()
+    yield
+
 
 app = FastAPI(
     title="Stalcraft Trading Assistant",
     version="0.1.0",
     description="Анализ аукциона Stalcraft X — рекомендации по покупкам и продажам",
     docs_url=None,
+    lifespan=lifespan,
 )
 
 app.add_middleware(

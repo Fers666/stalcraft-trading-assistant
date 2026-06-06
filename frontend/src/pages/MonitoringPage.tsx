@@ -556,47 +556,92 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData }: {
                     />
                   </Tooltip>
                 </Box>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  {stats.sell_options.map((opt) => {
-                    const c = sellOptionColor(opt.label)
-                    return (
-                      <Tooltip key={opt.label} title={SELL_OPTION_TOOLTIPS[opt.label]}>
-                        <Box sx={{
-                          flex: 1, p: 1.25,
-                          borderRadius: '10px',
-                          border: '1px solid rgba(255,255,255,0.06)',
-                          background: 'rgba(255,255,255,0.02)',
-                          textAlign: 'center',
-                          cursor: 'help',
-                          transition: 'border-color 0.2s',
-                          '&:hover': { borderColor: `${c}44` },
-                        }}>
-                          <Typography sx={{ fontSize: '0.62rem', color: c, fontWeight: 700, display: 'block', letterSpacing: '0.06em', mb: 0.75 }}>
-                            {opt.label_ru.toUpperCase()}
-                          </Typography>
-                          {/* Цена выставления */}
-                          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mb: 0.25 }}>
-                            выставить за
-                          </Typography>
-                          <Typography variant="body2" fontWeight={700} color="text.primary">
-                            {formatPrice(opt.price_per_unit)}
-                          </Typography>
-                          {/* Чистая сумма после комиссии */}
-                          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mt: 0.75, mb: 0.25 }}>
-                            получишь
-                          </Typography>
-                          <Typography variant="body2" fontWeight={700} sx={{ color: c }}>
-                            {formatPrice(opt.net_price_per_unit)}
-                          </Typography>
-                          {/* Прогноз времени */}
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
-                            {opt.estimated_hours_display}
-                          </Typography>
-                        </Box>
-                      </Tooltip>
-                    )
-                  })}
-                </Box>
+                {(() => {
+                  // Минимальная цена покупки по активным ликвидным лотам с учётом фильтров
+                  const cheapestBuy = lots
+                    .filter(l => !l.is_expiring && l.buyout_price > 0)
+                    .filter(l => entry.quality_filter === null || l.quality_name === QLT_NAMES[entry.quality_filter])
+                    .filter(l => entry.enchant_filter === null || l.enchant_level === entry.enchant_filter)
+                    .reduce<number | null>((min, l) => {
+                      const p = Math.floor(l.buyout_price / l.amount)
+                      return min === null || p < min ? p : min
+                    }, null)
+                  return (
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      {stats.sell_options!.map((opt) => {
+                        const c = sellOptionColor(opt.label)
+                        // Прибыль от покупки по текущей минимальной цене (после 5% комиссии)
+                        const profitFromCheapest = cheapestBuy !== null
+                          ? opt.net_price_per_unit - cheapestBuy
+                          : null
+                        const isProfitable = profitFromCheapest !== null && profitFromCheapest > 0
+                        return (
+                          <Tooltip key={opt.label} title={`${SELL_OPTION_TOOLTIPS[opt.label]} Покупай дешевле ${formatPrice(opt.net_price_per_unit)} чтобы выйти в плюс (5% комиссия уже учтена).`}>
+                            <Box sx={{
+                              flex: 1, p: 1.25,
+                              borderRadius: '10px',
+                              border: profitFromCheapest !== null
+                                ? `1px solid ${isProfitable ? 'rgba(62,213,152,0.3)' : 'rgba(235,87,87,0.25)'}`
+                                : '1px solid rgba(255,255,255,0.06)',
+                              background: profitFromCheapest !== null
+                                ? isProfitable ? 'rgba(62,213,152,0.04)' : 'rgba(235,87,87,0.03)'
+                                : 'rgba(255,255,255,0.02)',
+                              textAlign: 'center',
+                              cursor: 'help',
+                              transition: 'border-color 0.2s',
+                              '&:hover': { borderColor: `${c}44` },
+                            }}>
+                              <Typography sx={{ fontSize: '0.62rem', color: c, fontWeight: 700, display: 'block', letterSpacing: '0.06em', mb: 0.75 }}>
+                                {opt.label_ru.toUpperCase()}
+                              </Typography>
+                              {/* Цена выставления */}
+                              <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mb: 0.25 }}>
+                                выставить за
+                              </Typography>
+                              <Typography variant="body2" fontWeight={700} color="text.primary">
+                                {formatPrice(opt.price_per_unit)}
+                              </Typography>
+                              {/* Чистая сумма после комиссии */}
+                              <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mt: 0.75, mb: 0.25 }}>
+                                получишь (−5%)
+                              </Typography>
+                              <Typography variant="body2" fontWeight={700} sx={{ color: c }}>
+                                {formatPrice(opt.net_price_per_unit)}
+                              </Typography>
+                              {/* Прибыль от текущей минимальной цены или порог безубыточности */}
+                              {profitFromCheapest !== null ? (
+                                <>
+                                  <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mt: 0.75, mb: 0.25 }}>
+                                    прибыль
+                                  </Typography>
+                                  <Typography sx={{
+                                    fontSize: '0.72rem', fontWeight: 700,
+                                    color: isProfitable ? 'success.main' : 'error.main',
+                                  }}>
+                                    {isProfitable ? '+' : ''}{formatPrice(profitFromCheapest)}
+                                  </Typography>
+                                </>
+                              ) : (
+                                <>
+                                  <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mt: 0.75, mb: 0.25 }}>
+                                    купи до
+                                  </Typography>
+                                  <Typography sx={{ fontSize: '0.62rem', fontWeight: 600, color: 'text.secondary' }}>
+                                    {formatPrice(opt.net_price_per_unit - 1)}
+                                  </Typography>
+                                </>
+                              )}
+                              {/* Прогноз времени */}
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+                                {opt.estimated_hours_display}
+                              </Typography>
+                            </Box>
+                          </Tooltip>
+                        )
+                      })}
+                    </Box>
+                  )
+                })()}
               </>
             )}
           </Box>
