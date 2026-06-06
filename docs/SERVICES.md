@@ -292,6 +292,81 @@ Token Bucket алгоритм для соблюдения лимита Stalcraft
 
 ---
 
+---
+
+## Telegram-интеграция — текущая архитектура (webhook)
+
+### Поток команд (webhook)
+
+```
+Telegram → POST https://sctrading.ru/api/v1/telegram/webhook
+         → backend (FastAPI) → команды /start /link /status /stop
+```
+
+Webhook регистрируется **автоматически при старте** `backend` через `lifespan` → `register_webhook()`.  
+Требуется `TELEGRAM_WEBHOOK_URL=https://sctrading.ru` (задан в `docker-compose.prod.yml` в секции `environment` бэкенда).
+
+**Обработчики команд:** `backend/app/api/v1/endpoints/telegram.py`  
+**Отправка уведомлений:** `backend/app/services/telegram_sender.py` (используется Celery задачей)  
+**Celery задача:** `app.tasks.notifications.scan_and_notify` (каждые 2 мин)
+
+### Поток привязки аккаунта
+
+1. Пользователь нажимает «Получить код» → `GET /api/v1/telegram/link-code` → 6-значный код в Redis (TTL 10 мин)
+2. Отправляет боту: `/link 123456`
+3. Webhook-обработчик ищет код в Redis → сохраняет `telegram_chat_id` в таблицу `users`
+4. `GET /api/v1/telegram/status` → `is_linked: true`
+
+### Celery задача уведомлений
+
+| Параметр | Значение |
+|----------|----------|
+| Расписание | каждые 2 минуты |
+| Dedup TTL | 2 часа (Redis ключ `notif:{user_id}:{item_id}:{region}`) |
+| Snapshot TTL | отбрасывает снэпшоты старше 5 минут |
+| Порог прибыли | `normal_net_price > buy_price AND profit_pct >= min_margin_pct` |
+
+---
+
+## Откат Telegram на polling-режим
+
+Если webhook перестал работать (например, домен недоступен), можно быстро вернуть `bot.py` (polling):
+
+**Шаг 1 — вернуть сервис в `docker-compose.prod.yml`:**
+
+```yaml
+  telegram_bot:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./telegram_bot:/tg_bot
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python /tg_bot/bot.py
+    restart: unless-stopped
+```
+
+**Шаг 2 — убрать `TELEGRAM_WEBHOOK_URL` из `backend` environment** (или оставить пустым — `register_webhook()` пропустит регистрацию если URL пустой).
+
+**Шаг 3 — деплой:**
+
+```bash
+docker-compose -f docker-compose.prod.yml up -d --build telegram_bot backend
+```
+
+`bot.py` использует **polling** — при старте автоматически снимает вебхук с Telegram.  
+Уведомления в `bot.py` запускаются собственным asyncio-циклом (каждые 30 сек), независимо от Celery.  
+
+> ⚠️ Polling и webhook нельзя использовать одновременно. При polling `TELEGRAM_WEBHOOK_URL` должен быть пустым, иначе при старте `backend` он снова зарегистрирует webhook и сломает polling.
+
+---
+
 ## Правило обновления документации
 
 При каждом изменении схемы БД:
