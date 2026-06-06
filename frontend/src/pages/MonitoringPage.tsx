@@ -566,32 +566,16 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals 
                           )}
                         </Box>
                         {hasQuality && (
-                          <Box sx={{ textAlign: 'right', alignSelf: 'center', display: 'flex', flexDirection: 'column', gap: 0.3 }}>
-                            {lot.quality_name && qualityColor(lot.quality_name) && (
-                              <Chip
-                                label={lot.quality_name}
-                                size="small"
-                                variant="outlined"
-                                sx={{
-                                  fontSize: '0.6rem',
-                                  height: 16,
-                                  borderColor: qualityColor(lot.quality_name),
-                                  color: qualityColor(lot.quality_name),
-                                }}
-                              />
+                          <Box sx={{ textAlign: 'right', alignSelf: 'center' }}>
+                            {lot.quality_name && (
+                              <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', lineHeight: 1.3 }}>
+                                {lot.quality_name}
+                              </Typography>
                             )}
                             {lot.enchant_level != null && (
-                              <Chip
-                                label={lot.enchant_level === 0 ? 'Не точёный' : `+${lot.enchant_level}`}
-                                size="small"
-                                variant="outlined"
-                                sx={{
-                                  fontSize: '0.6rem',
-                                  height: 16,
-                                  borderColor: lot.enchant_level === 0 ? 'text.secondary' : 'primary.main',
-                                  color: lot.enchant_level === 0 ? 'text.secondary' : 'primary.main',
-                                }}
-                              />
+                              <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 600, lineHeight: 1.3 }}>
+                                {lot.enchant_level === 0 ? 'Не точёный' : `+${lot.enchant_level}`}
+                              </Typography>
                             )}
                           </Box>
                         )}
