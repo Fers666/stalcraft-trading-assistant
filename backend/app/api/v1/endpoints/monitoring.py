@@ -479,54 +479,157 @@ async def get_signals(
     )
 
 
-class FeedItem(BaseModel):
+MIN_LIQUID_LOTS_FOR_FEED = 2  # отсекаем неликвид — товар, который потом сложно перепродать
+
+
+class OpportunityItem(BaseModel):
     item_id: str
     name_ru: str | None
     name_en: str | None
     category: str | None
     icon_path: str | None
     region: str
+    current_price: int | None
+    avg_price_24h: float | None
+    min_price_24h: int | None
+    opportunity_pct: float | None
     lot_count: int | None
-    liquid_lot_count: int | None
-    best_price: int | None
-    avg_price: float | None
-    price_change_pct: float | None
-    tradability_score: float | None
     scanned_at: datetime | None
+    min_price_at: datetime | None
+    hours_since_min: float | None
 
 
-@router.get("/feed", response_model=list[FeedItem])
+@router.get("/feed", response_model=list[OpportunityItem])
 async def get_feed(
     region: str = Query(default="RU"),
     limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    """Топ предметов по торгуемости из глобального скана."""
+    """
+    Топ возможностей сейчас: предметы всего аукциона (вне watchlist),
+    текущая цена которых заметно ниже средней за последние 24ч —
+    то есть прямо сейчас выгодный момент для закупки (а не "был вчера").
+
+    opportunity_pct = (avg_price_24h - current_price) / avg_price_24h * 100
+    Сортировка по этому показателю — самые "горячие" предложения сверху.
+    Отсекаем товары с liquid_lot_count < MIN_LIQUID_LOTS_FOR_FEED — их потом
+    некому будет перепродать.
+    """
+    region_u = region.upper()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+
+    agg_subq = (
+        select(
+            GlobalItemScan.item_id.label("item_id"),
+            func.min(GlobalItemScan.best_price).label("min_price"),
+            func.avg(GlobalItemScan.avg_price).label("avg_price"),
+            func.count().label("scan_count"),
+        )
+        .where(
+            GlobalItemScan.region == region_u,
+            GlobalItemScan.scanned_at >= cutoff,
+        )
+        .group_by(GlobalItemScan.item_id)
+        .having(func.count() >= 2)
+        .subquery()
+    )
+
+    # Последний скан по каждому предмету — текущая цена и ликвидность прямо сейчас
+    latest_subq = (
+        select(
+            GlobalItemScan.item_id.label("item_id"),
+            GlobalItemScan.best_price.label("current_price"),
+            GlobalItemScan.lot_count.label("lot_count"),
+            GlobalItemScan.liquid_lot_count.label("liquid_lot_count"),
+            GlobalItemScan.scanned_at.label("scanned_at"),
+        )
+        .distinct(GlobalItemScan.item_id)
+        .where(
+            GlobalItemScan.region == region_u,
+            GlobalItemScan.scanned_at >= cutoff,
+        )
+        .order_by(GlobalItemScan.item_id, GlobalItemScan.scanned_at.desc())
+        .subquery()
+    )
+
+    discount_expr = (
+        (agg_subq.c.avg_price - latest_subq.c.current_price) / agg_subq.c.avg_price * 100
+    )
+
     rows = (await db.execute(
-        select(GlobalItemScan, MasterItem.name_ru, MasterItem.name_en,
-               MasterItem.category, MasterItem.icon_path)
-        .join(MasterItem, MasterItem.item_id == GlobalItemScan.item_id)
-        .where(GlobalItemScan.region == region.upper())
-        .order_by(GlobalItemScan.tradability_score.desc())
+        select(
+            agg_subq.c.item_id,
+            agg_subq.c.min_price,
+            agg_subq.c.avg_price,
+            latest_subq.c.current_price,
+            latest_subq.c.lot_count,
+            latest_subq.c.scanned_at,
+            discount_expr.label("discount_pct"),
+        )
+        .select_from(agg_subq.join(latest_subq, latest_subq.c.item_id == agg_subq.c.item_id))
+        .where(
+            agg_subq.c.avg_price > 0,
+            discount_expr > 0,
+            latest_subq.c.liquid_lot_count >= MIN_LIQUID_LOTS_FOR_FEED,
+        )
+        .order_by(discount_expr.desc())
         .limit(limit)
     )).all()
 
-    return [
-        FeedItem(
-            item_id=row.GlobalItemScan.item_id,
-            name_ru=row.name_ru,
-            name_en=row.name_en,
-            category=row.category,
-            icon_path=row.icon_path,
-            region=row.GlobalItemScan.region,
-            lot_count=row.GlobalItemScan.lot_count,
-            liquid_lot_count=row.GlobalItemScan.liquid_lot_count,
-            best_price=row.GlobalItemScan.best_price,
-            avg_price=float(row.GlobalItemScan.avg_price) if row.GlobalItemScan.avg_price else None,
-            price_change_pct=float(row.GlobalItemScan.price_change_pct) if row.GlobalItemScan.price_change_pct else None,
-            tradability_score=float(row.GlobalItemScan.tradability_score) if row.GlobalItemScan.tradability_score else None,
-            scanned_at=row.GlobalItemScan.scanned_at,
+    if not rows:
+        return []
+
+    top_ids = [row.item_id for row in rows]
+    min_by_id = {row.item_id: int(row.min_price) for row in rows}
+
+    # Момент лучшей цены за 24ч — отдельным запросом (нужен для "была N часов назад")
+    detail_rows = (await db.execute(
+        select(
+            GlobalItemScan.item_id,
+            GlobalItemScan.best_price,
+            GlobalItemScan.scanned_at,
         )
-        for row in rows
-    ]
+        .where(
+            GlobalItemScan.item_id.in_(top_ids),
+            GlobalItemScan.region == region_u,
+            GlobalItemScan.scanned_at >= cutoff,
+        )
+        .order_by(GlobalItemScan.scanned_at.asc())
+    )).all()
+
+    min_at: dict[str, datetime] = {}
+    for row in detail_rows:
+        if row.best_price == min_by_id.get(row.item_id):
+            min_at[row.item_id] = row.scanned_at  # самое недавнее вхождение минимума
+
+    meta_rows = (await db.execute(
+        select(MasterItem.item_id, MasterItem.name_ru, MasterItem.name_en,
+               MasterItem.category, MasterItem.icon_path)
+        .where(MasterItem.item_id.in_(top_ids))
+    )).all()
+    meta_by_id = {row.item_id: row for row in meta_rows}
+
+    now = datetime.now(timezone.utc)
+    result = []
+    for row in rows:
+        meta = meta_by_id.get(row.item_id)
+        min_dt = min_at.get(row.item_id)
+        result.append(OpportunityItem(
+            item_id=row.item_id,
+            name_ru=meta.name_ru if meta else None,
+            name_en=meta.name_en if meta else None,
+            category=meta.category if meta else None,
+            icon_path=meta.icon_path if meta else None,
+            region=region_u,
+            current_price=int(row.current_price) if row.current_price is not None else None,
+            avg_price_24h=round(float(row.avg_price), 2),
+            min_price_24h=int(row.min_price),
+            opportunity_pct=round(float(row.discount_pct), 2),
+            lot_count=row.lot_count,
+            scanned_at=row.scanned_at,
+            min_price_at=min_dt,
+            hours_since_min=round((now - min_dt).total_seconds() / 3600, 1) if min_dt else None,
+        ))
+
+    return result

@@ -4,7 +4,7 @@ import MonitorHeartIcon from '@mui/icons-material/MonitorHeart'
 import SearchIcon from '@mui/icons-material/Search'
 import InventoryIcon from '@mui/icons-material/Inventory'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
-import TrendingUpIcon from '@mui/icons-material/TrendingUp'
+import LocalOfferIcon from '@mui/icons-material/LocalOffer'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
@@ -17,7 +17,7 @@ const navItems = [
   { label: 'Избранное', path: '/app/monitoring', icon: <MonitorHeartIcon sx={{ fontSize: 14 }} /> },
   { label: 'Каталог',   path: '/app/catalog',    icon: <MenuBookIcon    sx={{ fontSize: 14 }} /> },
   { label: 'Лоты',      path: '/app/lots',       icon: <SearchIcon      sx={{ fontSize: 14 }} /> },
-  { label: 'Лента',     path: '/app/feed',       icon: <TrendingUpIcon  sx={{ fontSize: 14 }} /> },
+  { label: 'Лента',     path: '/app/feed',       icon: <LocalOfferIcon  sx={{ fontSize: 14 }} /> },
   { label: 'Склад',     path: '/app/inventory',  icon: <InventoryIcon   sx={{ fontSize: 14 }} /> },
 ]
 
