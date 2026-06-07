@@ -20,7 +20,7 @@ def delete_old_data():
 
     async def _run():
         from app.db.session import get_celery_db_session as get_db_session
-        from app.models.models import SalesHistory, CollectedData, PurchaseRecommendation, GlobalItemScan
+        from app.models.models import SalesHistory, CollectedData, PurchaseRecommendation
         from sqlalchemy import delete
 
         now = datetime.now(timezone.utc)
@@ -40,17 +40,12 @@ def delete_old_data():
             r3 = await db.execute(
                 delete(PurchaseRecommendation).where(PurchaseRecommendation.expires_at <= now)
             )
-            # Удаляем старую историю глобального скана (старше 120 дней)
-            r4 = await db.execute(
-                delete(GlobalItemScan).where(GlobalItemScan.scanned_at < cutoff)
-            )
             await db.commit()
 
             logger.info(
                 f"Cleanup: removed {r1.rowcount} sales_history, "
                 f"{r2.rowcount} collected_data, "
-                f"{r3.rowcount} expired recommendations, "
-                f"{r4.rowcount} global_item_scan history rows"
+                f"{r3.rowcount} expired recommendations"
             )
 
     run_async(_run())
