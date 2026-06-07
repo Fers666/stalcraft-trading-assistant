@@ -557,11 +557,17 @@ async def get_feed(
         )
     )
 
+    # COALESCE(..., 0): старые строки скана (до миграции 0020) не знают о вариантах
+    # и хранят quality/enchant=NULL — приравниваем их к базовому варианту (0, 0).
+    # Без этого NULL = NULL даёт NULL в условии JOIN, и вся такая история выпадает из ленты.
+    qlt_expr = func.coalesce(GlobalItemScan.quality, 0)
+    ptn_expr = func.coalesce(GlobalItemScan.enchant, 0)
+
     agg_subq = (
         select(
             GlobalItemScan.item_id.label("item_id"),
-            GlobalItemScan.quality.label("quality"),
-            GlobalItemScan.enchant.label("enchant"),
+            qlt_expr.label("quality"),
+            ptn_expr.label("enchant"),
             func.min(GlobalItemScan.best_price).label("min_price"),
             func.avg(GlobalItemScan.avg_price).label("avg_price"),
             func.count().label("scan_count"),
@@ -571,7 +577,7 @@ async def get_feed(
             GlobalItemScan.scanned_at >= cutoff,
             GlobalItemScan.item_id.notin_(excluded_subq),
         )
-        .group_by(GlobalItemScan.item_id, GlobalItemScan.quality, GlobalItemScan.enchant)
+        .group_by(GlobalItemScan.item_id, qlt_expr, ptn_expr)
         .having(func.count() >= 2)
         .subquery()
     )
@@ -580,20 +586,20 @@ async def get_feed(
     latest_subq = (
         select(
             GlobalItemScan.item_id.label("item_id"),
-            GlobalItemScan.quality.label("quality"),
-            GlobalItemScan.enchant.label("enchant"),
+            qlt_expr.label("quality"),
+            ptn_expr.label("enchant"),
             GlobalItemScan.best_price.label("current_price"),
             GlobalItemScan.lot_count.label("lot_count"),
             GlobalItemScan.liquid_lot_count.label("liquid_lot_count"),
             GlobalItemScan.scanned_at.label("scanned_at"),
         )
-        .distinct(GlobalItemScan.item_id, GlobalItemScan.quality, GlobalItemScan.enchant)
+        .distinct(GlobalItemScan.item_id, qlt_expr, ptn_expr)
         .where(
             GlobalItemScan.region == region_u,
             GlobalItemScan.scanned_at >= cutoff,
         )
         .order_by(
-            GlobalItemScan.item_id, GlobalItemScan.quality, GlobalItemScan.enchant,
+            GlobalItemScan.item_id, qlt_expr, ptn_expr,
             GlobalItemScan.scanned_at.desc(),
         )
         .subquery()

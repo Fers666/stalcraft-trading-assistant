@@ -328,6 +328,13 @@ est_profit_per_unit = avg_price_24h × (1 − FEED_COMMISSION) − current_price
 2. JOIN с последним сканом каждого варианта (`DISTINCT ON (item_id, quality, enchant)
    ... ORDER BY scanned_at DESC`, джойн по всем трём ключам) — текущая цена и ликвидность
    именно этого варианта прямо сейчас
+   > **Баг и фикс (найден на локалхосте):** старые строки скана (до миграции `0020`)
+   > хранят `quality`/`enchant = NULL`. JOIN по `==` даёт `NULL = NULL → NULL` (не true в SQL),
+   > вся история без вариантов выпадала из агрегации/джойна — лента была пустой/урезанной.
+   > Решение — `qlt_expr = COALESCE(quality, 0)` / `ptn_expr = COALESCE(enchant, 0)`,
+   > применяются везде: `SELECT`, `GROUP BY`, `DISTINCT ON`, `ORDER BY`, условие `JOIN`.
+   > Старые записи приравниваются к базовому варианту `(0, 0)` — это корректно, т.к.
+   > до перехода на per-variant скан они и были "смешанными/базовыми".
 3. Считает `profit_pct_expr`/`profit_per_unit_expr`, отсекает варианты с `liquid_lot_count <
    MIN_LIQUID_LOTS_FOR_FEED` (неликвид) или с `profit_per_unit_expr <= 0` (невыгодно после
    комиссии), сортирует по `profit_pct_expr` desc, топ-N
