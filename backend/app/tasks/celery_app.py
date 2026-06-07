@@ -11,7 +11,6 @@ celery_app = Celery(
         "app.tasks.collectors",
         "app.tasks.cleanup",
         "app.tasks.analyzers",
-        "app.tasks.global_scanner",
         "app.tasks.notifications",
     ],
 )
@@ -45,11 +44,6 @@ celery_app.conf.update(
         "calculate-market-stats": {
             "task": "app.tasks.analyzers.calculate_all_market_stats",
             "schedule": crontab(minute="5"),
-        },
-        # Глобальный скан предметов вне watchlist (10 предметов/мин → полный цикл ~4 ч)
-        "global-feed-batch": {
-            "task": "app.tasks.global_scanner.run_global_feed_batch",
-            "schedule": crontab(minute="*"),
         },
         # Telegram-уведомления — обрабатываются telegram_bot сервисом (polling),
         # scan_and_notify отключён во избежание дублирования.

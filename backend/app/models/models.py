@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, String, Integer, BigInteger, Boolean, Float,
-    DateTime, ForeignKey, Text, ARRAY, Numeric, Index, UniqueConstraint
+    DateTime, ForeignKey, Text, ARRAY, Numeric, Index
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, declarative_base
@@ -300,66 +300,3 @@ class NotificationQueue(Base):
     status            = Column(String(20), default="pending")  # pending | sent | failed
     created_at        = Column(DateTime(timezone=True), server_default=func.now())
 
-
-# ─── Глобальный скан предметов вне watchlist ─────────────────────────────────
-
-class GlobalItemScan(Base):
-    """
-    Лёгкие метрики для предметов НЕ состоящих в чьём-либо watchlist.
-    Заполняется скользящим сканером (~720 предметов/час, полный цикл ≈ 3ч).
-
-    История: одна строка на каждый скан (НЕ перезаписывается) — нужна для
-    агрегации "топ возможностей за 24ч" (просадка цены от средней за период).
-    Чистится в delete_old_data вместе с остальными снэпшотами (120 дней).
-
-    Лоты разной заточки/качества — разные товары с разной ценой, поэтому
-    сканер пишет ОТДЕЛЬНУЮ строку на каждый встреченный вариант (qlt, ptn)
-    предмета: best_price/avg_price считаются в пределах одного варианта,
-    quality/enchant хранят его (0 = базовый — без качества/заточки).
-    См. global_scanner._scan_single_item.
-    """
-    __tablename__ = "global_item_scan"
-
-    id                 = Column(Integer, primary_key=True)
-    item_id            = Column(String(50), ForeignKey("master_items.item_id"), nullable=False)
-    region             = Column(String(10), nullable=False)
-    scanned_at         = Column(DateTime(timezone=True), nullable=False)
-    quality            = Column(Integer)          # additional.qlt варианта (0 = базовое)
-    enchant            = Column(Integer)          # additional.ptn варианта — заточка (0 = не точёный)
-    lot_count          = Column(Integer)
-    liquid_lot_count   = Column(Integer)
-    best_price         = Column(BigInteger)
-    avg_price          = Column(Numeric(12, 2))
-    total_volume       = Column(Integer)
-    prev_best_price    = Column(BigInteger)       # цена прошлого скана этого же варианта
-    price_change_pct   = Column(Numeric(5, 2))   # изменение в %
-    tradability_score  = Column(Numeric(8, 2))    # скор торгуемости
-
-    __table_args__ = (
-        Index("ix_global_scan_item_region_time", "item_id", "region", "scanned_at"),
-        Index("ix_global_scan_score", "tradability_score"),
-        Index("ix_global_scan_scanned_at", "scanned_at"),
-        Index("ix_global_scan_variant", "item_id", "region", "quality", "enchant", "scanned_at"),
-    )
-
-
-class UserFeedExclusion(Base):
-    """
-    Предметы, которые пользователь скрыл из "Ленты возможностей"
-    (не интересны / не хочет видеть). Можно вернуть обратно.
-    """
-    __tablename__ = "user_feed_exclusion"
-
-    id         = Column(Integer, primary_key=True)
-    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    item_id    = Column(String(50), ForeignKey("master_items.item_id"), nullable=False)
-    region     = Column(String(10), nullable=False, default="RU")
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    user = relationship("User")
-    item = relationship("MasterItem")
-
-    __table_args__ = (
-        UniqueConstraint("user_id", "item_id", "region", name="uq_feed_exclusion_user_item_region"),
-        Index("ix_feed_exclusion_user_region", "user_id", "region"),
-    )
