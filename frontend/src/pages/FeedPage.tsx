@@ -22,6 +22,9 @@ interface OpportunityItem {
   category: string | null
   icon_path: string | null
   region: string
+  quality: number | null
+  enchant: number | null
+  variant_label: string | null
   current_price: number | null
   avg_price_24h: number | null
   min_price_24h: number | null
@@ -89,7 +92,7 @@ export default function FeedPage() {
   const handleAddToWatchlist = async (item: OpportunityItem) => {
     setWlStates((s) => ({ ...s, [item.item_id]: 'loading' }))
     try {
-      await api.post('/watchlist/', { item_id: item.item_id, region: item.region, quality_filter: 0, enchant_filter: 0 })
+      await api.post('/watchlist/', { item_id: item.item_id, region: item.region, quality_filter: item.quality ?? 0, enchant_filter: item.enchant ?? 0 })
       setWlStates((s) => ({ ...s, [item.item_id]: 'added' }))
       setSnackbar('Добавлено в Избранное')
     } catch (err: unknown) {
@@ -113,8 +116,8 @@ export default function FeedPage() {
         name_en: item.name_en,
         icon_path: item.icon_path,
         region: item.region,
-        quality_filter: 0,
-        enchant_filter: 0,
+        quality_filter: item.quality ?? 0,
+        enchant_filter: item.enchant ?? 0,
       },
     })
   }
@@ -213,9 +216,20 @@ export default function FeedPage() {
                         {!url && (item.name_ru?.[0] ?? '?')}
                       </Avatar>
                       <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography variant="subtitle2" fontWeight={700} noWrap>
-                          {item.name_ru || item.name_en || item.item_id}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+                          <Typography variant="subtitle2" fontWeight={700} noWrap>
+                            {item.name_ru || item.name_en || item.item_id}
+                          </Typography>
+                          {item.variant_label && (
+                            <Chip
+                              label={item.variant_label}
+                              size="small"
+                              variant="outlined"
+                              color="secondary"
+                              sx={{ height: 18, fontSize: 10, flexShrink: 0 }}
+                            />
+                          )}
+                        </Box>
                         <Typography variant="caption" color="text.secondary" noWrap>
                           {translateCategory(item.category)}
                         </Typography>

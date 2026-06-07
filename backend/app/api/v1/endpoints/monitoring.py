@@ -481,6 +481,23 @@ async def get_signals(
 MIN_LIQUID_LOTS_FOR_FEED = 2  # отсекаем неликвид — товар, который потом сложно перепродать
 FEED_COMMISSION = 0.05        # комиссия аукциона при продаже — выгодность считаем "на руки"
 
+_FEED_QLT_NAMES: dict[int, str] = {
+    0: "Обычный", 1: "Необычный", 2: "Особый",
+    3: "Ветеран", 4: "Мастер", 5: "Легендарный",
+}
+
+
+def _variant_label(category: str | None, quality: int | None, enchant: int | None) -> str | None:
+    """Человекочитаемое название варианта (заточка/качество) для карточки ленты.
+    None — для базового варианта (quality=0, enchant=0), его в названии не нужно."""
+    is_artefact = bool(category and "artefact" in category.lower())
+    parts = []
+    if is_artefact and quality:
+        parts.append(_FEED_QLT_NAMES.get(quality, f"Кач. {quality}"))
+    if enchant:
+        parts.append(f"+{enchant}")
+    return " ".join(parts) if parts else None
+
 
 class OpportunityItem(BaseModel):
     item_id: str
@@ -489,6 +506,9 @@ class OpportunityItem(BaseModel):
     category: str | None
     icon_path: str | None
     region: str
+    quality: int | None
+    enchant: int | None
+    variant_label: str | None
     current_price: int | None
     avg_price_24h: float | None
     min_price_24h: int | None
@@ -517,8 +537,10 @@ async def get_feed(
     с каждой единицы, что в процентах от цены покупки даёт est_profit_pct.
     Сортировка по нему — самые выгодные сделки сверху.
 
-    Цены в global_item_scan уже нормализованы под базовый вариант предмета
-    (без качества/заточки) — сравнение корректно для всех категорий.
+    Каждый вариант предмета (качество × заточка) — отдельная "единица" со
+    своей ценой, своей карточкой и своим местом в рейтинге: точёный +10 и
+    обычный +0 — разные товары, сравнивать их цены напрямую бессмысленно
+    (см. global_item_scan.quality/enchant и global_scanner._scan_single_item).
 
     Отсекаем:
       - товары с liquid_lot_count < MIN_LIQUID_LOTS_FOR_FEED (потом некому перепродать)
@@ -538,6 +560,8 @@ async def get_feed(
     agg_subq = (
         select(
             GlobalItemScan.item_id.label("item_id"),
+            GlobalItemScan.quality.label("quality"),
+            GlobalItemScan.enchant.label("enchant"),
             func.min(GlobalItemScan.best_price).label("min_price"),
             func.avg(GlobalItemScan.avg_price).label("avg_price"),
             func.count().label("scan_count"),
@@ -547,26 +571,31 @@ async def get_feed(
             GlobalItemScan.scanned_at >= cutoff,
             GlobalItemScan.item_id.notin_(excluded_subq),
         )
-        .group_by(GlobalItemScan.item_id)
+        .group_by(GlobalItemScan.item_id, GlobalItemScan.quality, GlobalItemScan.enchant)
         .having(func.count() >= 2)
         .subquery()
     )
 
-    # Последний скан по каждому предмету — текущая цена и ликвидность прямо сейчас
+    # Последний скан по каждому варианту предмета — текущая цена и ликвидность прямо сейчас
     latest_subq = (
         select(
             GlobalItemScan.item_id.label("item_id"),
+            GlobalItemScan.quality.label("quality"),
+            GlobalItemScan.enchant.label("enchant"),
             GlobalItemScan.best_price.label("current_price"),
             GlobalItemScan.lot_count.label("lot_count"),
             GlobalItemScan.liquid_lot_count.label("liquid_lot_count"),
             GlobalItemScan.scanned_at.label("scanned_at"),
         )
-        .distinct(GlobalItemScan.item_id)
+        .distinct(GlobalItemScan.item_id, GlobalItemScan.quality, GlobalItemScan.enchant)
         .where(
             GlobalItemScan.region == region_u,
             GlobalItemScan.scanned_at >= cutoff,
         )
-        .order_by(GlobalItemScan.item_id, GlobalItemScan.scanned_at.desc())
+        .order_by(
+            GlobalItemScan.item_id, GlobalItemScan.quality, GlobalItemScan.enchant,
+            GlobalItemScan.scanned_at.desc(),
+        )
         .subquery()
     )
 
@@ -574,9 +603,17 @@ async def get_feed(
     profit_per_unit_expr = net_revenue_expr - latest_subq.c.current_price
     profit_pct_expr = profit_per_unit_expr / latest_subq.c.current_price * 100
 
+    join_cond = (
+        (latest_subq.c.item_id == agg_subq.c.item_id)
+        & (latest_subq.c.quality == agg_subq.c.quality)
+        & (latest_subq.c.enchant == agg_subq.c.enchant)
+    )
+
     rows = (await db.execute(
         select(
             agg_subq.c.item_id,
+            agg_subq.c.quality,
+            agg_subq.c.enchant,
             agg_subq.c.min_price,
             agg_subq.c.avg_price,
             latest_subq.c.current_price,
@@ -585,7 +622,7 @@ async def get_feed(
             profit_pct_expr.label("profit_pct"),
             profit_per_unit_expr.label("profit_per_unit"),
         )
-        .select_from(agg_subq.join(latest_subq, latest_subq.c.item_id == agg_subq.c.item_id))
+        .select_from(agg_subq.join(latest_subq, join_cond))
         .where(
             agg_subq.c.avg_price > 0,
             latest_subq.c.current_price > 0,
@@ -599,13 +636,18 @@ async def get_feed(
     if not rows:
         return []
 
-    top_ids = [row.item_id for row in rows]
-    min_by_id = {row.item_id: int(row.min_price) for row in rows}
+    top_ids = list({row.item_id for row in rows})
+    min_by_variant = {
+        (row.item_id, row.quality, row.enchant): int(row.min_price) for row in rows
+    }
 
-    # Момент лучшей цены за 24ч — отдельным запросом (нужен для "была N часов назад")
+    # Момент лучшей цены за 24ч по каждому варианту — отдельным запросом
+    # (нужен для "была N часов назад")
     detail_rows = (await db.execute(
         select(
             GlobalItemScan.item_id,
+            GlobalItemScan.quality,
+            GlobalItemScan.enchant,
             GlobalItemScan.best_price,
             GlobalItemScan.scanned_at,
         )
@@ -617,10 +659,11 @@ async def get_feed(
         .order_by(GlobalItemScan.scanned_at.asc())
     )).all()
 
-    min_at: dict[str, datetime] = {}
+    min_at: dict[tuple[str, int | None, int | None], datetime] = {}
     for row in detail_rows:
-        if row.best_price == min_by_id.get(row.item_id):
-            min_at[row.item_id] = row.scanned_at  # самое недавнее вхождение минимума
+        key = (row.item_id, row.quality, row.enchant)
+        if key in min_by_variant and row.best_price == min_by_variant[key]:
+            min_at[key] = row.scanned_at  # самое недавнее вхождение минимума
 
     meta_rows = (await db.execute(
         select(MasterItem.item_id, MasterItem.name_ru, MasterItem.name_en,
@@ -633,7 +676,8 @@ async def get_feed(
     result = []
     for row in rows:
         meta = meta_by_id.get(row.item_id)
-        min_dt = min_at.get(row.item_id)
+        key = (row.item_id, row.quality, row.enchant)
+        min_dt = min_at.get(key)
         result.append(OpportunityItem(
             item_id=row.item_id,
             name_ru=meta.name_ru if meta else None,
@@ -641,6 +685,9 @@ async def get_feed(
             category=meta.category if meta else None,
             icon_path=meta.icon_path if meta else None,
             region=region_u,
+            quality=row.quality,
+            enchant=row.enchant,
+            variant_label=_variant_label(meta.category if meta else None, row.quality, row.enchant),
             current_price=int(row.current_price) if row.current_price is not None else None,
             avg_price_24h=round(float(row.avg_price), 2),
             min_price_24h=int(row.min_price),
