@@ -312,9 +312,11 @@ class GlobalItemScan(Base):
     агрегации "топ возможностей за 24ч" (просадка цены от средней за период).
     Чистится в delete_old_data вместе с остальными снэпшотами (120 дней).
 
-    best_price/avg_price считаются ТОЛЬКО по лотам базового варианта предмета
-    (без качества и заточки — qlt/ptn = 0 или отсутствуют), чтобы цены были
-    сравнимы между сканами одного предмета (см. global_scanner._scan_single_item).
+    Лоты разной заточки/качества — разные товары с разной ценой, поэтому
+    сканер пишет ОТДЕЛЬНУЮ строку на каждый встреченный вариант (qlt, ptn)
+    предмета: best_price/avg_price считаются в пределах одного варианта,
+    quality/enchant хранят его (0 = базовый — без качества/заточки).
+    См. global_scanner._scan_single_item.
     """
     __tablename__ = "global_item_scan"
 
@@ -322,12 +324,14 @@ class GlobalItemScan(Base):
     item_id            = Column(String(50), ForeignKey("master_items.item_id"), nullable=False)
     region             = Column(String(10), nullable=False)
     scanned_at         = Column(DateTime(timezone=True), nullable=False)
+    quality            = Column(Integer)          # additional.qlt варианта (0 = базовое)
+    enchant            = Column(Integer)          # additional.ptn варианта — заточка (0 = не точёный)
     lot_count          = Column(Integer)
     liquid_lot_count   = Column(Integer)
     best_price         = Column(BigInteger)
     avg_price          = Column(Numeric(12, 2))
     total_volume       = Column(Integer)
-    prev_best_price    = Column(BigInteger)       # цена прошлого скана
+    prev_best_price    = Column(BigInteger)       # цена прошлого скана этого же варианта
     price_change_pct   = Column(Numeric(5, 2))   # изменение в %
     tradability_score  = Column(Numeric(8, 2))    # скор торгуемости
 
@@ -335,6 +339,7 @@ class GlobalItemScan(Base):
         Index("ix_global_scan_item_region_time", "item_id", "region", "scanned_at"),
         Index("ix_global_scan_score", "tradability_score"),
         Index("ix_global_scan_scanned_at", "scanned_at"),
+        Index("ix_global_scan_variant", "item_id", "region", "quality", "enchant", "scanned_at"),
     )
 
 

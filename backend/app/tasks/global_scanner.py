@@ -119,14 +119,17 @@ async def _scan_single_item(db, item_id: str, region: str):
     Лёгкий скан одного предмета: только /lots, без raw_lots и buyout detection.
     Результат записывается в историю global_item_scan.
 
-    Цены считаются ТОЛЬКО по лотам базового варианта (без качества и заточки,
-    qlt/ptn = 0 или отсутствуют) — иначе "средняя цена" мешает в кучу обычный
-    предмет и точёный артефакт +15, и сравнение "сейчас дешевле среднего"
-    теряет смысл.
+    Лоты разной заточки/качества — разные товары с разной ценой (точёный
+    артефакт +15 стоит совсем не как +0). Поэтому лоты группируются по
+    варианту (additional.qlt, additional.ptn) и на каждый встреченный
+    вариант пишется ОТДЕЛЬНАЯ строка скана со своими best/avg/ликвидностью —
+    сравнение "сейчас дешевле среднего" остаётся корректным в пределах варианта,
+    а лента возможностей показывает каждую заточку отдельной карточкой.
     """
     from app.services.collector.client import stalcraft_client
     from app.models.models import GlobalItemScan
     from sqlalchemy import select
+    from collections import defaultdict
 
     now = datetime.now(timezone.utc)
 
@@ -151,76 +154,76 @@ async def _scan_single_item(db, item_id: str, region: str):
         except Exception:
             return None
 
-    def is_base_variant(lot):
-        """Базовый вариант — без особого качества и без заточки (qlt/ptn пусто или 0).
-        Лоты с другим качеством/заточкой стоят совсем иначе — мешать их в одну
-        кучу делает "среднюю цену" бессмысленной для сравнения."""
+    def variant_key(lot):
+        """(качество, заточка) варианта; 0 = базовое/без заточки — не точёный."""
         additional = lot.get("additional") or {}
-        qlt = additional.get("qlt")
-        ptn = additional.get("ptn")
-        return (qlt is None or qlt == 0) and (ptn is None or ptn == 0)
+        qlt = additional.get("qlt") or 0
+        ptn = additional.get("ptn") or 0
+        return (int(qlt), int(ptn))
 
-    base_lots = [l for l in lots if is_base_variant(l)]
+    groups: dict[tuple[int, int], list[dict]] = defaultdict(list)
+    for lot in lots:
+        groups[variant_key(lot)].append(lot)
 
-    # Без лотов базового варианта сравнение "сейчас дешевле среднего" невозможно —
-    # пропускаем скан, чтобы не засорять ленту нерелевантными данными.
-    if not base_lots:
-        return
+    for (qlt, ptn), variant_lots in groups.items():
+        prices = [buyout_per_unit(l) for l in variant_lots if buyout_per_unit(l) > 0]
+        if not prices:
+            continue
 
-    prices = [buyout_per_unit(l) for l in base_lots if buyout_per_unit(l) > 0]
-    liquid_lots = [
-        l for l in base_lots
-        if (h := end_hours_remaining(l)) is not None and h >= EXPIRY_THRESHOLD_HOURS
-    ]
-    total_volume = sum(l.get("amount", 1) for l in base_lots)
+        liquid_lots = [
+            l for l in variant_lots
+            if (h := end_hours_remaining(l)) is not None and h >= EXPIRY_THRESHOLD_HOURS
+        ]
+        total_volume = sum(l.get("amount", 1) for l in variant_lots)
 
-    if not prices:
-        return
+        best_price = min(prices)
+        avg_price = round(statistics.mean(prices), 2)
+        price_spread = (max(prices) - min(prices)) / min(prices) * 100 if len(prices) > 1 else 0
 
-    best_price = min(prices)
-    avg_price = round(statistics.mean(prices), 2)
-    price_spread = (max(prices) - min(prices)) / min(prices) * 100 if len(prices) > 1 else 0
-
-    # Скор торгуемости: больше ликвидных лотов и объёма → выше; большой разброс → ниже
-    liquid_count = len(liquid_lots)
-    tradability_score = round(
-        liquid_count * total_volume / (1 + price_spread), 2
-    )
-
-    # Предыдущая цена — последний скан этой пары (история, не одна строка)
-    prev_row = (await db.execute(
-        select(GlobalItemScan.best_price)
-        .where(
-            GlobalItemScan.item_id == item_id,
-            GlobalItemScan.region == region,
+        # Скор торгуемости: больше ликвидных лотов и объёма → выше; большой разброс → ниже
+        liquid_count = len(liquid_lots)
+        tradability_score = round(
+            liquid_count * total_volume / (1 + price_spread), 2
         )
-        .order_by(GlobalItemScan.scanned_at.desc())
-        .limit(1)
-    )).scalar_one_or_none()
 
-    prev_best = prev_row
-    price_change_pct = None
-    if prev_best and prev_best > 0:
-        price_change_pct = round((best_price - prev_best) / prev_best * 100, 2)
+        # Предыдущая цена — последний скан ЭТОГО ЖЕ варианта (история, не одна строка)
+        prev_best = (await db.execute(
+            select(GlobalItemScan.best_price)
+            .where(
+                GlobalItemScan.item_id == item_id,
+                GlobalItemScan.region == region,
+                GlobalItemScan.quality == qlt,
+                GlobalItemScan.enchant == ptn,
+            )
+            .order_by(GlobalItemScan.scanned_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
 
-    # История: новая строка на каждый скан (нужна для агрегации "топ за 24ч")
-    db.add(GlobalItemScan(
-        item_id=item_id,
-        region=region,
-        scanned_at=now,
-        lot_count=len(lots),
-        liquid_lot_count=liquid_count,
-        best_price=best_price,
-        avg_price=avg_price,
-        total_volume=total_volume,
-        prev_best_price=prev_best,
-        price_change_pct=price_change_pct,
-        tradability_score=tradability_score,
-    ))
+        price_change_pct = None
+        if prev_best and prev_best > 0:
+            price_change_pct = round((best_price - prev_best) / prev_best * 100, 2)
+
+        # История: новая строка на каждый скан (нужна для агрегации "топ за 24ч")
+        db.add(GlobalItemScan(
+            item_id=item_id,
+            region=region,
+            scanned_at=now,
+            quality=qlt,
+            enchant=ptn,
+            lot_count=len(variant_lots),
+            liquid_lot_count=liquid_count,
+            best_price=best_price,
+            avg_price=avg_price,
+            total_volume=total_volume,
+            prev_best_price=prev_best,
+            price_change_pct=price_change_pct,
+            tradability_score=tradability_score,
+        ))
+
+        logger.debug(
+            f"Global scan: {item_id}/{region} variant=qlt{qlt}/ptn{ptn} "
+            f"lots={len(variant_lots)} liquid={liquid_count} "
+            f"best={best_price} score={tradability_score}"
+        )
+
     await db.commit()
-
-    logger.debug(
-        f"Global scan: {item_id}/{region} "
-        f"lots={len(lots)} liquid={liquid_count} "
-        f"best={best_price} score={tradability_score}"
-    )
