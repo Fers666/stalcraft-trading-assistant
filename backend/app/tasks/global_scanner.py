@@ -122,7 +122,6 @@ async def _scan_single_item(db, item_id: str, region: str):
     from app.services.collector.client import stalcraft_client
     from app.models.models import GlobalItemScan
     from sqlalchemy import select
-    from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     now = datetime.now(timezone.utc)
 
@@ -167,21 +166,24 @@ async def _scan_single_item(db, item_id: str, region: str):
         liquid_count * total_volume / (1 + price_spread), 2
     )
 
-    # Получаем предыдущую цену для расчёта изменения
-    existing = (await db.execute(
-        select(GlobalItemScan).where(
+    # Предыдущая цена — последний скан этой пары (история, не одна строка)
+    prev_row = (await db.execute(
+        select(GlobalItemScan.best_price)
+        .where(
             GlobalItemScan.item_id == item_id,
             GlobalItemScan.region == region,
         )
+        .order_by(GlobalItemScan.scanned_at.desc())
+        .limit(1)
     )).scalar_one_or_none()
 
-    prev_best = existing.best_price if existing else None
+    prev_best = prev_row
     price_change_pct = None
     if prev_best and prev_best > 0:
         price_change_pct = round((best_price - prev_best) / prev_best * 100, 2)
 
-    # Upsert — одна запись на пару (item_id, region)
-    stmt = pg_insert(GlobalItemScan).values(
+    # История: новая строка на каждый скан (нужна для агрегации "топ за 24ч")
+    db.add(GlobalItemScan(
         item_id=item_id,
         region=region,
         scanned_at=now,
@@ -193,22 +195,7 @@ async def _scan_single_item(db, item_id: str, region: str):
         prev_best_price=prev_best,
         price_change_pct=price_change_pct,
         tradability_score=tradability_score,
-    )
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["item_id", "region"],
-        set_={
-            "scanned_at": stmt.excluded.scanned_at,
-            "lot_count": stmt.excluded.lot_count,
-            "liquid_lot_count": stmt.excluded.liquid_lot_count,
-            "prev_best_price": GlobalItemScan.best_price,  # сохраняем текущую как предыдущую
-            "best_price": stmt.excluded.best_price,
-            "avg_price": stmt.excluded.avg_price,
-            "total_volume": stmt.excluded.total_volume,
-            "price_change_pct": stmt.excluded.price_change_pct,
-            "tradability_score": stmt.excluded.tradability_score,
-        },
-    )
-    await db.execute(stmt)
+    ))
     await db.commit()
 
     logger.debug(

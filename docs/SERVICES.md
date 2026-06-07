@@ -80,13 +80,23 @@ batch = feed_items[cursor : cursor + BATCH_SIZE]
 redis.set("global_scan:cursor", (cursor + BATCH_SIZE) % len(feed_items))
 
 for i, item_id in enumerate(batch):
-    upsert_global_item_scan(item_id, region, api.get_lots(item_id))
+    insert_global_item_scan_row(item_id, region, api.get_lots(item_id))  # история, не upsert
     if i < len(batch) - 1:
         await asyncio.sleep(REQUEST_DELAY)
 ```
 
 Полный цикл по всем предметам ≈ 3 часа (было 24 часа).
 Захватывает прайм-тайм естественно — данные актуальны в любое время суток.
+
+**`global_item_scan` — журнал истории (с 2026-06-07), а не снэпшот:**
+Раньше — одна строка на (item_id, region), перезаписывалась при каждом скане.
+Теперь — новая строка на каждый скан (нужна для агрегации "Топ возможностей за 24ч").
+`prev_best_price`/`price_change_pct` считаются по последней строке (`ORDER BY scanned_at DESC LIMIT 1`),
+а не по перезаписываемой записи. Индекс `(item_id, region, scanned_at)` — для быстрой выборки окна 24ч.
+Чистка строк старше 120 дней — в `cleanup.delete_old_data` (как и остальные снэпшоты).
+
+Объём: ~17 280 строк/день (12 предметов × 1440 запусков), за 120 дней ≈ 2.1 млн строк —
+несколько сотен МБ с индексами, не критично для производительности.
 
 ---
 
@@ -262,6 +272,38 @@ OAuth2 Client Credentials flow для Stalcraft API.
 ```
 
 Данные берутся из `sales_history` без фильтра по `user_id` — рыночная история публична для всех пользователей.
+
+---
+
+### `GET /monitoring/feed?region=RU&limit=N` — Лента возможностей (с 2026-06-07)
+
+Заменил старую "Ленту" (топ по `tradability_score`, статичный снэпшот). Показывает предметы
+**всего аукциона** вне Избранного, текущая цена которых заметно ниже средней за 24ч — то есть
+**прямо сейчас** выгодный момент для закупки (а не "был выгодный момент вчера, уже поздно").
+
+```
+opportunity_pct = (avg_price_24h − current_price) / avg_price_24h × 100
+```
+
+Первая версия ранжировала по историческому минимуму `(avg − min) / avg` — это показывало
+"где была самая большая просадка за сутки", но не отвечало на вопрос "что выгодно добавить
+в Избранное прямо сейчас" (просадка могла случиться 20ч назад и цена уже отскочить).
+Переделано на ранжирование по текущей цене относительно средней — это и есть actionable-сигнал.
+
+**Логика:**
+1. Агрегирует `global_item_scan` за 24ч: `MIN(best_price)`, `AVG(avg_price)`, группировка по `item_id`
+   (нужно ≥ 2 скана в окне — `HAVING count(*) >= 2`)
+2. JOIN с последним сканом каждого предмета (`DISTINCT ON (item_id) ... ORDER BY scanned_at DESC`) —
+   это текущая цена и ликвидность прямо сейчас
+3. Считает `opportunity_pct = (avg − current) / avg`, отсекает товары с `liquid_lot_count <
+   MIN_LIQUID_LOTS_FOR_FEED` (неликвид — потом некому перепродать), сортирует по убыванию, топ-N
+4. Для топ-N отдельным запросом находит момент исторического минимума —
+   `min_price_at`/`hours_since_min` (доп. контекст: насколько вообще "качает" этот товар)
+
+**Ответ (`OpportunityItem`):** `current_price`, `avg_price_24h`, `min_price_24h`, `opportunity_pct`,
+`lot_count`, `scanned_at`, `min_price_at`, `hours_since_min` + метаданные предмета.
+
+Источник данных — история `global_item_scan` (не перезаписываемый снэпшот, см. выше).
 
 ---
 

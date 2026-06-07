@@ -306,8 +306,11 @@ class NotificationQueue(Base):
 class GlobalItemScan(Base):
     """
     Лёгкие метрики для предметов НЕ состоящих в чьём-либо watchlist.
-    Заполняется скользящим сканером (~93 предмета/час, полный цикл ≈ 24ч).
-    Одна запись на пару (item_id, region) — перезаписывается при каждом скане.
+    Заполняется скользящим сканером (~720 предметов/час, полный цикл ≈ 3ч).
+
+    История: одна строка на каждый скан (НЕ перезаписывается) — нужна для
+    агрегации "топ возможностей за 24ч" (просадка цены от средней за период).
+    Чистится в delete_old_data вместе с остальными снэпшотами (120 дней).
     """
     __tablename__ = "global_item_scan"
 
@@ -325,7 +328,7 @@ class GlobalItemScan(Base):
     tradability_score  = Column(Numeric(8, 2))    # скор торгуемости
 
     __table_args__ = (
-        Index("uq_global_scan_item_region", "item_id", "region", unique=True),
+        Index("ix_global_scan_item_region_time", "item_id", "region", "scanned_at"),
         Index("ix_global_scan_score", "tradability_score"),
         Index("ix_global_scan_scanned_at", "scanned_at"),
     )

@@ -6,7 +6,7 @@ import MonitorHeartIcon from '@mui/icons-material/MonitorHeart'
 import SearchIcon from '@mui/icons-material/Search'
 import InventoryIcon from '@mui/icons-material/Inventory'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
-import TrendingUpIcon from '@mui/icons-material/TrendingUp'
+import LocalOfferIcon from '@mui/icons-material/LocalOffer'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import { useAuthStore } from '../store/authStore'
 import { useFeedStore } from '../store/feedStore'
@@ -19,7 +19,7 @@ const NAV_ITEMS = [
   { label: 'Избранное', to: '/app/monitoring', Icon: MonitorHeartIcon },
   { label: 'Каталог',   to: '/app/catalog',    Icon: MenuBookIcon    },
   { label: 'Лоты',      to: '/app/lots',       Icon: SearchIcon      },
-  { label: 'Лента',     to: '/app/feed',       Icon: TrendingUpIcon  },
+  { label: 'Лента',     to: '/app/feed',       Icon: LocalOfferIcon  },
   { label: 'Склад',     to: '/app/inventory',  Icon: InventoryIcon   },
 ]
 
