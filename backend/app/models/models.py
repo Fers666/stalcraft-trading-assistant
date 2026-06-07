@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, String, Integer, BigInteger, Boolean, Float,
-    DateTime, ForeignKey, Text, ARRAY, Numeric, Index
+    DateTime, ForeignKey, Text, ARRAY, Numeric, Index, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship, declarative_base
@@ -311,6 +311,10 @@ class GlobalItemScan(Base):
     История: одна строка на каждый скан (НЕ перезаписывается) — нужна для
     агрегации "топ возможностей за 24ч" (просадка цены от средней за период).
     Чистится в delete_old_data вместе с остальными снэпшотами (120 дней).
+
+    best_price/avg_price считаются ТОЛЬКО по лотам базового варианта предмета
+    (без качества и заточки — qlt/ptn = 0 или отсутствуют), чтобы цены были
+    сравнимы между сканами одного предмета (см. global_scanner._scan_single_item).
     """
     __tablename__ = "global_item_scan"
 
@@ -331,4 +335,26 @@ class GlobalItemScan(Base):
         Index("ix_global_scan_item_region_time", "item_id", "region", "scanned_at"),
         Index("ix_global_scan_score", "tradability_score"),
         Index("ix_global_scan_scanned_at", "scanned_at"),
+    )
+
+
+class UserFeedExclusion(Base):
+    """
+    Предметы, которые пользователь скрыл из "Ленты возможностей"
+    (не интересны / не хочет видеть). Можно вернуть обратно.
+    """
+    __tablename__ = "user_feed_exclusion"
+
+    id         = Column(Integer, primary_key=True)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    item_id    = Column(String(50), ForeignKey("master_items.item_id"), nullable=False)
+    region     = Column(String(10), nullable=False, default="RU")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+    item = relationship("MasterItem")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "item_id", "region", name="uq_feed_exclusion_user_item_region"),
+        Index("ix_feed_exclusion_user_region", "user_id", "region"),
     )

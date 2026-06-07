@@ -117,7 +117,12 @@ def run_global_feed_batch(self):
 async def _scan_single_item(db, item_id: str, region: str):
     """
     Лёгкий скан одного предмета: только /lots, без raw_lots и buyout detection.
-    Результат upsert-ится в global_item_scan.
+    Результат записывается в историю global_item_scan.
+
+    Цены считаются ТОЛЬКО по лотам базового варианта (без качества и заточки,
+    qlt/ptn = 0 или отсутствуют) — иначе "средняя цена" мешает в кучу обычный
+    предмет и точёный артефакт +15, и сравнение "сейчас дешевле среднего"
+    теряет смысл.
     """
     from app.services.collector.client import stalcraft_client
     from app.models.models import GlobalItemScan
@@ -146,12 +151,28 @@ async def _scan_single_item(db, item_id: str, region: str):
         except Exception:
             return None
 
-    prices = [buyout_per_unit(l) for l in lots if buyout_per_unit(l) > 0]
+    def is_base_variant(lot):
+        """Базовый вариант — без особого качества и без заточки (qlt/ptn пусто или 0).
+        Лоты с другим качеством/заточкой стоят совсем иначе — мешать их в одну
+        кучу делает "среднюю цену" бессмысленной для сравнения."""
+        additional = lot.get("additional") or {}
+        qlt = additional.get("qlt")
+        ptn = additional.get("ptn")
+        return (qlt is None or qlt == 0) and (ptn is None or ptn == 0)
+
+    base_lots = [l for l in lots if is_base_variant(l)]
+
+    # Без лотов базового варианта сравнение "сейчас дешевле среднего" невозможно —
+    # пропускаем скан, чтобы не засорять ленту нерелевантными данными.
+    if not base_lots:
+        return
+
+    prices = [buyout_per_unit(l) for l in base_lots if buyout_per_unit(l) > 0]
     liquid_lots = [
-        l for l in lots
+        l for l in base_lots
         if (h := end_hours_remaining(l)) is not None and h >= EXPIRY_THRESHOLD_HOURS
     ]
-    total_volume = sum(l.get("amount", 1) for l in lots)
+    total_volume = sum(l.get("amount", 1) for l in base_lots)
 
     if not prices:
         return
