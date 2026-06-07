@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from pydantic import BaseModel
@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 import statistics as _statistics
 
 from app.db.session import get_db
-from app.models.models import User, MarketStatistics, CollectedData, GlobalItemScan, MasterItem, SalesHistory
+from app.models.models import User, MarketStatistics, CollectedData, GlobalItemScan, MasterItem, SalesHistory, UserFeedExclusion
 from app.core.dependencies import get_current_user
 from app.services.profitable_lots import signals_key
 
@@ -134,7 +134,6 @@ async def get_item_stats(
         )).scalar_one_or_none()
 
         if latest_snap is None:
-            from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="No stats yet for this item")
 
         current_min = (
@@ -480,6 +479,7 @@ async def get_signals(
 
 
 MIN_LIQUID_LOTS_FOR_FEED = 2  # отсекаем неликвид — товар, который потом сложно перепродать
+FEED_COMMISSION = 0.05        # комиссия аукциона при продаже — выгодность считаем "на руки"
 
 
 class OpportunityItem(BaseModel):
@@ -492,7 +492,8 @@ class OpportunityItem(BaseModel):
     current_price: int | None
     avg_price_24h: float | None
     min_price_24h: int | None
-    opportunity_pct: float | None
+    est_profit_pct: float | None
+    est_profit_per_unit: int | None
     lot_count: int | None
     scanned_at: datetime | None
     min_price_at: datetime | None
@@ -504,20 +505,35 @@ async def get_feed(
     region: str = Query(default="RU"),
     limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     """
     Топ возможностей сейчас: предметы всего аукциона (вне watchlist),
-    текущая цена которых заметно ниже средней за последние 24ч —
-    то есть прямо сейчас выгодный момент для закупки (а не "был вчера").
+    которые прямо сейчас выгодно купить и перепродать позже по средней цене.
 
-    opportunity_pct = (avg_price_24h - current_price) / avg_price_24h * 100
-    Сортировка по этому показателю — самые "горячие" предложения сверху.
-    Отсекаем товары с liquid_lot_count < MIN_LIQUID_LOTS_FOR_FEED — их потом
-    некому будет перепродать.
+    est_profit_pct = (avg_price_24h * (1 - FEED_COMMISSION) - current_price) / current_price * 100
+    То есть: купил сейчас по current_price → выставил по средней цене 24ч →
+    после вычета комиссии аукциона (5%) получил на руки est_profit_per_unit
+    с каждой единицы, что в процентах от цены покупки даёт est_profit_pct.
+    Сортировка по нему — самые выгодные сделки сверху.
+
+    Цены в global_item_scan уже нормализованы под базовый вариант предмета
+    (без качества/заточки) — сравнение корректно для всех категорий.
+
+    Отсекаем:
+      - товары с liquid_lot_count < MIN_LIQUID_LOTS_FOR_FEED (потом некому перепродать)
+      - товары, скрытые пользователем из ленты (UserFeedExclusion)
     """
     region_u = region.upper()
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+
+    excluded_subq = (
+        select(UserFeedExclusion.item_id)
+        .where(
+            UserFeedExclusion.user_id == user.id,
+            UserFeedExclusion.region == region_u,
+        )
+    )
 
     agg_subq = (
         select(
@@ -529,6 +545,7 @@ async def get_feed(
         .where(
             GlobalItemScan.region == region_u,
             GlobalItemScan.scanned_at >= cutoff,
+            GlobalItemScan.item_id.notin_(excluded_subq),
         )
         .group_by(GlobalItemScan.item_id)
         .having(func.count() >= 2)
@@ -553,9 +570,9 @@ async def get_feed(
         .subquery()
     )
 
-    discount_expr = (
-        (agg_subq.c.avg_price - latest_subq.c.current_price) / agg_subq.c.avg_price * 100
-    )
+    net_revenue_expr = agg_subq.c.avg_price * (1 - FEED_COMMISSION)
+    profit_per_unit_expr = net_revenue_expr - latest_subq.c.current_price
+    profit_pct_expr = profit_per_unit_expr / latest_subq.c.current_price * 100
 
     rows = (await db.execute(
         select(
@@ -565,15 +582,17 @@ async def get_feed(
             latest_subq.c.current_price,
             latest_subq.c.lot_count,
             latest_subq.c.scanned_at,
-            discount_expr.label("discount_pct"),
+            profit_pct_expr.label("profit_pct"),
+            profit_per_unit_expr.label("profit_per_unit"),
         )
         .select_from(agg_subq.join(latest_subq, latest_subq.c.item_id == agg_subq.c.item_id))
         .where(
             agg_subq.c.avg_price > 0,
-            discount_expr > 0,
+            latest_subq.c.current_price > 0,
+            profit_per_unit_expr > 0,
             latest_subq.c.liquid_lot_count >= MIN_LIQUID_LOTS_FOR_FEED,
         )
-        .order_by(discount_expr.desc())
+        .order_by(profit_pct_expr.desc())
         .limit(limit)
     )).all()
 
@@ -625,7 +644,8 @@ async def get_feed(
             current_price=int(row.current_price) if row.current_price is not None else None,
             avg_price_24h=round(float(row.avg_price), 2),
             min_price_24h=int(row.min_price),
-            opportunity_pct=round(float(row.discount_pct), 2),
+            est_profit_pct=round(float(row.profit_pct), 2),
+            est_profit_per_unit=int(row.profit_per_unit),
             lot_count=row.lot_count,
             scanned_at=row.scanned_at,
             min_price_at=min_dt,
@@ -633,3 +653,99 @@ async def get_feed(
         ))
 
     return result
+
+
+class FeedExclusionRequest(BaseModel):
+    item_id: str
+    region: str = "RU"
+
+
+class ExcludedItem(BaseModel):
+    item_id: str
+    name_ru: str | None
+    name_en: str | None
+    category: str | None
+    icon_path: str | None
+    region: str
+    excluded_at: datetime | None
+
+
+@router.post("/feed/exclude", status_code=201)
+async def exclude_from_feed(
+    payload: FeedExclusionRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Скрыть предмет из "Ленты возможностей" — не интересен пользователю."""
+    region_u = payload.region.upper()
+
+    existing = (await db.execute(
+        select(UserFeedExclusion).where(
+            UserFeedExclusion.user_id == user.id,
+            UserFeedExclusion.item_id == payload.item_id,
+            UserFeedExclusion.region == region_u,
+        )
+    )).scalar_one_or_none()
+    if existing:
+        return {"status": "already_excluded"}
+
+    db.add(UserFeedExclusion(user_id=user.id, item_id=payload.item_id, region=region_u))
+    await db.commit()
+    return {"status": "excluded"}
+
+
+@router.delete("/feed/exclude/{item_id}", status_code=204)
+async def restore_to_feed(
+    item_id: str,
+    region: str = Query(default="RU"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Вернуть ранее скрытый предмет обратно в ленту."""
+    region_u = region.upper()
+
+    existing = (await db.execute(
+        select(UserFeedExclusion).where(
+            UserFeedExclusion.user_id == user.id,
+            UserFeedExclusion.item_id == item_id,
+            UserFeedExclusion.region == region_u,
+        )
+    )).scalar_one_or_none()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Item is not excluded")
+
+    await db.delete(existing)
+    await db.commit()
+
+
+@router.get("/feed/excluded", response_model=list[ExcludedItem])
+async def get_excluded_from_feed(
+    region: str = Query(default="RU"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Список предметов, скрытых пользователем из ленты — для управления (вернуть обратно)."""
+    region_u = region.upper()
+
+    rows = (await db.execute(
+        select(UserFeedExclusion, MasterItem)
+        .join(MasterItem, MasterItem.item_id == UserFeedExclusion.item_id)
+        .where(
+            UserFeedExclusion.user_id == user.id,
+            UserFeedExclusion.region == region_u,
+        )
+        .order_by(UserFeedExclusion.created_at.desc())
+    )).all()
+
+    return [
+        ExcludedItem(
+            item_id=item.item_id,
+            name_ru=item.name_ru,
+            name_en=item.name_en,
+            category=item.category,
+            icon_path=item.icon_path,
+            region=region_u,
+            excluded_at=exclusion.created_at,
+        )
+        for exclusion, item in rows
+    ]
