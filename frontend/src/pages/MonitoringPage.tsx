@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef, memo } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, Card, CardContent, Grid2, Chip, CircularProgress,
@@ -167,11 +167,11 @@ interface SignalsData {
 }
 
 
-function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals }: {
+const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals }: {
   entry: WatchlistEntry
   stats: MarketStats | null
-  onDelete: () => void
-  onViewLots: () => void
+  onDelete: (entry: WatchlistEntry) => void
+  onViewLots: (entry: WatchlistEntry) => void
   lots: LotItem[] | undefined
   signals?: SignalsData | null
 }) {
@@ -189,7 +189,9 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals 
   // Ценовые ориентиры для двух режимов:
   // "Сейчас" — текущий рынок (sell_options уже посчитаны от current_min)
   // "Неделя" — исторический уровень (median_7d), находит просевшие лоты
-  const sellPrices = (() => {
+  // useMemo — пересчитываем только при смене режима/статов, а не на каждый ре-рендер
+  // (32 карточки на странице, иначе пересчёт идёт вхолостую при каждом тике опроса)
+  const sellPrices = useMemo(() => {
     if (!stats?.sell_options) return null
     if (lotMode === 'current') {
       return stats.sell_options.map(o => ({
@@ -205,11 +207,11 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals 
       { label: 'normal',  label_ru: 'Нормально', price: Math.round(m * 1.00) },
       { label: 'premium', label_ru: 'Выгодно',   price: Math.round(m * 1.03) },
     ]
-  })()
+  }, [stats?.sell_options, stats?.median_price_7d, lotMode])
 
   // Выгодные лоты — предпочитаем сигналы из Redis (те же данные что у бота),
   // фолбэк на клиентский расчёт пока Redis-ключ ещё не заполнен.
-  const profitableLots = (() => {
+  const profitableLots = useMemo(() => {
     if (signals?.lots?.length) {
       const opts = signals.sell_options ?? []
       return signals.lots
@@ -261,14 +263,15 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals 
       .filter(l => (l.profits.find(p => p.label === 'normal')?.perUnit ?? -1) > 0)
       .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
       .slice(0, 5)
-  })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signals, sellPrices, lots, entry.quality_filter, entry.enchant_filter])
 
-  const totalFilteredLots = lots.filter(l => {
+  const totalFilteredLots = useMemo(() => lots.filter(l => {
     if (l.is_expiring) return false
     if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
     if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
     return true
-  }).length
+  }).length, [lots, entry.quality_filter, entry.enchant_filter])
 
   const hasQuality = profitableLots.some(l => l.quality_name || l.enchant_level != null)
   const lotGridCols = hasQuality ? '1fr auto 86px 86px 86px' : '1fr 86px 86px 86px'
@@ -431,12 +434,12 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals 
                 </Typography>
               )}
               <Tooltip title="Все лоты этого предмета">
-                <IconButton size="small" onClick={onViewLots} sx={{ color: 'text.secondary' }}>
+                <IconButton size="small" onClick={() => onViewLots(entry)} sx={{ color: 'text.secondary' }}>
                   <SearchIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
               <Tooltip title="Удалить из Избранного">
-                <IconButton size="small" onClick={onDelete} sx={{ color: 'error.main' }}>
+                <IconButton size="small" onClick={() => onDelete(entry)} sx={{ color: 'error.main' }}>
                   <DeleteIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -787,14 +790,14 @@ function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals 
       </CardContent>
     </Card>
   )
-}
+})
 
 export default function MonitoringPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const {
     watchlist, stats: feedStats, lotsMap,
-    initialized, loadWatchlistAndStats, loadAllLots: feedLoadAllLots, removeEntry,
+    initialized, loadWatchlistAndStats, removeEntry,
   } = useFeedStore()
   const stats = feedStats as unknown as Record<number, MarketStats>
 
@@ -815,28 +818,9 @@ export default function MonitoringPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Опрос статистики каждые 5 мин
-  useEffect(() => {
-    if (!initialized) return
-    const t = setInterval(() => loadWatchlistAndStats(true), 5 * 60 * 1000)
-    return () => clearInterval(t)
-  }, [initialized, loadWatchlistAndStats])
-
-  // Быстрый опрос пока есть карточки без данных
-  useEffect(() => {
-    const hasPending = (watchlist as WatchlistEntry[]).some(e => !e.last_successful_check)
-    if (!hasPending) return
-    const t = setInterval(() => loadWatchlistAndStats(true), 30_000)
-    return () => clearInterval(t)
-  }, [watchlist, loadWatchlistAndStats])
-
-  // Опрос лотов каждые 30 сек
-  useEffect(() => {
-    if (watchlist.length === 0) return
-    feedLoadAllLots()
-    const t = setInterval(feedLoadAllLots, 30_000)
-    return () => clearInterval(t)
-  }, [watchlist, feedLoadAllLots])
+  // Опрос статистики (5 мин), карточек без данных (30 сек) и лотов (30 сек)
+  // уже выполняется глобально в GlobalFeed (смонтирован в Layout на каждой странице) —
+  // дублирующие интервалы здесь удваивали запросы и каскады ре-рендера всех 32 карточек.
 
   // Опрос сигналов каждые 30 сек (предвычисленные выгодные лоты из Redis)
   const loadAllSignals = useCallback(async () => {
@@ -875,6 +859,21 @@ export default function MonitoringPage() {
     removeEntry(deleteEntry.id)
     setDeleteEntry(null)
   }
+
+  // Стабильные колбэки — без них React.memo на ItemCard бесполезен
+  // (инлайн-функции в .map() меняются каждый рендер и пробивают сравнение пропсов)
+  const handleDeleteRequest = useCallback((entry: WatchlistEntry) => setDeleteEntry(entry), [])
+  const handleViewLots = useCallback((entry: WatchlistEntry) => navigate('/app/lots', {
+    state: {
+      item_id: entry.item_id,
+      name_ru: entry.name_ru,
+      name_en: entry.name_en,
+      icon_path: entry.icon_path,
+      region: entry.region,
+      quality_filter: entry.quality_filter,
+      enchant_filter: entry.enchant_filter,
+    },
+  }), [navigate])
 
   const scrollToCard = useCallback((id: number) => {
     const el = cardRefs.current[id]
@@ -933,18 +932,8 @@ export default function MonitoringPage() {
               <ItemCard
                 entry={entry}
                 stats={stats[entry.id] ?? null}
-                onDelete={() => setDeleteEntry(entry)}
-                onViewLots={() => navigate('/app/lots', {
-                  state: {
-                    item_id: entry.item_id,
-                    name_ru: entry.name_ru,
-                    name_en: entry.name_en,
-                    icon_path: entry.icon_path,
-                    region: entry.region,
-                    quality_filter: entry.quality_filter,
-                    enchant_filter: entry.enchant_filter,
-                  },
-                })}
+                onDelete={handleDeleteRequest}
+                onViewLots={handleViewLots}
                 lots={lotsMap[entry.id]}
                 signals={signalsMap[entry.id] ?? null}
               />
