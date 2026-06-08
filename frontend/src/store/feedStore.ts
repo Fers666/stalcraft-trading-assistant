@@ -103,17 +103,27 @@ export const useFeedStore = create<FeedState>((set, get) => ({
   loadAllLots: async () => {
     const { watchlist } = get()
     if (watchlist.length === 0) return
-    await Promise.all(watchlist.map(async (entry) => {
+    // Собираем все ответы локально и обновляем стор ОДНИМ set() —
+    // иначе 32 последовательных set() вызывают 32 каскадных ре-рендера всей страницы (включая графики).
+    const pairs = await Promise.all(watchlist.map(async (entry) => {
       const params: Record<string, string | number> = { region: entry.region }
       if (entry.quality_filter !== null) params.quality_filter = entry.quality_filter
       if (entry.enchant_filter !== null) params.enchant_filter = entry.enchant_filter
       try {
         const { data } = await api.get(`/lots/${entry.item_id}`, { params })
-        set(state => ({ lotsMap: { ...state.lotsMap, [entry.id]: data.lots ?? [] } }))
-      } catch { /* keep previous */ }
+        return [entry.id, data.lots ?? []] as [number, FeedLotItem[]]
+      } catch {
+        return null
+      }
     }))
+
+    const { stats, lotsMap: prevLotsMap, watchlist: wl } = get()
+    const lotsMap = { ...prevLotsMap }
+    for (const p of pairs) {
+      if (p) lotsMap[p[0]] = p[1]
+    }
+
     // Вычисляем выгодные позиции и feedItems атомарно
-    const { stats, lotsMap, watchlist: wl } = get()
     // Используем median_price_7d как ref — та же логика что у бота и Redis-сигналов.
     // Находит лоты когда рынок просел ниже исторического уровня.
     const profitableItemIds = wl.filter(entry => {
@@ -152,7 +162,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
       })
       .sort((a, b) => b.count - a.count)
 
-    set({ lastLotRefresh: new Date(), profitableItemIds, feedItems })
+    set({ lotsMap, lastLotRefresh: new Date(), profitableItemIds, feedItems })
   },
 
   removeEntry: (id) => set(state => ({
