@@ -5,6 +5,7 @@ import {
   IconButton, Tooltip, Divider, Alert, Avatar,
   ToggleButtonGroup, ToggleButton,
   Dialog, DialogTitle, DialogContent, DialogActions, Button,
+  Pagination,
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
@@ -792,6 +793,11 @@ const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lo
   )
 })
 
+// Карточки тяжёлые (980px, живой график Recharts, поллинг) — рендерим не больше
+// одной "страницы" разом, иначе при 30+ карточках браузер виснет (утечка памяти,
+// фризы на 20-30 сек от GC под давлением тысяч живых SVG-узлов и таймеров).
+const PAGE_SIZE = 8
+
 export default function MonitoringPage() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -805,7 +811,17 @@ export default function MonitoringPage() {
   const [deleteEntry, setDeleteEntry] = useState<WatchlistEntry | null>(null)
   const [highlightId, setHighlightId] = useState<number | null>(null)
   const [signalsMap, setSignalsMap]   = useState<Record<number, SignalsData>>({})
+  const [page, setPage]               = useState(1)
+  const [pendingScrollId, setPendingScrollId] = useState<number | null>(null)
   const cardRefs = useRef<Record<number, HTMLElement | null>>({})
+
+  const pageCount   = Math.max(1, Math.ceil(watchlist.length / PAGE_SIZE))
+  const pageEntries = (watchlist as WatchlistEntry[]).slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  // Если карточку удалили и текущая страница опустела — уходим на предыдущую
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount)
+  }, [page, pageCount])
 
   // Загрузка/обновление при каждом входе на страницу
   useEffect(() => {
@@ -857,6 +873,13 @@ export default function MonitoringPage() {
     if (!deleteEntry) return
     await api.delete(`/watchlist/${deleteEntry.id}`)
     removeEntry(deleteEntry.id)
+    delete cardRefs.current[deleteEntry.id]
+    setSignalsMap(prev => {
+      if (!(deleteEntry.id in prev)) return prev
+      const next = { ...prev }
+      delete next[deleteEntry.id]
+      return next
+    })
     setDeleteEntry(null)
   }
 
@@ -883,14 +906,28 @@ export default function MonitoringPage() {
     setTimeout(() => setHighlightId(null), 1200)
   }, [])
 
-  // Скролл к карточке при переходе из GlobalFeed
+  // Переход из GlobalFeed к конкретной карточке: сперва переключаемся на её страницу
+  // (карточка может быть не смонтирована — рендерим только текущую страницу), затем скроллим
   useEffect(() => {
     const id = (location.state as { scrollTo?: number } | null)?.scrollTo
     if (!id) return
-    scrollToCard(id)
-    const t = setTimeout(() => scrollToCard(id), 500)
+    const idx = watchlist.findIndex(e => e.id === id)
+    if (idx === -1) return
+    const targetPage = Math.floor(idx / PAGE_SIZE) + 1
+    setPendingScrollId(id)
+    if (targetPage !== page) setPage(targetPage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, watchlist])
+
+  useEffect(() => {
+    if (pendingScrollId == null) return
+    const id = pendingScrollId
+    const t = setTimeout(() => {
+      scrollToCard(id)
+      setPendingScrollId(null)
+    }, 250)
     return () => clearTimeout(t)
-  }, [location.state, scrollToCard])
+  }, [pendingScrollId, page, scrollToCard])
 
   if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}><CircularProgress /></Box>
 
@@ -919,7 +956,7 @@ export default function MonitoringPage() {
       ) : (
         <>
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-          {watchlist.map((entry) => (
+          {pageEntries.map((entry) => (
             <Box
               key={entry.id}
               ref={(el: HTMLElement | null) => { cardRefs.current[entry.id] = el }}
@@ -940,6 +977,18 @@ export default function MonitoringPage() {
             </Box>
           ))}
           </Box>
+
+          {pageCount > 1 && (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+              <Pagination
+                count={pageCount}
+                page={page}
+                onChange={(_, p) => setPage(p)}
+                color="primary"
+                shape="rounded"
+              />
+            </Box>
+          )}
         </>
       )}
 

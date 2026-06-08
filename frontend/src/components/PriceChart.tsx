@@ -154,7 +154,7 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
 
       {/* Scatter: каждая продажа — точка (12ч / 24ч / 48ч) */}
       {!loading && !isEmpty && resp!.mode === 'scatter' && (
-        <ResponsiveContainer width="100%" height={160}>
+        <ResponsiveContainer width="100%" height={160} debounce={200}>
           <ScatterChart margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
             <XAxis
@@ -200,7 +200,7 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
 
       {/* Line chart: мин / средняя / макс по дням (7д) */}
       {!loading && !isEmpty && resp!.mode === 'daily' && (
-        <ResponsiveContainer width="100%" height={160}>
+        <ResponsiveContainer width="100%" height={160} debounce={200}>
           <LineChart data={dailyData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
             <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#7C7C7C' }} />
