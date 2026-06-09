@@ -338,7 +338,7 @@ async def _publish_signals(db, item_id: str, region: str, snap) -> None:
     import json
     import redis.asyncio as aioredis
     from app.core.config import settings
-    from app.models.models import UserWatchlist, MasterItem, MarketStatistics
+    from app.models.models import UserWatchlist, MasterItem, MarketStatistics, UserSettings
     from app.services.profitable_lots import compute_signals_for_entry, signals_key, SIGNALS_TTL
     from sqlalchemy import select
 
@@ -368,11 +368,23 @@ async def _publish_signals(db, item_id: str, region: str, snap) -> None:
         )
     )).scalar_one_or_none()
 
+    user_ids = list({e.user_id for e in entries if e.user_id is not None})
+    user_settings_map: dict[int, float] = {}
+    if user_ids:
+        rows = (await db.execute(
+            select(UserSettings).where(UserSettings.user_id.in_(user_ids))
+        )).scalars().all()
+        user_settings_map = {s.user_id: float(s.min_profit_margin_percent or 0) for s in rows}
+
     r = aioredis.from_url(settings.redis_url, decode_responses=True)
     try:
         for entry in entries:
             try:
-                result = await compute_signals_for_entry(db, entry, master, stats, snap)
+                margin_pct = user_settings_map.get(entry.user_id, 0.0)
+                result = await compute_signals_for_entry(
+                    db, entry, master, stats, snap,
+                    min_profit_margin_pct=margin_pct,
+                )
                 if result is not None:
                     key = signals_key(
                         entry.user_id, item_id, region,
