@@ -29,7 +29,7 @@ export default function SalesHistoryPage() {
   const navigate  = useNavigate()
   const incoming  = (location.state ?? {}) as LocationState
 
-  const { watchlist, initialized, loadWatchlistAndStats, minProfitMarginPercent } = useFeedStore()
+  const { watchlist, initialized, loadWatchlistAndStats, minProfitMarginPercent, profitableItemIds } = useFeedStore()
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
 
@@ -190,7 +190,8 @@ export default function SalesHistoryPage() {
         ) : (
           <List dense disablePadding sx={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' }}>
             {watchlist.map((entry, idx) => {
-              const isSelected = entry.id === selectedId
+              const isSelected  = entry.id === selectedId
+              const isProfitable = profitableItemIds.includes(entry.id)
               return (
                 <Box key={entry.id}>
                   {idx > 0 && <Divider sx={{ opacity: 0.3 }} />}
@@ -199,11 +200,14 @@ export default function SalesHistoryPage() {
                     onClick={() => setSelectedId(entry.id)}
                     sx={{
                       py: 0.75, px: 1.5,
+                      borderLeft: isProfitable && !isSelected ? '2px solid #4caf50' : '2px solid transparent',
+                      bgcolor: isProfitable && !isSelected ? 'rgba(76,175,80,0.04)' : undefined,
                       '&.Mui-selected': {
                         bgcolor: 'rgba(217,175,55,0.08)',
                         borderLeft: '2px solid #D9AF37',
                       },
                       '&.Mui-selected:hover': { bgcolor: 'rgba(217,175,55,0.12)' },
+                      '&:hover': isProfitable && !isSelected ? { bgcolor: 'rgba(76,175,80,0.08)' } : {},
                     }}
                   >
                     <ListItemAvatar sx={{ minWidth: 36 }}>
@@ -217,7 +221,11 @@ export default function SalesHistoryPage() {
                     </ListItemAvatar>
                     <ListItemText
                       primary={
-                        <Typography sx={{ fontSize: '0.72rem', fontWeight: isSelected ? 700 : 400, color: isSelected ? 'primary.main' : 'text.primary' }} noWrap>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          {isProfitable && (
+                            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#4caf50', flexShrink: 0 }} />
+                          )}
+                        <Typography sx={{ fontSize: '0.72rem', fontWeight: isSelected ? 700 : 400, color: isSelected ? 'primary.main' : isProfitable ? '#4caf50' : 'text.primary' }} noWrap>
                           {entry.name_ru ?? entry.name_en ?? entry.item_id}
                           {entry.enchant_filter != null && entry.enchant_filter > 0 && (
                             <Typography component="span" sx={{ ml: 0.5, fontSize: '0.65rem', color: 'primary.main', fontWeight: 700 }}>
@@ -225,6 +233,7 @@ export default function SalesHistoryPage() {
                             </Typography>
                           )}
                         </Typography>
+                        </Box>
                       }
                       secondary={
                         <Box sx={{ display: 'flex', gap: 0.4, flexWrap: 'wrap', mt: 0.2 }}>
