@@ -80,7 +80,10 @@ def _is_artefact(category: Optional[str]) -> bool:
     return bool(category and "artefact" in category.lower())
 
 
-async def compute_signals_for_entry(db, entry, master, stats, snap) -> Optional[dict]:
+async def compute_signals_for_entry(
+    db, entry, master, stats, snap,
+    min_profit_margin_pct: float = 0.0,
+) -> Optional[dict]:
     """
     Вычисляет выгодные лоты для одной watchlist-записи.
 
@@ -205,8 +208,13 @@ async def compute_signals_for_entry(db, entry, master, stats, snap) -> Optional[
             continue
 
         buyout_per_unit = buyout // amount
-        if normal_net - buyout_per_unit <= 0:
+        profit = normal_net - buyout_per_unit
+        if profit <= 0:
             continue
+        if min_profit_margin_pct > 0:
+            profit_pct = profit / buyout_per_unit * 100
+            if profit_pct < min_profit_margin_pct:
+                continue
 
         quality_name = _QLT_NAMES.get(qlt_val) if qlt_val is not None else None
 

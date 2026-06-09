@@ -153,13 +153,13 @@ export default function SettingsPage() {
           <Typography variant="subtitle2" color="text.secondary">Аналитика</Typography>
 
           <TextField
-            label="Минимальная маржа (%)"
+            label="Критерий выгодности (%)"
             type="number"
             size="small"
             value={settings?.min_profit_margin_percent ?? 10}
             onChange={(e) => setSettings((s) => s ? { ...s, min_profit_margin_percent: Number(e.target.value) } : s)}
-            helperText="Показывать рекомендации только если прибыль выше этого порога"
-            inputProps={{ min: 1, max: 100 }}
+            helperText="Влияет на выгодные лоты в Избранном, сигналы и Telegram-уведомления — показывает только лоты с прибылью выше этого порога"
+            inputProps={{ min: 0, max: 100 }}
           />
 
           <TextField
@@ -215,6 +215,14 @@ export default function SettingsPage() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <TelegramIcon sx={{ color: '#229ED9', fontSize: 22 }} />
             <Typography variant="subtitle2" color="text.secondary">Telegram</Typography>
+          </Box>
+
+          <Box sx={{ p: 1.5, borderRadius: '8px', bgcolor: 'rgba(217,175,55,0.06)', border: '1px solid rgba(217,175,55,0.15)' }}>
+            <Typography variant="caption" color="text.secondary">
+              Уведомления отправляются только по лотам, чья прибыль превышает{' '}
+              <strong>критерий выгодности ({settings?.min_profit_margin_percent ?? 10}%)</strong>{' '}
+              — настройте его в блоке «Аналитика» выше.
+            </Typography>
           </Box>
 
           {tgStatus?.is_linked ? (

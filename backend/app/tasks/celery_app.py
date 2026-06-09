@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.tasks.cleanup",
         "app.tasks.analyzers",
         "app.tasks.notifications",
+        "app.tasks.feed_collector",
     ],
 )
 
@@ -44,6 +45,11 @@ celery_app.conf.update(
         "calculate-market-stats": {
             "task": "app.tasks.analyzers.calculate_all_market_stats",
             "schedule": crontab(minute="5"),
+        },
+        # Лента: адаптивный сбор (каждые 30 сек, бюджет = остаток после мониторинга)
+        "collect-feed-lots": {
+            "task": "app.tasks.feed_collector.collect_feed_lots",
+            "schedule": timedelta(seconds=30),
         },
         # Telegram-уведомления — обрабатываются telegram_bot сервисом (polling),
         # scan_and_notify отключён во избежание дублирования.

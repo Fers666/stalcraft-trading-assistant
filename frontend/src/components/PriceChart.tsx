@@ -32,6 +32,8 @@ interface Props {
   region: string
   qualityFilter?: number | null
   enchantFilter?: number | null
+  defaultHours?: number
+  hideControls?: boolean
 }
 
 const HOURS_OPTIONS = [
@@ -55,9 +57,9 @@ function fmtDayLabel(iso: string): string {
   return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}`
 }
 
-export default function PriceChart({ itemId, region, qualityFilter, enchantFilter }: Props) {
+export default function PriceChart({ itemId, region, qualityFilter, enchantFilter, defaultHours = 48, hideControls = false }: Props) {
   const [resp, setResp]       = useState<SalesChartResponse | null>(null)
-  const [hours, setHours]     = useState(48)
+  const [hours, setHours]     = useState(defaultHours)
   const [loading, setLoading] = useState(false)
   const [visible, setVisible] = useState(false)
   const containerRef          = useRef<HTMLDivElement>(null)
@@ -115,12 +117,14 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
-            ИСТОРИЯ ПРОДАЖ
-          </Typography>
+          {!hideControls && (
+            <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
+              ИСТОРИЯ ПРОДАЖ
+            </Typography>
+          )}
           {resp != null && (
             <Chip
-              label={`${resp.total_count} за ${periodLabel}`}
+              label={`${resp.total_count} ${hideControls ? 'продаж' : `за ${periodLabel}`}`}
               size="small"
               sx={{
                 height: 18, fontSize: 10,
@@ -131,13 +135,15 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
             />
           )}
         </Box>
-        <ToggleButtonGroup value={hours} exclusive onChange={(_, v) => v && setHours(v)} size="small">
-          {HOURS_OPTIONS.map((o) => (
-            <ToggleButton key={o.value} value={o.value} sx={{ py: 0, px: 1, fontSize: 11 }}>
-              {o.label}
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
+        {!hideControls && (
+          <ToggleButtonGroup value={hours} exclusive onChange={(_, v) => v && setHours(v)} size="small">
+            {HOURS_OPTIONS.map((o) => (
+              <ToggleButton key={o.value} value={o.value} sx={{ py: 0, px: 1, fontSize: 11 }}>
+                {o.label}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+        )}
       </Box>
 
       {loading && (

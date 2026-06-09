@@ -5,6 +5,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import InventoryIcon from '@mui/icons-material/Inventory'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import LocalOfferIcon from '@mui/icons-material/LocalOffer'
+import BarChartIcon from '@mui/icons-material/BarChart'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
@@ -14,11 +15,12 @@ import { tokens } from '../theme'
 const { gold: G2, goldAccent: G3, text1: T1, text2: T2, border: BORDER } = tokens
 
 const navItems = [
-  { label: 'Избранное', path: '/app/monitoring', icon: <MonitorHeartIcon sx={{ fontSize: 14 }} /> },
-  { label: 'Каталог',   path: '/app/catalog',    icon: <MenuBookIcon    sx={{ fontSize: 14 }} /> },
-  { label: 'Лоты',      path: '/app/lots',       icon: <SearchIcon      sx={{ fontSize: 14 }} /> },
-  { label: 'Лента',     path: '/app/feed',       icon: <LocalOfferIcon  sx={{ fontSize: 14 }} /> },
-  { label: 'Склад',     path: '/app/inventory',  icon: <InventoryIcon   sx={{ fontSize: 14 }} /> },
+  { label: 'Избранное',        path: '/app/monitoring',    icon: <MonitorHeartIcon sx={{ fontSize: 14 }} /> },
+  { label: 'История продаж',   path: '/app/sales-history', icon: <BarChartIcon     sx={{ fontSize: 14 }} /> },
+  { label: 'Каталог',          path: '/app/catalog',       icon: <MenuBookIcon     sx={{ fontSize: 14 }} /> },
+  { label: 'Лоты',             path: '/app/lots',          icon: <SearchIcon       sx={{ fontSize: 14 }} /> },
+  { label: 'Лента',            path: '/app/feed',          icon: <LocalOfferIcon   sx={{ fontSize: 14 }} /> },
+  { label: 'Склад',            path: '/app/inventory',     icon: <InventoryIcon    sx={{ fontSize: 14 }} /> },
 ]
 
 function DiamondLogo() {

@@ -11,11 +11,11 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import SearchIcon from '@mui/icons-material/Search'
+import BarChartIcon from '@mui/icons-material/BarChart'
 import api from '../api/client'
 import { formatPrice, iconUrl } from '../utils/i18n'
 import { useFeedStore } from '../store/feedStore'
 
-import PriceChart from '../components/PriceChart'
 
 interface BatchBucket {
   label: string
@@ -168,16 +168,18 @@ interface SignalsData {
 }
 
 
-const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals }: {
+const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lots: lotsData, signals, minProfitMarginPercent = 0 }: {
   entry: WatchlistEntry
   stats: MarketStats | null
   onDelete: (entry: WatchlistEntry) => void
   onViewLots: (entry: WatchlistEntry) => void
   lots: LotItem[] | undefined
   signals?: SignalsData | null
+  minProfitMarginPercent?: number
 }) {
+  const navigate = useNavigate()
   const [timeMode, setTimeMode] = useState<'week' | 'today'>('today')
-  const [lotMode, setLotMode]   = useState<'current' | 'median'>('current')
+  const [lotMode, setLotMode]   = useState<'current' | 'median'>('median')
   const lots       = lotsData ?? []
   const lotsLoaded = lotsData !== undefined
   const riskKey   = stats ? volatilityRisk(stats.price_volatility_7d)  : null
@@ -261,7 +263,15 @@ const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lo
           })),
         }
       })
-      .filter(l => (l.profits.find(p => p.label === 'normal')?.perUnit ?? -1) > 0)
+      .filter(l => {
+        const normalProfit = l.profits.find(p => p.label === 'normal')?.perUnit ?? -1
+        if (normalProfit <= 0) return false
+        if (minProfitMarginPercent > 0) {
+          const profitPct = (normalProfit / l.buyPerUnit) * 100
+          if (profitPct < minProfitMarginPercent) return false
+        }
+        return true
+      })
       .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
       .slice(0, 5)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,7 +300,7 @@ const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lo
   return (
     <Card sx={{
       width: 520,
-      height: 980,
+      height: 840,
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
@@ -434,6 +444,23 @@ const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lo
                   {formatLastCheck(entry.last_successful_check)}
                 </Typography>
               )}
+              <Tooltip title="История продаж">
+                <IconButton
+                  size="small"
+                  onClick={() => navigate('/app/sales-history', {
+                    state: {
+                      itemId: entry.item_id,
+                      region: entry.region,
+                      qualityFilter: entry.quality_filter,
+                      enchantFilter: entry.enchant_filter,
+                      itemName: entry.name_ru ?? entry.name_en ?? entry.item_id,
+                    },
+                  })}
+                  sx={{ color: 'text.secondary' }}
+                >
+                  <BarChartIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
               <Tooltip title="Все лоты этого предмета">
                 <IconButton size="small" onClick={() => onViewLots(entry)} sx={{ color: 'text.secondary' }}>
                   <SearchIcon fontSize="small" />
@@ -777,17 +804,6 @@ const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lo
           </>
         )}
 
-        {/* График истории цен — показываем всегда (данные есть после первого сбора) */}
-        <>
-          <Divider sx={{ my: 1.5 }} />
-          <PriceChart
-            itemId={entry.item_id}
-            region={entry.region}
-            qualityFilter={entry.quality_filter}
-            enchantFilter={entry.enchant_filter}
-          />
-        </>
-
       </CardContent>
     </Card>
   )
@@ -804,6 +820,7 @@ export default function MonitoringPage() {
   const {
     watchlist, stats: feedStats, lotsMap,
     initialized, loadWatchlistAndStats, removeEntry,
+    minProfitMarginPercent,
   } = useFeedStore()
   const stats = feedStats as unknown as Record<number, MarketStats>
 
@@ -973,6 +990,7 @@ export default function MonitoringPage() {
                 onViewLots={handleViewLots}
                 lots={lotsMap[entry.id]}
                 signals={signalsMap[entry.id] ?? null}
+                minProfitMarginPercent={minProfitMarginPercent}
               />
             </Box>
           ))}
