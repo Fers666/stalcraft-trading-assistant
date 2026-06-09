@@ -178,14 +178,17 @@ async def get_item_stats(
         )).scalar_one_or_none()
 
         fresh_sell_options = stats.sell_options  # fallback: сохранённые
+        median_ref = float(stats.median_price_7d) if stats.median_price_7d else None
         if latest_snap:
             current_min = (
                 latest_snap.best_liquid_price_per_unit or latest_snap.best_price_per_unit
             )
-            if current_min:
-                fresh_sell_options = _make_sell_options(
-                    float(current_min), stats.sales_volume_7d or 0
-                )
+            # Sanity check: глитч-лоты (цена < 5% медианы) — игнорируем, используем медиану
+            if current_min and median_ref and current_min < median_ref * 0.05:
+                current_min = None
+            ref = float(current_min) if current_min else median_ref
+            if ref:
+                fresh_sell_options = _make_sell_options(ref, stats.sales_volume_7d or 0)
 
         return MonitoringItemResponse(
             item_id=stats.item_id,
