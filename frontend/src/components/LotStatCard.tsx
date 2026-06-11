@@ -139,7 +139,7 @@ export default function LotStatCard({
   const [signals, setSignals] = useState<SignalsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [timeMode, setTimeMode] = useState<'week' | 'today'>('today')
-  const [lotMode, setLotMode]   = useState<'current' | 'median'>('median')
+  const [lotMode, setLotMode]   = useState<'current' | 'median'>('current')
 
   useEffect(() => {
     if (!itemId) return
@@ -181,7 +181,7 @@ export default function LotStatCard({
 
   const profitableLots = useMemo(() => {
     if (signals?.lots?.length) {
-      const opts = signals.sell_options ?? []
+      const opts = sellPrices ?? []
       return signals.lots
         .map(l => ({
           buyout_price: l.buyout_price,
@@ -191,8 +191,8 @@ export default function LotStatCard({
           buyPerUnit: l.buyout_per_unit,
           profits: opts.map(sp => ({
             label: sp.label, label_ru: sp.label_ru,
-            perUnit: sp.net_price_per_unit - l.buyout_per_unit,
-            total: (sp.net_price_per_unit - l.buyout_per_unit) * l.amount,
+            perUnit: Math.round(sp.price * (1 - COMMISSION) - l.buyout_per_unit),
+            total: Math.round((sp.price * (1 - COMMISSION) - l.buyout_per_unit) * l.amount),
           })),
         }))
         .filter(l => {
