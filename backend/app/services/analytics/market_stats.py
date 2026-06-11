@@ -39,6 +39,16 @@ MIN_BUYOUTS_FOR_TIME_MODEL = 5
 COVERAGE_HIGH   = 0.30  # ≥30% продаж с lot_start + минимум 10 точек
 COVERAGE_MEDIUM = 0.10  # 10–30% продаж с lot_start + минимум 3 точки
 
+# Numeric(5,2) в БД — максимум ±999.99. Глитч-цена в истории продаж может
+# взвинтить волатильность/weekend-бонус на порядки → переполнение поля.
+PCT_LIMIT = 999.99
+
+
+def _clamp_pct(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return max(-PCT_LIMIT, min(PCT_LIMIT, value))
+
 
 async def calculate_market_stats(
     db: AsyncSession,
@@ -91,14 +101,14 @@ async def calculate_market_stats(
     if len(prices_7d) >= MIN_SALES_FOR_VOLATILITY:
         avg = statistics.mean(prices_7d)
         stdev = statistics.stdev(prices_7d)
-        volatility_7d = round(stdev / avg * 100, 2) if avg > 0 else None
+        volatility_7d = _clamp_pct(round(stdev / avg * 100, 2)) if avg > 0 else None
 
     prices_30d = [s.price_per_unit for s in sales_30d]
     volatility_30d = None
     if len(prices_30d) >= MIN_SALES_FOR_VOLATILITY:
         avg = statistics.mean(prices_30d)
         stdev = statistics.stdev(prices_30d)
-        volatility_30d = round(stdev / avg * 100, 2) if avg > 0 else None
+        volatility_30d = _clamp_pct(round(stdev / avg * 100, 2)) if avg > 0 else None
 
     # ── 3. Лучшее время продажи (час и день недели) ───────────────────────────
     # Взвешенный скор: 60% цена + 40% объём.
@@ -176,7 +186,7 @@ async def calculate_market_stats(
         if weekday_sales and weekend_sales:
             avg_wd = statistics.mean(weekday_sales)
             avg_we = statistics.mean(weekend_sales)
-            weekend_bonus = round((avg_we / avg_wd - 1) * 100, 2) if avg_wd > 0 else None
+            weekend_bonus = _clamp_pct(round((avg_we / avg_wd - 1) * 100, 2)) if avg_wd > 0 else None
 
     # ── Лучшее время покупки ──────────────────────────────────────────────────
     # Источник: снэпшоты collected_data (каждые 5 мин).

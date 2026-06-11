@@ -68,6 +68,7 @@ def calculate_all_market_stats(self):
                     else:
                         logger.info(f"No sales data for {item_id}/{region} — stats skipped")
                 except Exception as e:
+                    await db.rollback()
                     logger.error(f"Failed to calculate stats for {item_id}/{region}: {e}")
 
     try:
