@@ -1,4 +1,4 @@
-version: "3.9"
+﻿version: "3.9"
 
 services:
   postgres:
@@ -61,7 +61,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.tasks.celery_app worker --loglevel=info -Q collector -c 1
+    command: celery -A app.tasks.celery_app worker --loglevel=info -Q collector -c 2
 
   scheduler:
     build: ./backend
