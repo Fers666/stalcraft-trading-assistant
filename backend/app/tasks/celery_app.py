@@ -12,7 +12,6 @@ celery_app = Celery(
         "app.tasks.cleanup",
         "app.tasks.analyzers",
         "app.tasks.notifications",
-        "app.tasks.feed_collector",
     ],
 )
 
@@ -22,10 +21,10 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="Europe/Moscow",
     enable_utc=True,
-    worker_concurrency=1,
+    worker_concurrency=2,
     task_routes={"app.tasks.*": {"queue": "collector"}},
     beat_schedule={
-        # Сбор активных лотов: каждые 20 сек, 1 предмет за запуск → 3 лота/мин.
+        # Сбор активных лотов: каждые 20 сек, динамический батч под TARGET_CYCLE_SEC (60с).
         # Сортировка по last_successful_check ASC — самые устаревшие идут первыми.
         "collect-active-lots": {
             "task": "app.tasks.collectors.collect_all_active_lots",
@@ -45,11 +44,6 @@ celery_app.conf.update(
         "calculate-market-stats": {
             "task": "app.tasks.analyzers.calculate_all_market_stats",
             "schedule": crontab(minute="5"),
-        },
-        # Лента: адаптивный сбор (каждые 30 сек, бюджет = остаток после мониторинга)
-        "collect-feed-lots": {
-            "task": "app.tasks.feed_collector.collect_feed_lots",
-            "schedule": timedelta(seconds=30),
         },
         # Telegram-уведомления — обрабатываются telegram_bot сервисом (polling),
         # scan_and_notify отключён во избежание дублирования.

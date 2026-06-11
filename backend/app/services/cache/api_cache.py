@@ -30,15 +30,11 @@ CACHE_VERSION = "v2"
 
 
 class ApiCache:
-    def __init__(self):
-        self._redis: aioredis.Redis | None = None
-
-    async def _get_redis(self) -> aioredis.Redis:
-        if self._redis is None:
-            self._redis = await aioredis.from_url(
-                settings.redis_url, encoding="utf-8", decode_responses=True
-            )
-        return self._redis
+    def _redis(self) -> aioredis.Redis:
+        # Свежее соединение на каждый вызов — Celery создаёт новый event loop
+        # для каждой задачи, и закэшированное соединение становится невалидным
+        # ("Event loop is closed") в следующей задаче.
+        return aioredis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
 
     def _lots_key(self, region: str, item_id: str) -> str:
         return f"stalcraft:cache:{CACHE_VERSION}:{region}:{item_id}:lots"
@@ -48,45 +44,53 @@ class ApiCache:
 
     async def get_lots(self, region: str, item_id: str) -> dict | None:
         """Возвращает закэшированные лоты или None если кэш пуст."""
+        r = self._redis()
         try:
-            r = await self._get_redis()
             raw = await r.get(self._lots_key(region, item_id))
             if raw:
                 logger.debug(f"Cache HIT: lots {region}/{item_id}")
                 return json.loads(raw)
         except Exception as e:
             logger.warning(f"Cache read error: {e}")
+        finally:
+            await r.aclose()
         return None
 
     async def set_lots(self, region: str, item_id: str, data: dict) -> None:
         """Сохраняет лоты в кэш на 5 минут."""
+        r = self._redis()
         try:
-            r = await self._get_redis()
             await r.setex(self._lots_key(region, item_id), TTL_LOTS, json.dumps(data))
             logger.debug(f"Cache SET: lots {region}/{item_id}")
         except Exception as e:
             logger.warning(f"Cache write error: {e}")
+        finally:
+            await r.aclose()
 
     async def get_history(self, region: str, item_id: str) -> dict | None:
         """Возвращает закэшированную историю или None."""
+        r = self._redis()
         try:
-            r = await self._get_redis()
             raw = await r.get(self._history_key(region, item_id))
             if raw:
                 logger.debug(f"Cache HIT: history {region}/{item_id}")
                 return json.loads(raw)
         except Exception as e:
             logger.warning(f"Cache read error: {e}")
+        finally:
+            await r.aclose()
         return None
 
     async def set_history(self, region: str, item_id: str, data: dict) -> None:
         """Сохраняет историю в кэш на 60 минут."""
+        r = self._redis()
         try:
-            r = await self._get_redis()
             await r.setex(self._history_key(region, item_id), TTL_HISTORY, json.dumps(data))
             logger.debug(f"Cache SET: history {region}/{item_id}")
         except Exception as e:
             logger.warning(f"Cache write error: {e}")
+        finally:
+            await r.aclose()
 
     async def get_or_fetch_lots(self, region: str, item_id: str) -> dict:
         """
@@ -113,11 +117,13 @@ class ApiCache:
 
     async def invalidate_lots(self, region: str, item_id: str) -> None:
         """Сбрасывает кэш лотов (вызывается после сбора новых данных воркером)."""
+        r = self._redis()
         try:
-            r = await self._get_redis()
             await r.delete(self._lots_key(region, item_id))
         except Exception as e:
             logger.warning(f"Cache invalidate error: {e}")
+        finally:
+            await r.aclose()
 
 
 api_cache = ApiCache()

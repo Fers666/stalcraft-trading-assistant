@@ -104,7 +104,7 @@ class TokenBucketRateLimiter:
             try:
                 result = int(await r.eval(
                     _LUA_ACQUIRE, 1,
-                    self.BUCKET_KEY, cost, self.CAPACITY, time.time(), self.REFILL_RATE,
+                    self.BUCKET_KEY, int(cost), self.CAPACITY, time.time(), self.REFILL_RATE,
                 ))
             except (aioredis.RedisError, ConnectionError, OSError) as e:
                 logger.warning(f"Rate limiter Redis error, using in-memory fallback: {e}")
