@@ -179,7 +179,7 @@ const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lo
 }) {
   const navigate = useNavigate()
   const [timeMode, setTimeMode] = useState<'week' | 'today'>('today')
-  const [lotMode, setLotMode]   = useState<'current' | 'median'>('median')
+  const [lotMode, setLotMode]   = useState<'current' | 'median'>('current')
   const lots       = lotsData ?? []
   const lotsLoaded = lotsData !== undefined
   const riskKey   = stats ? volatilityRisk(stats.price_volatility_7d)  : null
@@ -216,7 +216,7 @@ const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lo
   // фолбэк на клиентский расчёт пока Redis-ключ ещё не заполнен.
   const profitableLots = useMemo(() => {
     if (signals?.lots?.length) {
-      const opts = signals.sell_options ?? []
+      const opts = sellPrices ?? []
       return signals.lots
         .map(l => ({
           buyout_price:   l.buyout_price,
@@ -229,11 +229,19 @@ const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lo
           profits: opts.map(sp => ({
             label:    sp.label,
             label_ru: sp.label_ru,
-            perUnit:  sp.net_price_per_unit - l.buyout_per_unit,
-            total:    (sp.net_price_per_unit - l.buyout_per_unit) * l.amount,
+            perUnit:  Math.round(sp.price * (1 - COMMISSION) - l.buyout_per_unit),
+            total:    Math.round((sp.price * (1 - COMMISSION) - l.buyout_per_unit) * l.amount),
           })),
         }))
-        .filter(l => (l.profits.find(p => p.label === 'normal')?.perUnit ?? -1) > 0)
+        .filter(l => {
+          const normalProfit = l.profits.find(p => p.label === 'normal')?.perUnit ?? -1
+          if (normalProfit <= 0) return false
+          if (minProfitMarginPercent > 0) {
+            const profitPct = (normalProfit / l.buyPerUnit) * 100
+            if (profitPct < minProfitMarginPercent) return false
+          }
+          return true
+        })
         .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
         .slice(0, 5)
     }
@@ -275,7 +283,7 @@ const ItemCard = memo(function ItemCard({ entry, stats, onDelete, onViewLots, lo
       .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
       .slice(0, 5)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signals, sellPrices, lots, entry.quality_filter, entry.enchant_filter])
+  }, [signals, sellPrices, lots, entry.quality_filter, entry.enchant_filter, minProfitMarginPercent])
 
   const totalFilteredLots = useMemo(() => lots.filter(l => {
     if (l.is_expiring) return false
