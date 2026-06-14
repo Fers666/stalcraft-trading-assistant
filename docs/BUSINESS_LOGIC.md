@@ -473,40 +473,59 @@ Notifications (Telegram, Browser Push)
 3. Пользователь отправляет боту: `/link XXXXXX`
 4. Бот находит `user_id` по коду, сохраняет `telegram_chat_id` в таблицу `users`
 
-**Логика уведомлений (каждые 30 сек):**
+**Логика уведомлений (15 сек polling Redis-ключей `signals:*`):**
 
 ```
+Коллектор раз в ~20-60с (после сбора снэпшота) вызывает
+profitable_lots.compute_signals_for_entry для каждой watchlist-записи
+и пишет результат в Redis (signals:{user_id}:{item_id}:{region}:{qf}:{ef}, TTL 300с).
+
 Для каждого пользователя с telegram_chat_id:
   Если user_settings.notify_telegram = true:
     Для каждой записи user_watchlist (is_active=True):
-      1. Берём последний CollectedData снапшот (raw_lots отсортированы по цене, user_id=NULL)
-      2. Берём MarketStatistics (median_price_7d, sales_volume_7d, price_volatility_7d)
-      3. Строим ref (опорную цену для выгодности):
-         - БЕЗ фильтра quality/enchant:
-             ref = median_price_7d (7-д медиана)
-             фолбэк: snap.best_liquid_price_per_unit если истории нет
-         - С фильтром quality/enchant:
-             ref = median(SalesHistory за 7д, отфильтрованная по qlt/ptn)
-             фолбэк: median_price_7d → best_liquid_price_per_unit если истории нет
-      4. normal_net = ref × 0.95 (цена продавца после 5% комиссии)
-      5. Для каждого лота из snap.raw_lots (отфильтровано по quality/enchant):
-         Пропустить: истекающий (<2ч), buyout ≤ 0, не совпадает фильтр
-         Для артефактов: ptn=None → enchant=0 («Не точёный»)
-         Выгодный: buyout_per_unit < normal_net
-      6. Для каждого выгодного лота:
+      1. Читаем signals:* из Redis (если ключ есть — сигнал свежий, иначе пропуск)
+      2. ref/trend — pricing.compute_reference (см. ниже), profit считается от
+         тира "fast" с поправкой на пачку и риск-маржу (pricing.evaluate_lot_profit)
+      3. Для каждого профитного лота из signals["lots"] (уже отсортированы по
+         profit_per_hour):
          - Dedup: Redis key tg_sent:{user_id}:{item_id}:{region}:{qf}:{ef}:{startTime}
            TTL = 48ч (один лот — одно уведомление за 48 ч)
          - Отправить HTML-сообщение в telegram_chat_id
 ```
 
-**Почему ref = median_price_7d, а не current_min:**
-Использование `ref = current_min_liquid` (текущий минимум рынка) делало условие `buyout < ref × 0.95` математически невозможным — ref сам является минимумом, все лоты имеют `price ≥ ref > ref × 0.95`. Медиана за 7 дней позволяет находить лоты, выставленные ниже исторического уровня (аналог режима «Неделя» на фронтенде).
+**Расчёт `ref` и `trend` (`pricing.compute_reference`):**
+`ref` приоритетно берётся из `median_price_7d` (7-д медиана из `market_statistics`,
+для записей с quality/enchant фильтром — медиана `SalesHistory` за 7д по тому же
+qlt/ptn; если истории нет — `current_min` как fallback). Дополнительно сравнивается
+с медианой ТЕКУЩЕГО снэпшота (`median_now`):
+- `median_now / median_hist < 0.75` → `trend="falling"` (рынок "просел"), `ref`
+  консервативно корректируется вниз: `max(median_now, median_hist × 0.75)`
+- `median_now / median_hist > 1/0.75` → `trend="rising"`
+- иначе → `trend="stable"`
+
+**Почему ref ≠ current_min:** использование `ref = current_min_liquid` (текущий
+минимум рынка) делало условие выгодности математически невозможным — ref сам
+является минимумом, все лоты имеют `price ≥ ref`. Медиана за 7 дней (с
+trend-guard на случай резкого падения рынка) позволяет находить лоты, выставленные
+ниже исторического уровня.
+
+**Профит лота (`pricing.evaluate_lot_profit`):**
+- Цена продажи берётся из тира **"fast"** (`ref × 0.97`), после вычета комиссии 5%
+- Если для размера пачки лота есть ≥3 реальных продажи в `market_statistics.batch_stats`
+  (по бакетам `pricing.BATCH_BUCKETS`) — цена продажи корректируется пропорционально
+  медианной цене такой пачки
+- `required_margin = min_profit_margin_pct × RISK_MARGIN_MULT[risk]` — при `risk="high"`
+  (волатильность >30%) требуется в 1.6× больше маржи, чем при `risk="low"` (≤15%)
+- Лот считается выгодным, если `profit_pct >= required_margin`
 
 **Содержимое уведомления:**
 - Название предмета
 - Качество (⭐) и заточка (⚡) — из фильтров watchlist
 - Цена выкупа (💵)
 - Прогноз продажи в 3 срезах: Быстро / Нормально / Выгодно с чистой прибылью и % (📈)
+- Доходность ₽/час на тарифе "Быстро" (⏱)
+- Предупреждение, если `trend == "falling"` (рынок ниже недельной медианы)
+- Предупреждение, если `saturation_ratio > 1` (много похожих профитных лотов сразу — рынок может не успеть их переварить)
 - Продаж за 7д (📦) и волатильность за 7д (📉)
 - Точность прогноза: высокая / средняя / мало данных (🎯)
 
@@ -520,11 +539,14 @@ Notifications (Telegram, Browser Push)
 
 ## 16. Краткое резюме алгоритмов
 
-1. **Выгодность** = (avg_price_7d × 0.95 − цена_лота) / цена_лота × 100%
+1. **Выгодность** = (ref × 0.97 × 0.95 − цена_лота) / цена_лота × 100% ≥ min_margin × RISK_MARGIN_MULT[risk], где `ref` = `median_price_7d` с trend-guard по медиане текущего снэпшота (`pricing.compute_reference`)
 2. **Уверенность** = min(1.0, продаж_за_7д / 100)
-3. **Score** = выгодность% × уверенность
-4. **Риск** = волатильность: >30% (high), >15% (medium), ≤15% (low)
-5. **Время продажи** = интерполяция по реальным выкупам (или эвристика)
-6. **Batch matching** = жадный алгоритм по цене до target_quantity
+3. **Доходность** = `profit_per_hour` = профит / прогнозируемое время продажи (тир "fast") — основной критерий ранжирования сигналов
+4. **Риск** = волатильность: >30% (high), >15% (medium), ≤15% (low) → множитель требуемой маржи 1.6 / 1.3 / 1.0
+5. **Время продажи** = интерполяция по реальным выкупам (или эвристика по продажам/день)
+6. **Batch matching** = жадный алгоритм по цене до target_quantity; для оценки профита — поправка цены продажи по `market_statistics.batch_stats` при ≥3 продажах в том же бакете объёма
 7. **Snapshot matching** = лот в снэпшоте ДО продажи и отсутствует ПОСЛЕ → восстанавливаем lot_start → time_on_market
 8. **Rate limit** = Token Bucket: 100 токенов/мин, восстановление 1.67/сек
+9. **Saturation** = `total_profitable_amount / (sales_volume_7d / 7)` — много профитных лотов сразу относительно недельного объёма продаж → рынок может не успеть их переварить
+10. **Demand bulk_spike** = резкий рост доли объёма продаж в пачках ≥10 шт за 24ч против базовой доли за ~29 дней (информационный сигнал)
+11. **Калибровка** = `signal_outcomes` логирует предсказания (по каждой комбинации quality/enchant) и раз в сутки сверяет их с фактическими продажами (`evaluate_signal_outcomes`) — для будущей подстройки констант

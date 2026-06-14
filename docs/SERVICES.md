@@ -110,6 +110,40 @@ OAuth2 Client Credentials flow для Stalcraft API.
 
 ---
 
+## app/services/analytics/pricing.py — общие хелперы расчёта цены
+
+Чистые функции без обращения к БД, используются `profitable_lots.py`,
+`market_stats.py` и `monitoring.py` — единая логика sell_options/риска/профита.
+
+**Константы:**
+- `COMMISSION = 0.05` — комиссия аукциона
+- `GLITCH_RATIO = 0.05`, `TREND_DROP_RATIO = 0.75` — пороги для `compute_reference`
+- `STALE_SECONDS = 90` — снэпшот старше → сигналу не доверяем
+- `HIGH_VOLATILITY = 30.0`, `MED_VOLATILITY = 15.0` — пороги `classify_risk`
+- `RISK_MARGIN_MULT = {low: 1.0, medium: 1.3, high: 1.6}` — множитель требуемой маржи
+- `MIN_BATCH_SAMPLES = 3`, `BATCH_BUCKETS` — пороги/бакеты для поправки на размер пачки
+
+**Функции:**
+- `classify_risk(volatility_pct)` → `low`/`medium`/`high` по волатильности 7д
+- `compute_reference(median_hist, median_now, current_min)` — опорная цена `ref`:
+  приоритет `median_price_7d` (стабильный исторический ориентир, независимый от
+  текущего скана — иначе профит математически невозможен). `median_now` (медиана
+  текущего снэпшота) — только trend-guard: если `median_now < median_hist × 0.75`,
+  рынок "просел" (`trend="falling"`), `ref` корректируется консервативно вниз.
+  Возвращает `{ref, source: "history"|"current_fallback", trend}`.
+- `make_sell_options(ref, volume_7d, time_price_pairs=None)` — 3 ценовые точки
+  fast/normal/premium (`ref × 0.97/1.00/1.05`) с прогнозом времени (см. ниже,
+  логика идентична `market_stats._calculate_sell_options`)
+- `batch_bucket_for_amount(amount)` — бакет размера пачки (`x1`, `x2_5`, ... `x51_plus`)
+- `evaluate_lot_profit(buyout_per_unit, amount, sell_options, risk, min_margin_pct, batch_stats)`:
+  профит считается от тира **"fast"**; при ≥`MIN_BATCH_SAMPLES` реальных продажах
+  в том же бакете (`market_statistics.batch_stats`) цена продажи корректируется
+  пропорционально медианной цене пачки; требуемая маржа = `min_margin_pct × RISK_MARGIN_MULT[risk]`.
+  Возвращает `None` если невыгодно, иначе `{profit, profit_pct, profit_per_hour, tier_used, sell_price_used}`.
+- `format_hours(hours)` — человекочитаемое форматирование времени (`~3 ч`, `~2 дня`, ...)
+
+---
+
 ## app/services/analytics/market_stats.py — calculate_market_stats
 
 Пересчитывает `market_statistics` для одного предмета одного пользователя.
@@ -125,11 +159,16 @@ OAuth2 Client Credentials flow для Stalcraft API.
 - Бонус выходного дня (средняя цена сб+вс vs будни)
 - Среднее время продажи из выкупов (`avg_sell_time_hours`)
 - `sell_options` — 3 ценовых варианта с прогнозом времени
+- `demand_signals` — информационный bulk_spike сигнал (`_recent_bulk_signal`): доля
+  объёма продаж в пачках ≥10 шт за последние 24ч vs базовая доля за ~29 дней;
+  `bulk_spike=true` при резком росте (>= `BULK_SPIKE_MIN_SHARE` и в
+  `BULK_SPIKE_MULTIPLIER` раз больше базовой доли). `None`, если в одном из окон
+  меньше `MIN_SALES_FOR_STATS` продаж. Не блокирует и не усиливает сигнал —
+  только отображается в `/monitoring/item/{id}`.
 
-**Алгоритм sell_options:**
+**Алгоритм sell_options** (`pricing.make_sell_options`):
 
-Три ценовые точки (все относительно текущего рынка):
-- `ref = current_min_liquid_price or median_7d` — база отсчёта
+Три ценовые точки (все относительно `ref`):
 - **Быстро** (`fast`): `ref × 0.97` — ниже рынка
 - **Нормально** (`normal`): `ref × 1.00` — по рынку
 - **Выгодно** (`premium`): `ref × 1.05` — выше рынка
@@ -170,14 +209,30 @@ OAuth2 Client Credentials flow для Stalcraft API.
 
 ### `_publish_signals(db, item_id, region, snap)`
 
-После каждого успешного сбора пишет в Redis ключ `signals:{user_id}:{item_id}:{region}:{qf}:{ef}` (TTL 300 сек) для каждой watchlist-записи с этим предметом.
+После каждого успешного сбора пишет в Redis ключ `signals:{user_id}:{item_id}:{region}:{qf}:{ef}` (TTL 300 сек) для каждой watchlist-записи с этим предметом, передавая личные `min_profit_margin_percent`/`exclude_less_than_amount` из `user_settings`.
 
 Логика из `app/services/profitable_lots.py` (`compute_signals_for_entry`):
-- `ref = median_price_7d` из market_statistics (или current_min как fallback)
-- Отфильтровывает истекающие лоты (< 2ч) и лоты где `normal_net ≤ buyout`
-- Возвращает: `{lots, sell_options, volume_7d, volatility_7d, ref, computed_at}`
+- Если снэпшот старше `STALE_SECONDS=90` сек — возвращает `None` (сигнал не публикуется)
+- `ref`/`trend` — через `pricing.compute_reference` (приоритет `median_price_7d`, trend-guard по медиане текущего снэпшота, для фильтрованных записей — медиана по тем же qlt/ptn из `raw_lots`)
+- Отфильтровывает истекающие лоты (< 2ч), лоты с `amount < exclude_less_than_amount` и невыгодные (`pricing.evaluate_lot_profit` возвращает `None`)
+- Профитные лоты сортируются по `profit_per_hour` (убывание)
+- Возвращает: `{lots, sell_options, volume_7d, volatility_7d, ref, ref_source, trend, risk, total_profitable_amount, saturation_ratio, computed_at}`
+  - `lots[i]` дополнительно содержит `profit`, `profit_pct`, `profit_per_hour`, `tier_used`, `sell_price_used`
+  - `saturation_ratio = total_profitable_amount / (sales_volume_7d / 7)` — индикатор перенасыщения рынка профитными лотами (`None`, если `sales_volume_7d` отсутствует/0)
 
 Бот (`telegram_bot/bot.py`) и API (`GET /monitoring/signals/{item_id}`) читают из одного ключа — рассинхрон невозможен.
+
+### Калибровочный лог `signal_outcomes`
+
+После публикации сигналов, для каждой уникальной комбинации `(quality_filter, enchant_filter)`
+из watchlist-записей этого `(item_id, region)`, `_publish_signals` вызывает
+`compute_signals_for_entry` ещё раз с `min_profit_margin_pct=0, exclude_less_than_amount=1`
+(независимо от персональных настроек) и логирует найденные профитные лоты через
+`_log_signal_outcomes` (`INSERT ... ON CONFLICT DO NOTHING` по `(item_id, region, lot_start_time)`
+в таблицу `signal_outcomes`, см. `docs/DATABASE.md`). Комбинации с фильтрами обрабатываются
+первыми — если один лот попадает под несколько комбинаций, в таблице остаётся запись с более
+точным (не "средним по больнице") `ref`. Задача `app.tasks.analyzers.evaluate_signal_outcomes`
+(раз в сутки) сверяет эти записи с `sales_history` для будущей калибровки констант `pricing.py`.
 
 ### Разовые задачи (цепочка при добавлении в watchlist)
 

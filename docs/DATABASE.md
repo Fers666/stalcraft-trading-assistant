@@ -189,6 +189,7 @@ UNIQUE по `(user_id, item_id, region)` — одна запись на пред
 | `avg_sell_time_hours` | numeric(8,2) | Среднее время продажи в часах (из snapshot-history matching) |
 | `sell_options` | jsonb | **3 варианта цены с прогнозом времени** (см. ниже) |
 | `batch_stats` | jsonb | Статистика по пачкам (резерв) |
+| `demand_signals` | jsonb | Информационный сигнал спроса (см. ниже) |
 | `calculated_at` | timestamptz | Время последнего пересчёта |
 
 **Формат `sell_options`:**
@@ -209,6 +210,53 @@ UNIQUE по `(user_id, item_id, region)` — одна запись на пред
 ```
 `confidence` по coverage: `coverage = matched_count / total_sales_30d × 100%`  
 `high` ≥30% AND ≥10 точек, `medium` 10–30% AND ≥3 точки, `low` <10%.
+
+**Формат `demand_signals`** (`null`, если данных меньше `MIN_SALES_FOR_STATS` в одном из окон):
+```json
+{
+  "recent_bulk_share_24h": 23.5,
+  "baseline_bulk_share_29d": 8.1,
+  "bulk_spike": true
+}
+```
+Доля объёма продаж в пачках ≥10 шт за последние 24ч vs базовая доля за предыдущие ~29 дней.
+`bulk_spike=true` — резкий рост доли крупных закупок (информационный флаг, ничего не блокирует/усиливает).
+
+---
+
+### `signal_outcomes` — лог предсказаний для калибровки (миграция 0024)
+
+Раз за цикл сбора, для каждой уникальной комбинации `(quality_filter, enchant_filter)` из
+watchlist по `(item_id, region)`, логируются текущие профитные лоты из
+`compute_signals_for_entry` (margin=0, без отсечения по amount). Не используется
+автоматически — данные для будущей калибровки констант `pricing.py` (97/100/105%,
+пороги волатильности и т.п.) по фактическим результатам продаж.
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `item_id` / `region` | varchar | Предмет и регион |
+| `quality_filter` / `enchant_filter` | integer, nullable | Комбинация фильтров watchlist-записи, для которой считался `ref` |
+| `lot_start_time` | varchar(50) | `startTime` лота — естественный ключ дедупа |
+| `buyout_per_unit` | bigint | Цена выкупа лота за штуку на момент предсказания |
+| `ref_price` | bigint | `ref`, использованный для расчёта (см. `pricing.compute_reference`) |
+| `predicted_sell_price` | bigint | Цена продажи тира "fast" (с поправкой на пачку), на которой основан профит |
+| `predicted_hours` | numeric(8,2) | Прогнозируемое время продажи (fast-тир) |
+| `predicted_profit_pct` | numeric(6,2) | Предсказанная маржа, % |
+| `trend` | varchar(10) | `stable` / `falling` / `rising` / `unknown` на момент предсказания |
+| `created_at` | timestamptz | Когда залогировано |
+| `evaluated_at` | timestamptz, nullable | Когда сверено с `sales_history` (`NULL` = ожидает обработки) |
+| `realized_price` | bigint, nullable | Фактическая цена найденной продажи |
+| `realized_hours` | numeric(8,2), nullable | Фактическое время до продажи |
+| `outcome` | varchar(20), nullable | `sold_at_or_above` / `sold_below` / `not_sold` |
+
+**UNIQUE:** `(item_id, region, lot_start_time)` — `INSERT ... ON CONFLICT DO NOTHING`.
+**Индекс** `ix_signal_outcome_pending` на `evaluated_at` — для выборки необработанных строк.
+
+**Задача `evaluate_signal_outcomes`** (Celery beat, раз в сутки `crontab(hour=4, minute=30)`):
+для строк с `evaluated_at IS NULL`, у которых прошло ≥ `predicted_hours` (или ≥7 дней —
+таймаут), ищет в `sales_history` продажу того же item/region(/qlt/ptn) с ценой в пределах
+±15% от `predicted_sell_price` в окне `[created_at, now]`. Найдена → `sold_at_or_above` /
+`sold_below` (по сравнению с `predicted_sell_price`); не найдена после таймаута → `not_sold`.
 
 ---
 
@@ -365,6 +413,8 @@ tradability_score = liquid_lot_count × total_volume / (1 + price_spread_pct)
 | `0011_master_items_color.py` | Поле `color` в `master_items` (RANK_* строки из GitHub) |
 | `0012_watchlist_quality_enchant.py` | Поля `quality_filter`, `enchant_filter` в `user_watchlist`; удаляет DB-unique индекс |
 | `0022_master_items_bind_state.py` | Поле `bind_state` в `master_items` (статус привязки из GitHub, для фильтрации непродаваемых предметов) |
+| `0023_market_demand_signals.py` | Поле `demand_signals` (jsonb) в `market_statistics` — bulk_spike сигнал |
+| `0024_signal_outcomes.py` | Новая таблица `signal_outcomes` — лог предсказаний для будущей калибровки |
 
 ---
 
