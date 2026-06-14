@@ -10,6 +10,7 @@ import api from '../api/client'
 import { formatPrice, iconUrl } from '../utils/i18n'
 
 const COMMISSION = 0.05
+const MAX_PROFITABLE_LOTS = 10
 
 const QLT_NAMES: Record<number, string> = {
   0: 'Обычный', 1: 'Необычный', 2: 'Особый',
@@ -210,7 +211,7 @@ export default function LotStatCard({
           return true
         })
         .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
-        .slice(0, 5)
+        .slice(0, MAX_PROFITABLE_LOTS)
     }
     if (!sellPrices || lots.length === 0) return []
     const normalPrice = sellPrices.find(p => p.label === 'normal')?.price
@@ -243,7 +244,7 @@ export default function LotStatCard({
         return true
       })
       .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
-      .slice(0, 5)
+      .slice(0, MAX_PROFITABLE_LOTS)
   }, [signals, sellPrices, lots, qualityFilter, enchantFilter, minProfitMarginPercent])
 
   const totalFilteredLots = useMemo(() => lots.filter(l => {
@@ -255,6 +256,7 @@ export default function LotStatCard({
 
   const hasQuality = profitableLots.some(l => l.quality_name || l.enchant_level != null)
   const lotGridCols = hasQuality ? '1fr auto 86px 86px 86px' : '1fr 86px 86px 86px'
+  const hasRight = !!((stats?.sell_options?.length ?? 0) > 0 || stats?.batch_stats)
 
   const sellHour = timeMode === 'today'
     ? (stats?.sell_hours_by_day?.[TODAY_EN] ?? stats?.best_sell_hour)
@@ -384,169 +386,181 @@ export default function LotStatCard({
           </Box>
         </Box>
 
-        {/* Выгодные лоты */}
+        {/* Выгодные лоты / Варианты продажи / Пачки */}
         {stats && (
           <Box>
-            <>
-              <Divider sx={{ my: 1.5 }} />
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
-                  ВЫГОДНЫЕ ЛОТЫ
-                </Typography>
-                {profitableLots.length > 0
-                  ? <Chip label={`${profitableLots.length} / ${totalFilteredLots}`} size="small" color="success" sx={{ height: 18, fontSize: 10 }} />
-                  : <Chip label={`нет / ${totalFilteredLots}`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'text.disabled' }} />
-                }
-                <ToggleButtonGroup value={lotMode} exclusive onChange={(_, v) => v && setLotMode(v)} size="small" sx={{ ml: 'auto' }}>
-                  <ToggleButton value="median"  sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>Неделя</ToggleButton>
-                  <ToggleButton value="current" sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>Сейчас</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
+            <Divider sx={{ my: 1.5 }} />
+            <Box sx={{ display: 'grid', gridTemplateColumns: fullWidth && hasRight ? '1.6fr 1fr' : '1fr', gap: 2 }}>
 
-              {profitableLots.length === 0 ? (
-                <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'center', py: 1 }}>
-                  Нет выгодных лотов
-                </Typography>
-              ) : (
-                <>
-                  <Box sx={{ display: 'grid', gridTemplateColumns: lotGridCols, gap: 0.5, mb: 0.5, px: 0.5 }}>
-                    <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em' }}>ЦЕНА / ШТ</Typography>
-                    {hasQuality && <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em', textAlign: 'right' }}>КАЧЕСТВО</Typography>}
-                    {sellPrices?.map(sp => (
-                      <Typography key={sp.label} sx={{ fontSize: '0.58rem', color: sellOptionColor(sp.label), fontWeight: 700, letterSpacing: '0.06em', textAlign: 'right' }}>
-                        {sp.label_ru.toUpperCase()}
-                      </Typography>
-                    ))}
-                  </Box>
-                  {profitableLots.map((lot, i) => (
-                    <Box key={i} sx={{ display: 'grid', gridTemplateColumns: lotGridCols, gap: 0.5, py: 0.5, px: 0.5, borderRadius: '6px', '&:hover': { bgcolor: 'rgba(255,255,255,0.02)' } }}>
-                      <Box>
-                        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.primary' }}>{formatPrice(lot.buyPerUnit)}</Typography>
-                        {lot.amount > 1 && <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled' }}>{lot.amount} шт · {formatPrice(lot.buyout_price)}</Typography>}
-                      </Box>
-                      {hasQuality && (
-                        <Box sx={{ textAlign: 'right', alignSelf: 'center' }}>
-                          {lot.quality_name && <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', lineHeight: 1.3 }}>{lot.quality_name}</Typography>}
-                          {lot.enchant_level != null && <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 600, lineHeight: 1.3 }}>{lot.enchant_level === 0 ? 'Не точёный' : `+${lot.enchant_level}`}</Typography>}
-                        </Box>
-                      )}
-                      {lot.profits.map(p => (
-                        <Box key={p.label} sx={{ textAlign: 'right' }}>
-                          <Typography variant="caption" sx={{ fontWeight: 600, color: p.perUnit > 0 ? 'success.main' : 'error.main' }}>
-                            {p.perUnit > 0 ? '+' : ''}{formatPrice(p.perUnit)}
-                          </Typography>
-                          {lot.amount > 1 && <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', display: 'block' }}>итого {p.total > 0 ? '+' : ''}{formatPrice(p.total)}</Typography>}
-                        </Box>
+              {/* Выгодные лоты */}
+              <Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+                  <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
+                    ВЫГОДНЫЕ ЛОТЫ
+                  </Typography>
+                  {profitableLots.length > 0
+                    ? <Chip label={`${profitableLots.length} / ${totalFilteredLots}`} size="small" color="success" sx={{ height: 18, fontSize: 10 }} />
+                    : <Chip label={`нет / ${totalFilteredLots}`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'text.disabled' }} />
+                  }
+                  <ToggleButtonGroup value={lotMode} exclusive onChange={(_, v) => v && setLotMode(v)} size="small" sx={{ ml: 'auto' }}>
+                    <ToggleButton value="median"  sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>Неделя</ToggleButton>
+                    <ToggleButton value="current" sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>Сейчас</ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+
+                {profitableLots.length === 0 ? (
+                  <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'center', py: 1 }}>
+                    Нет выгодных лотов
+                  </Typography>
+                ) : (
+                  <>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: lotGridCols, gap: 0.5, mb: 0.5, px: 0.5 }}>
+                      <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em' }}>ЦЕНА / ШТ</Typography>
+                      {hasQuality && <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em', textAlign: 'right' }}>КАЧЕСТВО</Typography>}
+                      {sellPrices?.map(sp => (
+                        <Typography key={sp.label} sx={{ fontSize: '0.58rem', color: sellOptionColor(sp.label), fontWeight: 700, letterSpacing: '0.06em', textAlign: 'right' }}>
+                          {sp.label_ru.toUpperCase()}
+                        </Typography>
                       ))}
                     </Box>
-                  ))}
-                </>
-              )}
-            </>
+                    {profitableLots.map((lot, i) => (
+                      <Box key={i} sx={{ display: 'grid', gridTemplateColumns: lotGridCols, gap: 0.5, py: 0.5, px: 0.5, borderRadius: '6px', '&:hover': { bgcolor: 'rgba(255,255,255,0.02)' } }}>
+                        <Box>
+                          <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.primary' }}>{formatPrice(lot.buyPerUnit)}</Typography>
+                          {lot.amount > 1 && <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled' }}>{lot.amount} шт · {formatPrice(lot.buyout_price)}</Typography>}
+                        </Box>
+                        {hasQuality && (
+                          <Box sx={{ textAlign: 'right', alignSelf: 'center' }}>
+                            {lot.quality_name && <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', lineHeight: 1.3 }}>{lot.quality_name}</Typography>}
+                            {lot.enchant_level != null && <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 600, lineHeight: 1.3 }}>{lot.enchant_level === 0 ? 'Не точёный' : `+${lot.enchant_level}`}</Typography>}
+                          </Box>
+                        )}
+                        {lot.profits.map(p => (
+                          <Box key={p.label} sx={{ textAlign: 'right' }}>
+                            <Typography variant="caption" sx={{ fontWeight: 600, color: p.perUnit > 0 ? 'success.main' : 'error.main' }}>
+                              {p.perUnit > 0 ? '+' : ''}{formatPrice(p.perUnit)}
+                            </Typography>
+                            {lot.amount > 1 && <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', display: 'block' }}>итого {p.total > 0 ? '+' : ''}{formatPrice(p.total)}</Typography>}
+                          </Box>
+                        ))}
+                      </Box>
+                    ))}
+                  </>
+                )}
+              </Box>
 
-            {/* Варианты продажи */}
-            {stats.sell_options && stats.sell_options.length > 0 && (
-              <>
-                <Divider sx={{ my: 1.5 }} />
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                  <TrendingUpIcon sx={{ fontSize: 13, color: 'primary.main' }} />
-                  <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>ВАРИАНТЫ ПРОДАЖИ</Typography>
-                  <Tooltip title={CONFIDENCE_TOOLTIPS[stats.sell_options[0].confidence]}>
-                    <Chip
-                      label={{ low: 'Мало данных', medium: 'Средняя точность', high: 'Высокая точность' }[stats.sell_options[0].confidence]}
-                      size="small"
-                      color={{ low: 'warning', medium: 'info', high: 'success' }[stats.sell_options[0].confidence] as 'warning' | 'info' | 'success'}
-                      sx={{ ml: 'auto', height: 18, fontSize: 10 }}
-                    />
-                  </Tooltip>
-                </Box>
-                {(() => {
-                  const cheapestBuy = lots
-                    .filter(l => !l.is_expiring && l.buyout_price > 0)
-                    .filter(l => qualityFilter === null || l.quality_name === QLT_NAMES[qualityFilter])
-                    .filter(l => enchantFilter === null || l.enchant_level === enchantFilter)
-                    .reduce<number | null>((min, l) => {
-                      const p = Math.floor(l.buyout_price / l.amount)
-                      return min === null || p < min ? p : min
-                    }, null)
-                  return (
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      {stats.sell_options!.map((opt) => {
-                        const c = sellOptionColor(opt.label)
-                        const profitFromCheapest = cheapestBuy !== null ? opt.net_price_per_unit - cheapestBuy : null
-                        const isProfitable = profitFromCheapest !== null && profitFromCheapest > 0
+              {/* Варианты продажи + Пачки */}
+              {hasRight && (
+                <Box sx={fullWidth ? { borderLeft: '1px solid rgba(255,255,255,0.06)', pl: 2 } : {}}>
+                  {!fullWidth && <Divider sx={{ mb: 1.5 }} />}
+
+                  {stats.sell_options && stats.sell_options.length > 0 && (
+                    <Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+                        <TrendingUpIcon sx={{ fontSize: 13, color: 'primary.main' }} />
+                        <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>ВАРИАНТЫ ПРОДАЖИ</Typography>
+                        <Tooltip title={CONFIDENCE_TOOLTIPS[stats.sell_options[0].confidence]}>
+                          <Chip
+                            label={{ low: 'Мало данных', medium: 'Средняя точность', high: 'Высокая точность' }[stats.sell_options[0].confidence]}
+                            size="small"
+                            color={{ low: 'warning', medium: 'info', high: 'success' }[stats.sell_options[0].confidence] as 'warning' | 'info' | 'success'}
+                            sx={{ ml: 'auto', height: 18, fontSize: 10 }}
+                          />
+                        </Tooltip>
+                      </Box>
+                      {(() => {
+                        const cheapestBuy = lots
+                          .filter(l => !l.is_expiring && l.buyout_price > 0)
+                          .filter(l => qualityFilter === null || l.quality_name === QLT_NAMES[qualityFilter])
+                          .filter(l => enchantFilter === null || l.enchant_level === enchantFilter)
+                          .reduce<number | null>((min, l) => {
+                            const p = Math.floor(l.buyout_price / l.amount)
+                            return min === null || p < min ? p : min
+                          }, null)
+                        return stats.sell_options!.map((opt) => {
+                          const c = sellOptionColor(opt.label)
+                          const profitFromCheapest = cheapestBuy !== null ? opt.net_price_per_unit - cheapestBuy : null
+                          const isProfitable = profitFromCheapest !== null && profitFromCheapest > 0
+                          return (
+                            <Tooltip key={opt.label} title={`${SELL_OPTION_TOOLTIPS[opt.label]} Купи до ${formatPrice(opt.net_price_per_unit)} чтобы выйти в плюс (−5%).`}>
+                              <Box sx={{
+                                p: 1, mb: 0.75, borderRadius: '10px', cursor: 'help',
+                                border: profitFromCheapest !== null
+                                  ? `1px solid ${isProfitable ? 'rgba(62,213,152,0.3)' : 'rgba(235,87,87,0.25)'}`
+                                  : '1px solid rgba(255,255,255,0.06)',
+                                background: profitFromCheapest !== null
+                                  ? isProfitable ? 'rgba(62,213,152,0.04)' : 'rgba(235,87,87,0.03)'
+                                  : 'rgba(255,255,255,0.02)',
+                                '&:hover': { borderColor: `${c}44` },
+                              }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.5 }}>
+                                  <Typography sx={{ fontSize: '0.65rem', color: c, fontWeight: 700, letterSpacing: '0.06em' }}>{opt.label_ru.toUpperCase()}</Typography>
+                                  <Typography variant="caption" color="text.secondary">{opt.estimated_hours_display}</Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.25 }}>
+                                  <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled' }}>Выставить за</Typography>
+                                  <Typography variant="body2" fontWeight={700} color="text.primary">{formatPrice(opt.price_per_unit)}</Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 0.25 }}>
+                                  <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled' }}>Получишь (−5%)</Typography>
+                                  <Typography variant="body2" fontWeight={700} sx={{ color: c }}>{formatPrice(opt.net_price_per_unit)}</Typography>
+                                </Box>
+                                {profitFromCheapest !== null ? (
+                                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                                    <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled' }}>Прибыль</Typography>
+                                    <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: isProfitable ? 'success.main' : 'error.main' }}>
+                                      {isProfitable ? '+' : ''}{formatPrice(profitFromCheapest)}
+                                    </Typography>
+                                  </Box>
+                                ) : (
+                                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                                    <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled' }}>Купи до</Typography>
+                                    <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: 'text.secondary' }}>{formatPrice(opt.net_price_per_unit - 1)}</Typography>
+                                  </Box>
+                                )}
+                              </Box>
+                            </Tooltip>
+                          )
+                        })
+                      })()}
+                    </Box>
+                  )}
+
+                  {/* Пачки */}
+                  {stats.batch_stats && (
+                    <>
+                      <Divider sx={{ my: 1.5 }} />
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+                        <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>ПАЧКИ</Typography>
+                        <Chip label={`${stats.batch_stats.batch_ratio_pct}% сделок`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'text.secondary' }} />
+                        <Chip label={`~${stats.batch_stats.median_amount} шт`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'primary.main', borderColor: 'primary.main' }} />
+                      </Box>
+                      {Object.entries(stats.batch_stats.by_size).map(([key, bucket]) => {
+                        const isPopular = key === stats.batch_stats!.most_popular_bucket
                         return (
-                          <Tooltip key={opt.label} title={`${SELL_OPTION_TOOLTIPS[opt.label]} Купи до ${formatPrice(opt.net_price_per_unit)} чтобы выйти в плюс (−5%).`}>
-                            <Box sx={{
-                              flex: 1, p: 1.25, borderRadius: '10px', textAlign: 'center', cursor: 'help',
-                              border: profitFromCheapest !== null
-                                ? `1px solid ${isProfitable ? 'rgba(62,213,152,0.3)' : 'rgba(235,87,87,0.25)'}`
-                                : '1px solid rgba(255,255,255,0.06)',
-                              background: profitFromCheapest !== null
-                                ? isProfitable ? 'rgba(62,213,152,0.04)' : 'rgba(235,87,87,0.03)'
-                                : 'rgba(255,255,255,0.02)',
-                              '&:hover': { borderColor: `${c}44` },
-                            }}>
-                              <Typography sx={{ fontSize: '0.62rem', color: c, fontWeight: 700, letterSpacing: '0.06em', mb: 0.75 }}>{opt.label_ru.toUpperCase()}</Typography>
-                              <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mb: 0.25 }}>выставить за</Typography>
-                              <Typography variant="body2" fontWeight={700} color="text.primary">{formatPrice(opt.price_per_unit)}</Typography>
-                              <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mt: 0.75, mb: 0.25 }}>получишь (−5%)</Typography>
-                              <Typography variant="body2" fontWeight={700} sx={{ color: c }}>{formatPrice(opt.net_price_per_unit)}</Typography>
-                              {profitFromCheapest !== null ? (
-                                <>
-                                  <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mt: 0.75, mb: 0.25 }}>прибыль</Typography>
-                                  <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: isProfitable ? 'success.main' : 'error.main' }}>
-                                    {isProfitable ? '+' : ''}{formatPrice(profitFromCheapest)}
-                                  </Typography>
-                                </>
-                              ) : (
-                                <>
-                                  <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', mt: 0.75, mb: 0.25 }}>купи до</Typography>
-                                  <Typography sx={{ fontSize: '0.62rem', fontWeight: 600, color: 'text.secondary' }}>{formatPrice(opt.net_price_per_unit - 1)}</Typography>
-                                </>
-                              )}
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>{opt.estimated_hours_display}</Typography>
+                          <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <Typography sx={{ fontSize: '0.6rem', color: isPopular ? 'primary.main' : 'text.secondary', minWidth: 52, fontWeight: isPopular ? 700 : 400 }}>{bucket.label}</Typography>
+                            <Box sx={{ flex: 1, height: 4, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.06)', position: 'relative', overflow: 'hidden' }}>
+                              <Box sx={{ width: `${bucket.share_pct}%`, height: '100%', borderRadius: 2, bgcolor: isPopular ? 'primary.main' : 'rgba(255,255,255,0.18)', transition: 'width 0.3s' }} />
                             </Box>
-                          </Tooltip>
+                            <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', minWidth: 28, textAlign: 'right' }}>{bucket.share_pct}%</Typography>
+                            <Typography sx={{ fontSize: '0.6rem', color: 'text.primary', minWidth: 68, textAlign: 'right', fontFamily: 'monospace', fontWeight: isPopular ? 600 : 400 }}>{formatPrice(bucket.avg_price_per_unit)}/шт</Typography>
+                          </Box>
                         )
                       })}
-                    </Box>
-                  )
-                })()}
-              </>
-            )}
-
-            {/* Пачки */}
-            {stats.batch_stats && (
-              <>
-                <Divider sx={{ my: 1.5 }} />
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                  <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>ПАЧКИ</Typography>
-                  <Chip label={`${stats.batch_stats.batch_ratio_pct}% сделок`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'text.secondary' }} />
-                  <Chip label={`~${stats.batch_stats.median_amount} шт`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'primary.main', borderColor: 'primary.main' }} />
+                      {stats.batch_stats.bulk_discount_pct !== null && (
+                        <Typography sx={{ fontSize: '0.62rem', mt: 0.75, color: stats.batch_stats.bulk_discount_pct > 0 ? 'success.main' : 'warning.main' }}>
+                          {stats.batch_stats.bulk_discount_pct > 0
+                            ? `Оптом дешевле на ${stats.batch_stats.bulk_discount_pct}% — выгоднее покупать пачкой`
+                            : `Оптом дороже на ${Math.abs(stats.batch_stats.bulk_discount_pct)}% — выгоднее покупать поштучно`}
+                        </Typography>
+                      )}
+                    </>
+                  )}
                 </Box>
-                {Object.entries(stats.batch_stats.by_size).map(([key, bucket]) => {
-                  const isPopular = key === stats.batch_stats!.most_popular_bucket
-                  return (
-                    <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                      <Typography sx={{ fontSize: '0.6rem', color: isPopular ? 'primary.main' : 'text.secondary', minWidth: 52, fontWeight: isPopular ? 700 : 400 }}>{bucket.label}</Typography>
-                      <Box sx={{ flex: 1, height: 4, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.06)', position: 'relative', overflow: 'hidden' }}>
-                        <Box sx={{ width: `${bucket.share_pct}%`, height: '100%', borderRadius: 2, bgcolor: isPopular ? 'primary.main' : 'rgba(255,255,255,0.18)', transition: 'width 0.3s' }} />
-                      </Box>
-                      <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', minWidth: 28, textAlign: 'right' }}>{bucket.share_pct}%</Typography>
-                      <Typography sx={{ fontSize: '0.6rem', color: 'text.primary', minWidth: 68, textAlign: 'right', fontFamily: 'monospace', fontWeight: isPopular ? 600 : 400 }}>{formatPrice(bucket.avg_price_per_unit)}/шт</Typography>
-                    </Box>
-                  )
-                })}
-                {stats.batch_stats.bulk_discount_pct !== null && (
-                  <Typography sx={{ fontSize: '0.62rem', mt: 0.75, color: stats.batch_stats.bulk_discount_pct > 0 ? 'success.main' : 'warning.main' }}>
-                    {stats.batch_stats.bulk_discount_pct > 0
-                      ? `Оптом дешевле на ${stats.batch_stats.bulk_discount_pct}% — выгоднее покупать пачкой`
-                      : `Оптом дороже на ${Math.abs(stats.batch_stats.bulk_discount_pct)}% — выгоднее покупать поштучно`}
-                  </Typography>
-                )}
-              </>
-            )}
+              )}
+
+            </Box>
           </Box>
         )}
 
