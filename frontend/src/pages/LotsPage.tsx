@@ -159,6 +159,8 @@ export default function LotsPage() {
   const location = useLocation()
   const pendingQualityRef = useRef<string | null>(null)
   const pendingEnchantRef = useRef<string | null>(null)
+  const navStateAppliedRef = useRef(false)
+  const preserveFiltersRef = useRef(false)
 
   // Поиск конкретного предмета
   const [query, setQuery]               = useState('')
@@ -192,6 +194,10 @@ export default function LotsPage() {
 
   // ─── Инициализация из navigation state (переход из Избранного) ───────────
   useEffect(() => {
+    // Guard against React.StrictMode's double-invoke: без него fetchLots
+    // запускался дважды, второй setResult сбрасывал pending-фильтры в 'all'.
+    if (navStateAppliedRef.current) return
+    navStateAppliedRef.current = true
     const state = location.state as {
       item_id?: string
       name_ru?: string | null
@@ -271,10 +277,14 @@ export default function LotsPage() {
 
   useEffect(() => {
     if (result === null && catResult === null) return
-    setFilterQuality(pendingQualityRef.current ?? 'all')
-    setFilterEnchant(pendingEnchantRef.current ?? 'all')
-    pendingQualityRef.current = null
-    pendingEnchantRef.current = null
+    if (preserveFiltersRef.current) {
+      preserveFiltersRef.current = false
+    } else {
+      setFilterQuality(pendingQualityRef.current ?? 'all')
+      setFilterEnchant(pendingEnchantRef.current ?? 'all')
+      pendingQualityRef.current = null
+      pendingEnchantRef.current = null
+    }
     setPage(0)
     setWlStates({})
   }, [result, catResult])
@@ -320,11 +330,19 @@ export default function LotsPage() {
   )
   const handleRegionChange = (newRegion: string) => {
     setRegion(newRegion)
-    if (selectedItem) fetchLots(selectedItem, newRegion)
+    if (selectedItem) {
+      preserveFiltersRef.current = true
+      fetchLots(selectedItem, newRegion)
+    }
   }
   const handleRefresh = () => {
-    if (selectedItem) fetchLots(selectedItem, region, true)
-    else if (selectedCategory) fetchCategoryLots(selectedCategory, region)
+    if (selectedItem) {
+      preserveFiltersRef.current = true
+      fetchLots(selectedItem, region, true)
+    } else if (selectedCategory) {
+      preserveFiltersRef.current = true
+      fetchCategoryLots(selectedCategory, region)
+    }
   }
 
   // ─── Выбор категории ───────────────────────────────────────────────────────
