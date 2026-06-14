@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.models.models import User, MarketStatistics, CollectedData, SalesHistory
 from app.core.dependencies import get_current_user
 from app.services.profitable_lots import signals_key
+from app.services.analytics.pricing import make_sell_options, classify_risk, GLITCH_RATIO
 
 router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
 
@@ -36,6 +37,8 @@ class MonitoringItemResponse(BaseModel):
     avg_sell_time_hours: float | None
     sell_options: list | None
     batch_stats: dict | None = None
+    demand_signals: dict | None = None
+    risk_level: str | None = None
     calculated_at: datetime | None
 
     class Config:
@@ -68,40 +71,8 @@ def _build_sales_filter(quality_filter: int | None, enchant_filter: int | None) 
 
 
 def _make_sell_options(median: float, volume_7d: int) -> list[dict]:
-    """Быстрый расчёт sell_options от отфильтрованной медианы (confidence=low)."""
-    from app.services.analytics.market_stats import _format_hours
-    ref = int(median)
-    fast_price    = int(ref * 0.97)
-    normal_price  = int(ref * 1.00)
-    premium_price = int(ref * 1.05)
-    COMMISSION    = 0.05
-
-    sales_per_day = volume_7d / 7.0
-    if sales_per_day >= 5:
-        fh, nh, ph = 2.0, 8.0, 24.0
-    elif sales_per_day >= 1:
-        fh, nh, ph = 8.0, 24.0, 72.0
-    elif sales_per_day >= 0.14:
-        fh, nh, ph = 24.0, 72.0, 168.0
-    else:
-        fh, nh, ph = 72.0, 168.0, 336.0
-
-    def opt(label, label_ru, price, hours):
-        return {
-            "label": label, "label_ru": label_ru,
-            "price_per_unit": price,
-            "net_price_per_unit": int(price * (1 - COMMISSION)),
-            "estimated_hours": hours,
-            "estimated_hours_display": _format_hours(hours),
-            "confidence": "low",
-            "data_points": volume_7d,
-        }
-
-    return [
-        opt("fast",    "Быстро",    fast_price,    fh),
-        opt("normal",  "Нормально", normal_price,  nh),
-        opt("premium", "Выгодно",   premium_price, ph),
-    ]
+    """Тонкая обёртка над pricing.make_sell_options (confidence=low, без time_price_pairs)."""
+    return make_sell_options(int(median), volume_7d)
 
 
 @router.get("/item/{item_id}", response_model=MonitoringItemResponse)
@@ -162,6 +133,8 @@ async def get_item_stats(
             avg_sell_time_hours=None,
             sell_options=fresh_sell_options,
             batch_stats=None,
+            demand_signals=None,
+            risk_level=None,
             calculated_at=latest_snap.collect_time,
         )
 
@@ -183,8 +156,8 @@ async def get_item_stats(
             current_min = (
                 latest_snap.best_liquid_price_per_unit or latest_snap.best_price_per_unit
             )
-            # Sanity check: глитч-лоты (цена < 5% медианы) — игнорируем, используем медиану
-            if current_min and median_ref and current_min < median_ref * 0.05:
+            # Sanity check: глитч-лоты (цена < GLITCH_RATIO от медианы) — игнорируем, используем медиану
+            if current_min and median_ref and current_min < median_ref * GLITCH_RATIO:
                 current_min = None
             ref = float(current_min) if current_min else median_ref
             if ref:
@@ -211,6 +184,8 @@ async def get_item_stats(
             avg_sell_time_hours=float(stats.avg_sell_time_hours) if stats.avg_sell_time_hours else None,
             sell_options=fresh_sell_options,
             batch_stats=stats.batch_stats,
+            demand_signals=stats.demand_signals,
+            risk_level=classify_risk(float(stats.price_volatility_7d) if stats.price_volatility_7d else None),
             calculated_at=stats.calculated_at,
         )
 
@@ -287,6 +262,8 @@ async def get_item_stats(
         avg_sell_time_hours=float(stats.avg_sell_time_hours) if stats.avg_sell_time_hours else None,
         sell_options=filtered_opts or None,
         batch_stats=stats.batch_stats,
+        demand_signals=stats.demand_signals,
+        risk_level=classify_risk(filtered_volatility_7d),
         calculated_at=stats.calculated_at,
     )
 
@@ -428,6 +405,11 @@ class SignalLot(BaseModel):
     amount: int
     quality_name: str | None = None
     enchant: int | None = None
+    profit: int | None = None
+    profit_pct: float | None = None
+    profit_per_hour: float | None = None
+    tier_used: str | None = None
+    sell_price_used: int | None = None
 
 
 class SignalsResponse(BaseModel):
@@ -436,6 +418,11 @@ class SignalsResponse(BaseModel):
     volume_7d: int | None
     volatility_7d: float | None
     ref: int | None
+    ref_source: str | None = None
+    trend: str | None = None
+    risk: str | None = None
+    total_profitable_amount: int | None = None
+    saturation_ratio: float | None = None
     computed_at: str | None
 
 
@@ -470,6 +457,11 @@ async def get_signals(
                 volume_7d    = data.get("volume_7d"),
                 volatility_7d= data.get("volatility_7d"),
                 ref          = data.get("ref"),
+                ref_source   = data.get("ref_source"),
+                trend        = data.get("trend"),
+                risk         = data.get("risk"),
+                total_profitable_amount = data.get("total_profitable_amount"),
+                saturation_ratio        = data.get("saturation_ratio"),
                 computed_at  = data.get("computed_at"),
             )
     finally:

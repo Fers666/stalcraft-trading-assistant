@@ -372,21 +372,25 @@ async def _publish_signals(db, item_id: str, region: str, snap) -> None:
     )).scalar_one_or_none()
 
     user_ids = list({e.user_id for e in entries if e.user_id is not None})
-    user_settings_map: dict[int, float] = {}
+    user_settings_map: dict[int, tuple[float, int]] = {}
     if user_ids:
         rows = (await db.execute(
             select(UserSettings).where(UserSettings.user_id.in_(user_ids))
         )).scalars().all()
-        user_settings_map = {s.user_id: float(s.min_profit_margin_percent or 0) for s in rows}
+        user_settings_map = {
+            s.user_id: (float(s.min_profit_margin_percent or 0), s.exclude_less_than_amount or 1)
+            for s in rows
+        }
 
     r = aioredis.from_url(settings.redis_url, decode_responses=True)
     try:
         for entry in entries:
             try:
-                margin_pct = user_settings_map.get(entry.user_id, 0.0)
+                margin_pct, exclude_less_than = user_settings_map.get(entry.user_id, (0.0, 1))
                 result = await compute_signals_for_entry(
                     db, entry, master, stats, snap,
                     min_profit_margin_pct=margin_pct,
+                    exclude_less_than_amount=exclude_less_than,
                 )
                 if result is not None:
                     key = signals_key(
@@ -400,6 +404,81 @@ async def _publish_signals(db, item_id: str, region: str, snap) -> None:
                 )
     finally:
         await r.aclose()
+
+    # Лог для будущей калибровки — раз за цикл на каждую уникальную комбинацию
+    # (quality_filter, enchant_filter), встречающуюся в watchlist для этого item/region.
+    # margin=0, без отсечения по amount — независимо от персональных настроек пользователей.
+    # У разных качеств/заточек разные цены, поэтому ref считается отдельно для каждой
+    # комбинации (а не один общий "средний по больнице" ref).
+    seen_combos: set[tuple] = set()
+    combo_entries: list = []
+    for entry in entries:
+        combo = (entry.quality_filter, entry.enchant_filter)
+        if combo not in seen_combos:
+            seen_combos.add(combo)
+            combo_entries.append(entry)
+
+    # Более специфичные фильтры — первыми: если один и тот же лот попадёт под
+    # несколько комбинаций (например (3, 0) и (None, None)), ON CONFLICT DO NOTHING
+    # оставит запись с более точным (не "средним по больнице") ref.
+    combo_entries.sort(key=lambda e: (e.quality_filter is None, e.enchant_filter is None))
+
+    for entry in combo_entries:
+        try:
+            baseline = await compute_signals_for_entry(
+                db, entry, master, stats, snap,
+                min_profit_margin_pct=0.0,
+                exclude_less_than_amount=1,
+            )
+            if baseline and baseline["lots"]:
+                await _log_signal_outcomes(
+                    db, item_id, region, baseline,
+                    quality_filter=entry.quality_filter,
+                    enchant_filter=entry.enchant_filter,
+                )
+        except Exception as e:
+            logger.error(
+                f"_publish_signals: log outcomes {item_id}/{region} "
+                f"qlt={entry.quality_filter} ptn={entry.enchant_filter}: {e}"
+            )
+
+
+async def _log_signal_outcomes(
+    db, item_id: str, region: str, signals: dict,
+    quality_filter: int | None = None, enchant_filter: int | None = None,
+) -> None:
+    """Сохраняет предсказания по профитным лотам в signal_outcomes для будущей калибровки."""
+    from app.models.models import SignalOutcome
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    sell_options = signals.get("sell_options") or []
+    fast_opt = next((o for o in sell_options if o.get("label") == "fast"), None)
+    predicted_hours = fast_opt["estimated_hours"] if fast_opt else None
+
+    rows = [
+        {
+            "item_id": item_id,
+            "region": region,
+            "quality_filter": quality_filter,
+            "enchant_filter": enchant_filter,
+            "lot_start_time": lot["start_time"],
+            "buyout_per_unit": lot["buyout_per_unit"],
+            "ref_price": signals["ref"],
+            "predicted_sell_price": lot["sell_price_used"],
+            "predicted_hours": predicted_hours,
+            "predicted_profit_pct": lot["profit_pct"],
+            "trend": signals.get("trend"),
+        }
+        for lot in signals["lots"]
+        if lot.get("start_time")
+    ]
+    if not rows:
+        return
+
+    stmt = pg_insert(SignalOutcome).values(rows)
+    stmt = stmt.on_conflict_do_nothing(index_elements=["item_id", "region", "lot_start_time"])
+    await db.execute(stmt)
+    await db.commit()
 
 
 async def _collect_history_for_item(db, entry):

@@ -13,7 +13,11 @@ import statistics as _statistics
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-COMMISSION = 0.05
+from app.services.analytics.pricing import (
+    classify_risk, compute_reference, make_sell_options, evaluate_lot_profit,
+    STALE_SECONDS,
+)
+
 SIGNALS_TTL = 300       # секунд — TTL ключа сигналов (запас на случай задержки цикла)
 NOTIF_DEDUP_TTL = 48 * 3600  # 48ч — один лот нотифицируется один раз
 
@@ -33,65 +37,73 @@ def signals_key(user_id: int, item_id: str, region: str, quality_filter, enchant
     return f"signals:{user_id}:{item_id}:{region}:{quality_filter}:{enchant_filter}"
 
 
-def _fmt_hours(hours: float) -> str:
-    if hours < 2:
-        return "< 2 ч"
-    if hours < 24:
-        return f"~{round(hours)} ч"
-    days = hours / 24
-    return f"~{round(days)} дня" if days < 5 else f"~{round(days)} дней"
-
-
-def make_sell_options(ref: int, volume_7d: int) -> list[dict]:
-    """Генерирует 3 варианта продажи от опорной цены ref."""
-    fast_price    = int(ref * 0.97)
-    normal_price  = int(ref * 1.00)
-    premium_price = int(ref * 1.05)
-
-    sales_per_day = volume_7d / 7.0 if volume_7d else 0
-    if sales_per_day >= 5:
-        fh, nh, ph = 2.0, 8.0, 24.0
-    elif sales_per_day >= 1:
-        fh, nh, ph = 8.0, 24.0, 72.0
-    elif sales_per_day >= 0.14:
-        fh, nh, ph = 24.0, 72.0, 168.0
-    else:
-        fh, nh, ph = 72.0, 168.0, 336.0
-
-    def opt(label, label_ru, price, hours):
-        return {
-            "label": label, "label_ru": label_ru,
-            "price_per_unit": price,
-            "net_price_per_unit": int(price * (1 - COMMISSION)),
-            "estimated_hours": hours,
-            "estimated_hours_display": _fmt_hours(hours),
-            "confidence": "low",
-            "data_points": volume_7d,
-        }
-
-    return [
-        opt("fast",    "Быстро",    fast_price,    fh),
-        opt("normal",  "Нормально", normal_price,  nh),
-        opt("premium", "Выгодно",   premium_price, ph),
-    ]
-
-
 def _is_artefact(category: Optional[str]) -> bool:
     return bool(category and "artefact" in category.lower())
+
+
+def _lot_quality_enchant(lot: dict, master, is_art: bool) -> tuple[Optional[int], Optional[int]]:
+    additional = lot.get("additional") or {}
+    qlt = additional.get("qlt")
+    ptn = additional.get("ptn")
+
+    if is_art:
+        qlt_val = int(qlt) if qlt is not None else 0
+        enchant = 0 if ptn is None else int(ptn)
+    else:
+        color_qlt = _COLOR_TO_QLT.get((master.color or "").lower())
+        qlt_val   = int(qlt) if qlt is not None else color_qlt
+        enchant   = int(ptn) if ptn is not None and int(ptn) > 0 else None
+
+    return qlt_val, enchant
+
+
+def _is_liquid(lot: dict, now: datetime) -> bool:
+    """Лот ликвиден, если до конца аукциона >= 2ч (или endTime неизвестен)."""
+    end_str = lot.get("endTime", "")
+    if not end_str:
+        return True
+    try:
+        end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+        return (end_dt - now).total_seconds() / 3600 >= 2
+    except Exception:
+        return True
+
+
+def _filtered_median_now(raw_lots: list, master, entry, is_art: bool, now: datetime) -> Optional[float]:
+    """Медиана текущих цен лотов снэпшота, совпадающих по quality/enchant фильтрам entry."""
+    prices = []
+    for lot in raw_lots:
+        buyout = lot.get("buyoutPrice", 0)
+        amount = lot.get("amount", 1)
+        if buyout <= 0 or amount <= 0:
+            continue
+        if not _is_liquid(lot, now):
+            continue
+        qlt_val, enchant = _lot_quality_enchant(lot, master, is_art)
+        if entry.quality_filter is not None and qlt_val != entry.quality_filter:
+            continue
+        if entry.enchant_filter is not None and enchant != entry.enchant_filter:
+            continue
+        prices.append(buyout // amount)
+    return float(_statistics.median(prices)) if prices else None
 
 
 async def compute_signals_for_entry(
     db, entry, master, stats, snap,
     min_profit_margin_pct: float = 0.0,
+    exclude_less_than_amount: int = 1,
 ) -> Optional[dict]:
     """
     Вычисляет выгодные лоты для одной watchlist-записи.
 
-    Возвращает dict {lots, sell_options, volume_7d, volatility_7d, ref, computed_at}
-    или None если данных недостаточно.
+    Возвращает dict {lots, sell_options, volume_7d, volatility_7d, ref, ref_source,
+    trend, risk, total_profitable_amount, saturation_ratio, computed_at}
+    или None если данных недостаточно или снэпшот устарел (> STALE_SECONDS).
 
-    ref = median_price_7d из market_statistics — стабильный исторический ориентир,
-    позволяет находить лоты когда рынок временно просел ниже нормального уровня.
+    ref берётся из pricing.compute_reference(): приоритет — median_price_7d из
+    market_statistics (стабильный исторический ориентир, независимый от текущего
+    скана лотов — иначе профит математически невозможен, см. pricing.py).
+    Медиана текущего снэпшота используется только как trend-guard.
     """
     from app.models.models import SalesHistory
     from sqlalchemy import select, or_
@@ -99,24 +111,33 @@ async def compute_signals_for_entry(
     if snap is None or not snap.raw_lots:
         return None
 
+    now = datetime.now(timezone.utc)
+
+    collect_time = snap.collect_time
+    if collect_time is not None:
+        if collect_time.tzinfo is None:
+            collect_time = collect_time.replace(tzinfo=timezone.utc)
+        if (now - collect_time).total_seconds() > STALE_SECONDS:
+            return None
+
+    is_art = _is_artefact(master.category)
+
     volume_7d    = (stats.sales_volume_7d or 0) if stats else 0
     msg_volume   = stats.sales_volume_7d if stats else None
     msg_volatility = (
         float(stats.price_volatility_7d) if stats and stats.price_volatility_7d else None
     )
 
+    current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
+
     if entry.quality_filter is None and entry.enchant_filter is None:
-        if stats and stats.median_price_7d:
-            ref = int(stats.median_price_7d)
-        else:
-            current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
-            if not current_min:
-                return None
-            ref = int(current_min)
+        median_hist = float(stats.median_price_7d) if stats and stats.median_price_7d else None
+        median_now  = float(snap.median_price_per_unit) if snap.median_price_per_unit else None
+        ref_info = compute_reference(median_hist, median_now, current_min)
         vol_for_opts = volume_7d
     else:
         # С фильтрами: медиана реальных продаж с нужным quality/enchant
-        cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
+        cutoff_7d = now - timedelta(days=7)
         q = select(SalesHistory.price_per_unit).where(
             SalesHistory.item_id   == entry.item_id,
             SalesHistory.region    == entry.region,
@@ -146,7 +167,7 @@ async def compute_signals_for_entry(
         prices = (await db.execute(q)).scalars().all()
 
         if prices:
-            ref = int(_statistics.median(prices))
+            median_hist = float(_statistics.median(prices))
             vol = len(prices)
             msg_volume = vol
             if vol >= 5:
@@ -154,25 +175,25 @@ async def compute_signals_for_entry(
                 msg_volatility = round(_statistics.stdev(prices) / avg7 * 100, 2) if avg7 > 0 else None
             else:
                 msg_volatility = None
+            median_now = _filtered_median_now(snap.raw_lots, master, entry, is_art, now)
+            ref_info = compute_reference(median_hist, median_now, current_min)
         else:
-            if stats and stats.median_price_7d:
-                ref = int(stats.median_price_7d)
-            else:
-                current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
-                if not current_min:
-                    return None
-                ref = int(current_min)
+            median_hist = float(stats.median_price_7d) if stats and stats.median_price_7d else None
+            ref_info = compute_reference(median_hist, None, current_min)
             vol = volume_7d
         vol_for_opts = vol if prices else volume_7d
 
-    sell_options = make_sell_options(ref, vol_for_opts)
-    normal_opt   = next((o for o in sell_options if o["label"] == "normal"), None)
-    if not normal_opt:
+    if ref_info is None:
         return None
-    normal_net = int(normal_opt["net_price_per_unit"])
 
-    now    = datetime.now(timezone.utc)
-    is_art = _is_artefact(master.category)
+    ref        = ref_info["ref"]
+    ref_source = ref_info["source"]
+    trend      = ref_info["trend"]
+    risk       = classify_risk(msg_volatility)
+
+    sell_options = make_sell_options(ref, vol_for_opts)
+    batch_stats  = stats.batch_stats if stats else None
+
     profitable: list[dict] = []
 
     for lot in snap.raw_lots:
@@ -180,27 +201,12 @@ async def compute_signals_for_entry(
         amount = lot.get("amount", 1)
         if buyout <= 0 or amount <= 0:
             continue
+        if amount < exclude_less_than_amount:
+            continue
+        if not _is_liquid(lot, now):
+            continue
 
-        end_str = lot.get("endTime", "")
-        if end_str:
-            try:
-                end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-                if (end_dt - now).total_seconds() / 3600 < 2:
-                    continue
-            except Exception:
-                pass
-
-        additional = lot.get("additional") or {}
-        qlt = additional.get("qlt")
-        ptn = additional.get("ptn")
-
-        if is_art:
-            qlt_val = int(qlt) if qlt is not None else 0
-            enchant = 0 if ptn is None else int(ptn)
-        else:
-            color_qlt = _COLOR_TO_QLT.get((master.color or "").lower())
-            qlt_val   = int(qlt) if qlt is not None else color_qlt
-            enchant   = int(ptn) if ptn is not None and int(ptn) > 0 else None
+        qlt_val, enchant = _lot_quality_enchant(lot, master, is_art)
 
         if entry.quality_filter is not None and qlt_val != entry.quality_filter:
             continue
@@ -208,13 +214,12 @@ async def compute_signals_for_entry(
             continue
 
         buyout_per_unit = buyout // amount
-        profit = normal_net - buyout_per_unit
-        if profit <= 0:
+
+        evaluated = evaluate_lot_profit(
+            buyout_per_unit, amount, sell_options, risk, min_profit_margin_pct, batch_stats,
+        )
+        if evaluated is None:
             continue
-        if min_profit_margin_pct > 0:
-            profit_pct = profit / buyout_per_unit * 100
-            if profit_pct < min_profit_margin_pct:
-                continue
 
         quality_name = _QLT_NAMES.get(qlt_val) if qlt_val is not None else None
 
@@ -225,13 +230,26 @@ async def compute_signals_for_entry(
             "amount":          amount,
             "quality_name":    quality_name,
             "enchant":         enchant,
+            **evaluated,
         })
 
+    profitable.sort(key=lambda l: l["profit_per_hour"] or 0, reverse=True)
+
+    total_profitable_amount = sum(l["amount"] for l in profitable)
+    saturation_ratio = (
+        round(total_profitable_amount / (volume_7d / 7), 2) if volume_7d else None
+    )
+
     return {
-        "lots":         profitable,
-        "sell_options": sell_options,
-        "volume_7d":    msg_volume,
-        "volatility_7d": msg_volatility,
-        "ref":          ref,
-        "computed_at":  datetime.now(timezone.utc).isoformat(),
+        "lots":            profitable,
+        "sell_options":    sell_options,
+        "volume_7d":       msg_volume,
+        "volatility_7d":   msg_volatility,
+        "ref":             ref,
+        "ref_source":      ref_source,
+        "trend":           trend,
+        "risk":            risk,
+        "total_profitable_amount": total_profitable_amount,
+        "saturation_ratio": saturation_ratio,
+        "computed_at":     now.isoformat(),
     }

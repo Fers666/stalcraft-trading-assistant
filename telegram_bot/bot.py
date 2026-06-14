@@ -88,6 +88,9 @@ def build_lot_message(
     sell_options: list[dict],
     sales_volume_7d: Optional[int],
     volatility_7d: Optional[float],
+    profit_per_hour: Optional[float] = None,
+    trend: Optional[str] = None,
+    saturation_ratio: Optional[float] = None,
 ) -> str:
     prefix = "[STAGE] " if IS_STAGE else ""
 
@@ -102,9 +105,12 @@ def build_lot_message(
         f"{prefix}🟢 <b>{item_name}{title_extra}</b>",
         "",
         f"💰 Купить: <b>{fmt(buyout_per_unit)} ₽/шт</b>",
-        "",
-        "📈 <b>Варианты продажи (−5% комиссия):</b>",
     ]
+
+    if trend == "falling":
+        lines.append("⚠️ Рынок ниже недельной медианы — прогноз цены снижен")
+
+    lines += ["", "📈 <b>Варианты продажи (−5% комиссия):</b>"]
 
     label_map = {"fast": "Быстро   ", "normal": "Нормально", "premium": "Выгодно  "}
     for opt in sell_options:
@@ -120,11 +126,16 @@ def build_lot_message(
             f" · <b>{sign}{fmt(profit)} ₽</b>"
         )
 
+    if profit_per_hour is not None:
+        lines.append(f"⏱ Доходность: <b>~{fmt(round(profit_per_hour))} ₽/час</b> (на тарифе «Быстро»)")
+
     footer: list[str] = []
     if sales_volume_7d is not None:
         footer.append(f"📦 Продаж за 7д: <b>{sales_volume_7d}</b> шт")
     if volatility_7d is not None:
         footer.append(f"📉 Волатильность: <b>{volatility_7d:.1f}%</b> ({volatility_label(volatility_7d)})")
+    if saturation_ratio is not None and saturation_ratio > 1:
+        footer.append("⚠️ Много похожих выгодных лотов сразу — рынок может не успеть их переварить")
     if footer:
         lines += [""] + footer
 
@@ -186,6 +197,8 @@ async def notify_profitable_lots(app: Application) -> None:
                 sell_options = signals.get("sell_options", [])
                 volume_7d   = signals.get("volume_7d")
                 volatility  = signals.get("volatility_7d")
+                trend       = signals.get("trend")
+                saturation  = signals.get("saturation_ratio")
 
                 for lot in lots:
                     start_time = lot.get("start_time", "")
@@ -208,13 +221,16 @@ async def notify_profitable_lots(app: Application) -> None:
                     )
 
                     msg = build_lot_message(
-                        item_name       = item_name,
-                        quality_name    = lot.get("quality_name"),
-                        enchant         = lot.get("enchant"),
-                        buyout_per_unit = lot["buyout_per_unit"],
-                        sell_options    = sell_options,
-                        sales_volume_7d = volume_7d,
-                        volatility_7d   = volatility,
+                        item_name        = item_name,
+                        quality_name     = lot.get("quality_name"),
+                        enchant          = lot.get("enchant"),
+                        buyout_per_unit  = lot["buyout_per_unit"],
+                        sell_options     = sell_options,
+                        sales_volume_7d  = volume_7d,
+                        volatility_7d    = volatility,
+                        profit_per_hour  = lot.get("profit_per_hour"),
+                        trend            = trend,
+                        saturation_ratio = saturation,
                     )
 
                     try:

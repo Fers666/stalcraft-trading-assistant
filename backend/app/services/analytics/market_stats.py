@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import (
     CollectedData, SalesHistory, MarketStatistics, UserWatchlist,
 )
+from app.services.analytics.pricing import make_sell_options, format_hours, COMMISSION
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +261,9 @@ async def calculate_market_stats(
     # ── 6. Среднее время продажи из выкупов ──────────────────────────────────
     avg_sell_time = _avg_sell_time_from_buyouts(sales_30d)
 
+    # ── 6b. Demand-signal: всплеск крупных закупок за последние 24ч ───────────
+    demand_signals = _recent_bulk_signal(sales_30d, now)
+
     # ── 7. Upsert в market_statistics (глобальная запись, user_id=None) ────────
     # Ищем по (item_id, region) без фильтра user_id — уникальный ключ на паре,
     # поэтому старые строки с user_id != None тоже найдутся и будут исправлены.
@@ -300,6 +304,7 @@ async def calculate_market_stats(
     existing.avg_sell_time_hours = avg_sell_time
     existing.batch_stats         = batch_stats
     existing.sell_options        = sell_options
+    existing.demand_signals      = demand_signals
     existing.calculated_at       = now
 
     await db.commit()
@@ -368,6 +373,52 @@ def _calculate_batch_stats(sales: list) -> dict | None:
         "batch_ratio_pct":    round(batch_ratio * 100, 1),
         "most_popular_bucket": most_popular_bucket,
         "total_analyzed":     len(sales),
+    }
+
+
+# amount >= этого значения считается "крупной пачкой" для demand-signal
+BULK_AMOUNT_THRESHOLD = 10
+# доля объёма в крупных пачках за 24ч должна вырасти минимум во столько раз
+# относительно базовой доли, чтобы считать это всплеском
+BULK_SPIKE_MULTIPLIER = 1.5
+# и быть не меньше этой доли — иначе скачок с 0.1% до 0.2% тоже даст x2
+BULK_SPIKE_MIN_SHARE = 0.10
+
+
+def _recent_bulk_signal(sales: list, now: datetime) -> dict | None:
+    """
+    Информационный сигнал спроса: сравнивает долю объёма продаж в крупных
+    пачках (amount >= BULK_AMOUNT_THRESHOLD) за последние 24ч против базовой
+    доли за предыдущие ~29 дней.
+
+    bulk_spike=True означает резкий рост доли крупных закупок за 24ч —
+    не блокирует и не усиливает торговый сигнал, только отображается.
+    Возвращает None если данных недостаточно для сравнения.
+    """
+    cutoff_24h = now - timedelta(hours=24)
+    recent   = [s for s in sales if s.sale_time >= cutoff_24h]
+    baseline = [s for s in sales if s.sale_time <  cutoff_24h]
+
+    if len(recent) < MIN_SALES_FOR_STATS or len(baseline) < MIN_SALES_FOR_STATS:
+        return None
+
+    def bulk_share(group: list) -> float:
+        total = sum(s.amount for s in group)
+        bulk  = sum(s.amount for s in group if s.amount >= BULK_AMOUNT_THRESHOLD)
+        return bulk / total if total > 0 else 0.0
+
+    recent_share   = bulk_share(recent)
+    baseline_share = bulk_share(baseline)
+
+    bulk_spike = (
+        recent_share >= BULK_SPIKE_MIN_SHARE
+        and recent_share > baseline_share * BULK_SPIKE_MULTIPLIER
+    )
+
+    return {
+        "recent_bulk_share_24h":   round(recent_share * 100, 1),
+        "baseline_bulk_share_29d": round(baseline_share * 100, 1),
+        "bulk_spike": bulk_spike,
     }
 
 
@@ -463,53 +514,35 @@ async def _calculate_sell_options(
     coverage = matched_count / total_sales_30d if total_sales_30d > 0 else 0.0
 
     if coverage >= 0.30 and matched_count >= 10:
-        # ≥30% продаж с реальным lot_start и минимум 10 точек — высокая точность
+        # ≥30% продаж с реальным lot_start и минимум 10 точек — высокая точность,
+        # время для каждой цены интерполируется по реальным сделкам (_estimate_hours)
         confidence    = "high"
         fast_hours    = _estimate_hours(fast_price,    time_price_pairs, "fast")
         normal_hours  = _estimate_hours(normal_price,  time_price_pairs, "normal")
         premium_hours = _estimate_hours(premium_price, time_price_pairs, "premium")
 
-    elif coverage >= 0.10 and matched_count >= 3:
-        # 10–30% покрытия — средняя точность, интерполируем из имеющихся данных
-        confidence = "medium"
-        avg_time      = statistics.mean(t for t, _ in time_price_pairs)
-        fast_hours    = round(avg_time * 0.4, 1)
-        normal_hours  = round(avg_time * 1.0, 1)
-        premium_hours = round(avg_time * 2.5, 1)
+        def make_option(label, label_ru, price, hours):
+            return {
+                "label":            label,
+                "label_ru":         label_ru,
+                "price_per_unit":   price,
+                "net_price_per_unit": int(price * (1 - COMMISSION)),
+                "estimated_hours":  hours,
+                "estimated_hours_display": format_hours(hours),
+                "confidence":       confidence,
+                "data_points":      len(time_price_pairs),
+            }
 
-    else:
-        # <10% покрытия или нет lot_start — оценка по объёму продаж/день
-        confidence    = "low"
-        sales_per_day = sales_volume_7d / 7.0
+        return [
+            make_option("fast",    "Быстро",   fast_price,    fast_hours),
+            make_option("normal",  "Нормально",normal_price,  normal_hours),
+            make_option("premium", "Выгодно",  premium_price, premium_hours),
+        ]
 
-        if sales_per_day >= 5:       # активный рынок ≥5 продаж/день
-            fast_hours, normal_hours, premium_hours = 2.0,  8.0,   24.0
-        elif sales_per_day >= 1:     # умеренный 1–5 продаж/день
-            fast_hours, normal_hours, premium_hours = 8.0,  24.0,  72.0
-        elif sales_per_day >= 0.14:  # редкий ~1 продажа/неделю
-            fast_hours, normal_hours, premium_hours = 24.0, 72.0,  168.0
-        else:                         # очень редкий <1 продажи/неделю
-            fast_hours, normal_hours, premium_hours = 72.0, 168.0, 336.0
-
-    COMMISSION = 0.05  # комиссия аукциона 5%
-
-    def make_option(label, label_ru, price, hours):
-        return {
-            "label":            label,
-            "label_ru":         label_ru,
-            "price_per_unit":   price,                          # цена выставления
-            "net_price_per_unit": int(price * (1 - COMMISSION)),# продавец получит
-            "estimated_hours":  hours,
-            "estimated_hours_display": _format_hours(hours),
-            "confidence":       confidence,
-            "data_points":      len(time_price_pairs),
-        }
-
-    return [
-        make_option("fast",    "Быстро",   fast_price,    fast_hours),
-        make_option("normal",  "Нормально",normal_price,  normal_hours),
-        make_option("premium", "Выгодно",  premium_price, premium_hours),
-    ]
+    # medium (10-30% покрытия, ≥3 точки) — pricing.make_sell_options интерполирует
+    # время по среднему из time_price_pairs; low — оценка по объёму продаж/день
+    pairs_for_medium = time_price_pairs if (coverage >= 0.10 and matched_count >= 3) else None
+    return make_sell_options(ref, sales_volume_7d, pairs_for_medium)
 
 
 def _estimate_hours(
@@ -544,14 +577,3 @@ def _estimate_hours(
         return round(avg_time * multipliers[tier], 1)
 
     return defaults[tier]
-
-
-def _format_hours(hours: float) -> str:
-    if hours < 2:
-        return "< 2 ч"
-    if hours < 24:
-        return f"~{round(hours)} ч"
-    days = hours / 24
-    if days < 2:
-        return "~1-2 дня"
-    return f"~{round(days)} дня" if days < 5 else f"~{round(days)} дней"

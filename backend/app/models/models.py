@@ -192,6 +192,7 @@ class MarketStatistics(Base):
     avg_sell_time_hours = Column(Numeric(8, 2))
     batch_stats         = Column(JSONB)
     sell_options        = Column(JSONB)
+    demand_signals      = Column(JSONB)             # {"recent_bulk_share_24h", "baseline_bulk_share_29d", "bulk_spike"}
     calculated_at       = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -285,6 +286,34 @@ class ApiRequestLog(Base):
     status_code      = Column(Integer)
     tokens_used      = Column(Integer)
     error_message    = Column(Text)
+
+
+class SignalOutcome(Base):
+    """Лог предсказаний по выгодным лотам — для будущей калибровки констант."""
+    __tablename__ = "signal_outcomes"
+
+    id                   = Column(Integer, primary_key=True)
+    item_id              = Column(String(50), nullable=False)
+    region               = Column(String(10), nullable=False)
+    quality_filter       = Column(Integer, nullable=True)
+    enchant_filter       = Column(Integer, nullable=True)
+    lot_start_time       = Column(String(50), nullable=False)
+    buyout_per_unit      = Column(BigInteger, nullable=False)
+    ref_price            = Column(BigInteger, nullable=False)
+    predicted_sell_price = Column(BigInteger, nullable=False)
+    predicted_hours      = Column(Numeric(8, 2))
+    predicted_profit_pct = Column(Numeric(6, 2))
+    trend                = Column(String(10))
+    created_at           = Column(DateTime(timezone=True), server_default=func.now())
+    evaluated_at         = Column(DateTime(timezone=True))
+    realized_price       = Column(BigInteger)
+    realized_hours       = Column(Numeric(8, 2))
+    outcome              = Column(String(20))  # sold_at_or_above | sold_below | not_sold
+
+    __table_args__ = (
+        Index("uq_signal_outcome", "item_id", "region", "lot_start_time", unique=True),
+        Index("ix_signal_outcome_pending", "evaluated_at"),
+    )
 
 
 class NotificationQueue(Base):
