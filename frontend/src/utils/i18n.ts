@@ -67,7 +67,7 @@ export function translateCategory(category: string | null): string {
 /** Форматирует число как цену в рублях */
 export function formatPrice(n: number | null | undefined): string {
   if (n == null) return '—'
-  return n.toLocaleString('ru-RU') + ' ₽'
+  return n.toLocaleString('ru-RU') + ' ₽'
 }
 
 const ICON_BASE = 'https://raw.githubusercontent.com/EXBO-Studio/stalcraft-database/main/ru'
