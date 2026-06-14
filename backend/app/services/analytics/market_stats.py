@@ -195,15 +195,18 @@ async def calculate_market_stats(
     best_buy_hour = None
     best_buy_day  = None
 
+    # Только нужные колонки — при ~1 снэпшоте/мин за 30 дней это десятки тысяч строк
+    # на предмет, и полная загрузка ORM-сущности тянула бы JSONB raw_lots (до 200
+    # лотов в каждой) для всех них.
     snapshots_30d = (await db.execute(
-        select(CollectedData).where(
+        select(CollectedData.collect_time, CollectedData.best_liquid_price_per_unit).where(
             CollectedData.user_id == None,
             CollectedData.item_id == item_id,
             CollectedData.region  == region,
             CollectedData.collect_time >= cutoff_30d,
             CollectedData.best_liquid_price_per_unit.isnot(None),
         )
-    )).scalars().all()
+    )).all()
 
     if len(snapshots_30d) >= 6:   # минимум ~30 минут данных
         buy_by_hour: dict[int, list] = {}
