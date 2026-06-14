@@ -11,6 +11,11 @@ from app.services.catalog.github_parser import sync_catalog
 
 router = APIRouter(prefix="/items", tags=["Items"])
 
+# status.state из GitHub: предмет привязывается в момент получения
+# и никогда не появляется на аукционе (history_total=0 / lots_total=0
+# для всех таких предметов — подтверждено через Stalcraft API)
+_UNTRADABLE_BIND_STATES = {"PERSONAL_ON_GET", "PERSONAL_DROP_ON_GET"}
+
 # Маппинг color → человекочитаемое название качества
 _COLOR_TO_QUALITY: dict[str, str] = {
     # Актуальный формат из stalcraft-database
@@ -73,7 +78,9 @@ async def list_items(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    query = select(MasterItem)
+    query = select(MasterItem).where(
+        or_(MasterItem.bind_state.is_(None), MasterItem.bind_state.notin_(_UNTRADABLE_BIND_STATES))
+    )
 
     if search:
         pattern = f"%{search}%"

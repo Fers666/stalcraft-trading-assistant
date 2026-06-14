@@ -57,6 +57,7 @@ class MasterItem(Base):
     category            = Column(String(50))
     color               = Column(String(20))    # gray/green/blue/violet/yellow/red → качество предмета
     icon_path           = Column(String(200))   # путь вида /icons/medicine/9mmq.png
+    bind_state          = Column(String(30))    # status.state из GitHub: NONE/NON_DROP/PERSONAL_ON_USE/PERSONAL_ON_GET/PERSONAL_DROP_ON_GET
     can_be_batch_traded = Column(Boolean, default=True)
     last_updated        = Column(DateTime(timezone=True), server_default=func.now())
 

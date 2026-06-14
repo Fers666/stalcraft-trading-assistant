@@ -67,6 +67,9 @@ def _parse_item(entry: dict) -> dict | None:
     raw_color = entry.get("color")
     color = raw_color.lower() if isinstance(raw_color, str) and raw_color.lower() in _VALID_COLORS else None
 
+    status = entry.get("status")
+    bind_state = status.get("state") if isinstance(status, dict) else None
+
     return {
         "item_id": item_id,
         "name_ru": name_ru,
@@ -74,6 +77,7 @@ def _parse_item(entry: dict) -> dict | None:
         "category": category,
         "color": color,
         "icon_path": icon_path,
+        "bind_state": bind_state,
         "can_be_batch_traded": can_batch,
         "_data_path": data_path,   # служебное поле для дофетча, не пишем в БД
     }
@@ -160,6 +164,7 @@ async def sync_catalog(db: AsyncSession) -> dict:
             "category":            stmt.excluded.category,
             "color":               stmt.excluded.color,
             "icon_path":           stmt.excluded.icon_path,
+            "bind_state":          stmt.excluded.bind_state,
             "can_be_batch_traded": stmt.excluded.can_be_batch_traded,
             "last_updated":        stmt.excluded.last_updated,
         },

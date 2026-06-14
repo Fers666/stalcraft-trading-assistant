@@ -52,10 +52,18 @@ ORM: SQLAlchemy 2.0 async. Миграции: Alembic.
 | `name_ru` | varchar(200) | Русское название |
 | `name_en` | varchar(200) | Английское название |
 | `category` | varchar(50) | Категория (напр. `artefact/biochemical`, `weapon/assault_rifle`) |
+| `bind_state` | varchar(30) | `status.state` из GitHub: `NONE`/`NON_DROP`/`PERSONAL_ON_USE` — продаётся; `PERSONAL_ON_GET`/`PERSONAL_DROP_ON_GET` — привязывается при получении, на аукционе не появляется (исключается из `/items`) |
 | `can_be_batch_traded` | bool | Можно ли торговать пачками (false для оружия, брони) |
 | `last_updated` | timestamptz | Дата последней синхронизации с GitHub |
 
 **Индексы:** `item_id` (unique), `name_ru`, `name_en`, `category`.
+
+**Фильтрация непродаваемых предметов:** `GET /items` исключает предметы с
+`bind_state IN ('PERSONAL_ON_GET', 'PERSONAL_DROP_ON_GET')` — это ~77 предметов
+(квестовые расписки, личные артефакты/фрагменты), которые привязываются в момент
+получения и физически не могут быть выставлены на аукцион. Подтверждено
+эмпирически: `history_total=0` и `lots_total=0` через Stalcraft API для всех
+проверенных предметов этих категорий.
 
 ---
 
@@ -356,6 +364,7 @@ tradability_score = liquid_lot_count × total_volume / (1 + price_spread_pct)
 | `0010_market_stats_hours_by_day.py` | Поля `sell_hours_by_day`, `buy_hours_by_day` в `market_statistics` |
 | `0011_master_items_color.py` | Поле `color` в `master_items` (RANK_* строки из GitHub) |
 | `0012_watchlist_quality_enchant.py` | Поля `quality_filter`, `enchant_filter` в `user_watchlist`; удаляет DB-unique индекс |
+| `0022_master_items_bind_state.py` | Поле `bind_state` в `master_items` (статус привязки из GitHub, для фильтрации непродаваемых предметов) |
 
 ---
 
