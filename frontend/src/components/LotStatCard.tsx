@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from 'react'
 import {
   Box, Typography, Card, CardContent, Chip, CircularProgress,
-  Tooltip, Divider, Avatar, ToggleButtonGroup, ToggleButton,
+  Tooltip, Divider, Avatar, ToggleButtonGroup, ToggleButton, IconButton,
 } from '@mui/material'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
+import SearchIcon from '@mui/icons-material/Search'
+import DeleteIcon from '@mui/icons-material/Delete'
 import api from '../api/client'
 import { formatPrice, iconUrl } from '../utils/i18n'
 
@@ -129,10 +131,13 @@ export interface LotStatCardProps {
   iconPath?: string | null
   minProfitMarginPercent?: number
   fullWidth?: boolean
+  onViewLots?: () => void
+  onDelete?: () => void
 }
 
 export default function LotStatCard({
   itemId, region, qualityFilter, enchantFilter, itemName, iconPath, minProfitMarginPercent = 0, fullWidth = false,
+  onViewLots, onDelete,
 }: LotStatCardProps) {
   const [stats, setStats]     = useState<MarketStats | null>(null)
   const [lots, setLots]       = useState<LotItem[]>([])
@@ -340,6 +345,24 @@ export default function LotStatCard({
 
           {/* Иконка + качество */}
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+            {(onViewLots || onDelete) && (
+              <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5 }}>
+                {onViewLots && (
+                  <Tooltip title="Все лоты этого предмета">
+                    <IconButton size="small" onClick={onViewLots} sx={{ color: 'text.secondary' }}>
+                      <SearchIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                {onDelete && (
+                  <Tooltip title="Удалить из Избранного">
+                    <IconButton size="small" onClick={onDelete} sx={{ color: 'error.main' }}>
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
+            )}
             <Avatar
               src={iconUrl(iconPath) ?? undefined}
               variant="rounded"

@@ -12,7 +12,6 @@ import FeedPage from './pages/FeedPage'
 import InventoryPage from './pages/InventoryPage'
 import SettingsPage from './pages/SettingsPage'
 import AdminPage from './pages/AdminPage'
-import SalesHistoryPage from './pages/SalesHistoryPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('access_token')
@@ -54,7 +53,6 @@ export default function App() {
         >
           <Route index                element={<Navigate to="/app/monitoring" replace />} />
           <Route path="monitoring"     element={<MonitoringPage />} />
-          <Route path="sales-history" element={<SalesHistoryPage />} />
           <Route path="catalog"       element={<CatalogPage />} />
           <Route path="lots"          element={<LotsPage />} />
           <Route path="feed"          element={<FeedPage />} />
