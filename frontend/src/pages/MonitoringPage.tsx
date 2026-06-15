@@ -1,15 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, List, ListItemButton, ListItemText, ListItemAvatar,
-  Avatar, Chip, CircularProgress, Divider, Button,
+  Avatar, Chip, CircularProgress, Divider, Button, TextField, InputAdornment, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material'
+import SearchIcon from '@mui/icons-material/Search'
+import ClearIcon from '@mui/icons-material/Clear'
 import LotStatCard from '../components/LotStatCard'
 import SalesHistoryCharts from '../components/SalesHistoryCharts'
 import api from '../api/client'
 import { useFeedStore, type FeedWatchlistEntry } from '../store/feedStore'
-import { iconUrl } from '../utils/i18n'
+import { iconUrl, qualityColor } from '../utils/i18n'
 
 const QLT_NAMES: Record<number, string> = {
   0: 'Обычный', 1: 'Необычный', 2: 'Особый',
@@ -27,6 +29,9 @@ export default function MonitoringPage() {
 
   const [selectedId, setSelectedId]   = useState<number | null>(null)
   const [deleteEntry, setDeleteEntry] = useState<FeedWatchlistEntry | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const itemRefs = useRef(new Map<number, HTMLElement>())
+  const handledScrollKeyRef = useRef<string | null>(null)
 
   // Рекомендованные (выгодные) лоты — в начало списка
   const sortedWatchlist = [...watchlist].sort((a, b) => {
@@ -34,6 +39,25 @@ export default function MonitoringPage() {
     const bRec = profitableItemIds.includes(b.id) ? 0 : 1
     return aRec - bRec
   })
+
+  const matchesSearch = (entry: FeedWatchlistEntry, query: string) => {
+    const q = query.trim().toLowerCase()
+    if (!q) return false
+    return (
+      (entry.name_ru?.toLowerCase().includes(q) ?? false) ||
+      (entry.name_en?.toLowerCase().includes(q) ?? false) ||
+      entry.item_id.toLowerCase().includes(q)
+    )
+  }
+
+  // При вводе поиска — скроллим к первому совпадению
+  useEffect(() => {
+    if (!searchQuery.trim()) return
+    const match = sortedWatchlist.find(e => matchesSearch(e, searchQuery))
+    if (match) {
+      itemRefs.current.get(match.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [searchQuery])
 
   useEffect(() => {
     if (!initialized) loadWatchlistAndStats()
@@ -47,12 +71,18 @@ export default function MonitoringPage() {
     setSelectedId(target)
   }, [sortedWatchlist, location.state, selectedId])
 
-  // Клик по сигналу из ленты, когда страница уже открыта — переключаем выбор
+  // Клик по сигналу из ленты, когда страница уже открыта — переключаем выбор.
+  // Привязано к location.key (уникален на каждую навигацию), а не к watchlist —
+  // иначе периодическое обновление watchlist (каждые 5 мин из GlobalFeed) повторно
+  // срабатывало на старый scrollTo и сбрасывало выбор пользователя обратно на сигнал.
   useEffect(() => {
     const scrollTo = (location.state as { scrollTo?: number } | null)?.scrollTo
-    if (scrollTo == null) return
-    if (watchlist.some(e => e.id === scrollTo)) setSelectedId(scrollTo)
-  }, [location.state, watchlist])
+    if (scrollTo == null || location.key === handledScrollKeyRef.current) return
+    if (watchlist.some(e => e.id === scrollTo)) {
+      handledScrollKeyRef.current = location.key
+      setSelectedId(scrollTo)
+    }
+  }, [location, watchlist])
 
   const selected = watchlist.find(e => e.id === selectedId) ?? null
 
@@ -164,9 +194,33 @@ export default function MonitoringPage() {
         top: 16,
       }}>
         <Box sx={{ p: 1.5, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
+          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em', mb: 1 }}>
             ИЗБРАННОЕ · {watchlist.length}
           </Typography>
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="Поиск..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            slotProps={{
+              input: {
+                sx: { fontSize: '0.75rem', height: 32 },
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: searchQuery && (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setSearchQuery('')} sx={{ p: 0.25 }}>
+                      <ClearIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
         </Box>
 
         {!initialized ? (
@@ -178,8 +232,15 @@ export default function MonitoringPage() {
             {sortedWatchlist.map((entry, idx) => {
               const isSelected  = entry.id === selectedId
               const isProfitable = profitableItemIds.includes(entry.id)
+              const isMatch = matchesSearch(entry, searchQuery)
               return (
-                <Box key={entry.id}>
+                <Box
+                  key={entry.id}
+                  ref={(el: HTMLElement | null) => {
+                    if (el) itemRefs.current.set(entry.id, el)
+                    else itemRefs.current.delete(entry.id)
+                  }}
+                >
                   {idx > 0 && <Divider sx={{ opacity: 0.3 }} />}
                   <ListItemButton
                     selected={isSelected}
@@ -188,6 +249,9 @@ export default function MonitoringPage() {
                       py: 0.75, px: 1.5,
                       borderLeft: isProfitable && !isSelected ? '2px solid #4caf50' : '2px solid transparent',
                       bgcolor: isProfitable && !isSelected ? 'rgba(76,175,80,0.04)' : undefined,
+                      outline: isMatch ? '1px solid #D9AF37' : 'none',
+                      outlineOffset: '-1px',
+                      ...(isMatch ? { bgcolor: 'rgba(217,175,55,0.12)' } : {}),
                       '&.Mui-selected': {
                         bgcolor: 'rgba(217,175,55,0.08)',
                         borderLeft: '2px solid #D9AF37',
@@ -228,7 +292,11 @@ export default function MonitoringPage() {
                             <Chip
                               label={QLT_NAMES[entry.quality_filter] ?? `qlt${entry.quality_filter}`}
                               size="small" variant="outlined"
-                              sx={{ height: 13, fontSize: 9 }}
+                              sx={{
+                                height: 13, fontSize: 9,
+                                borderColor: qualityColor(QLT_NAMES[entry.quality_filter]) ?? undefined,
+                                color: qualityColor(QLT_NAMES[entry.quality_filter]) ?? undefined,
+                              }}
                             />
                           )}
                         </Box>

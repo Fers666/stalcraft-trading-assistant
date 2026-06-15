@@ -70,6 +70,33 @@ export function formatPrice(n: number | null | undefined): string {
   return n.toLocaleString('ru-RU') + ' ₽'
 }
 
+/** Цвет по названию качества предмета (Обычный/Необычный/.../Легендарный) */
+export function qualityColor(quality: string | null): string | null {
+  if (!quality) return null
+  const colors: Record<string, string> = {
+    'Обычный': '#555', 'Необычный': '#4caf50', 'Особый': '#2196f3',
+    'Ветеран': '#9c27b0', 'Мастер': '#ff9800', 'Легендарный': '#f44336',
+  }
+  return colors[quality] ?? null
+}
+
+/** Форматирует ISO-дату как "HH:MM" (сегодня), "вчера, HH:MM" или "DD.MM, HH:MM" */
+export function formatLastUpdate(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return null
+
+  const time = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfDate  = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const diffDays = Math.round((startOfToday.getTime() - startOfDate.getTime()) / 86400000)
+
+  if (diffDays === 0) return time
+  if (diffDays === 1) return `вчера, ${time}`
+  return `${date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}, ${time}`
+}
+
 const ICON_BASE = 'https://raw.githubusercontent.com/EXBO-Studio/stalcraft-database/main/ru'
 
 /** Возвращает полный URL иконки предмета */
