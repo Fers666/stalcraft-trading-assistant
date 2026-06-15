@@ -74,8 +74,8 @@ export function formatPrice(n: number | null | undefined): string {
 export function qualityColor(quality: string | null): string | null {
   if (!quality) return null
   const colors: Record<string, string> = {
-    'Обычный': '#555', 'Необычный': '#4caf50', 'Особый': '#2196f3',
-    'Ветеран': '#9c27b0', 'Мастер': '#ff9800', 'Легендарный': '#f44336',
+    'Обычный': '#7C7C7C', 'Необычный': '#3ED598', 'Особый': '#53B7FF',
+    'Ветеран': '#F5B74F', 'Мастер': '#D9AF37', 'Легендарный': '#FFB800',
   }
   return colors[quality] ?? null
 }

@@ -12,6 +12,7 @@ import SalesHistoryCharts from '../components/SalesHistoryCharts'
 import api from '../api/client'
 import { useFeedStore, type FeedWatchlistEntry } from '../store/feedStore'
 import { iconUrl, qualityColor } from '../utils/i18n'
+import { tokens } from '../theme'
 
 const QLT_NAMES: Record<number, string> = {
   0: 'Обычный', 1: 'Необычный', 2: 'Особый',
@@ -228,7 +229,22 @@ export default function MonitoringPage() {
             <CircularProgress size={20} />
           </Box>
         ) : (
-          <List dense disablePadding sx={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' }}>
+          <List dense disablePadding sx={{
+            maxHeight: 'calc(100vh - 200px)', overflowY: 'auto',
+            scrollbarWidth: 'thin', scrollbarColor: 'rgba(217,175,55,0.45) transparent',
+            '&::-webkit-scrollbar': { width: 8 },
+            '&::-webkit-scrollbar-track': { background: 'transparent' },
+            '&::-webkit-scrollbar-thumb': {
+              background: `linear-gradient(180deg, ${tokens.goldSoft}, ${tokens.gold})`,
+              borderRadius: '8px',
+              border: `2px solid ${tokens.bg2}`,
+              backgroundClip: 'padding-box',
+            },
+            '&::-webkit-scrollbar-thumb:hover': {
+              background: tokens.goldAccent,
+              backgroundClip: 'padding-box',
+            },
+          }}>
             {sortedWatchlist.map((entry, idx) => {
               const isSelected  = entry.id === selectedId
               const isProfitable = profitableItemIds.includes(entry.id)

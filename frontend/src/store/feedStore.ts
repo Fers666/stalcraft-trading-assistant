@@ -1,16 +1,6 @@
 import { create } from 'zustand'
 import api from '../api/client'
 
-export interface FeedLotItem {
-  buyout_price: number
-  amount: number
-  start_time: string | null
-  hours_remaining: number | null
-  is_expiring: boolean
-  quality_name: string | null
-  enchant_level: number | null
-}
-
 export interface FeedWatchlistEntry {
   id: number
   item_id: string
@@ -26,23 +16,14 @@ export interface FeedWatchlistEntry {
   tracked_batch_sizes: number[]
 }
 
-export interface FeedSellOption {
-  label: 'fast' | 'normal' | 'premium'
-  price_per_unit: number
-}
-
-export interface FeedMarketStats {
-  median_price_7d: number | null
-  sell_options: FeedSellOption[] | null
-  [key: string]: unknown
-}
-
 export const QLT_NAMES: Record<number, string> = {
   0: 'Обычный', 1: 'Необычный', 2: 'Особый',
   3: 'Ветеран',  4: 'Мастер',   5: 'Легендарный',
 }
 
-export const FEED_COMMISSION = 0.05
+interface SignalLot {
+  start_time: string
+}
 
 export interface FeedItem {
   entry: FeedWatchlistEntry
@@ -52,8 +33,6 @@ export interface FeedItem {
 
 interface FeedState {
   watchlist:              FeedWatchlistEntry[]
-  stats:                  Record<number, FeedMarketStats>
-  lotsMap:                Record<number, FeedLotItem[] | undefined>
   lastLotRefresh:         Date | null
   profitableItemIds:      number[]
   feedItems:              FeedItem[]
@@ -68,8 +47,6 @@ interface FeedState {
 
 export const useFeedStore = create<FeedState>((set, get) => ({
   watchlist:              [],
-  stats:                  {},
-  lotsMap:                {},
   lastLotRefresh:         null,
   profitableItemIds:      [],
   feedItems:              [],
@@ -82,115 +59,68 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         api.get('/watchlist/'),
         api.get('/settings').catch(() => ({ data: { min_profit_margin_percent: 0 } })),
       ])
-      const { data } = watchlistResp
-      const minProfitMarginPercent: number = settingsResp.data.min_profit_margin_percent ?? 0
-      const watchlist: FeedWatchlistEntry[] = data
-      const pairs = await Promise.all(
-        watchlist.map(async (entry) => {
-          try {
-            const params: Record<string, string> = { region: entry.region }
-            if (entry.quality_filter !== null) params.quality_filter = String(entry.quality_filter)
-            if (entry.enchant_filter !== null) params.enchant_filter = String(entry.enchant_filter)
-            const { data: s } = await api.get(`/monitoring/item/${entry.item_id}`, { params })
-            return [entry.id, s] as [number, FeedMarketStats]
-          } catch { return [entry.id, null] as [number, null] }
-        })
-      )
       set({
-        watchlist,
-        minProfitMarginPercent,
-        stats: Object.fromEntries(
-          pairs.filter((p): p is [number, FeedMarketStats] => p[1] !== null)
-        ) as Record<number, FeedMarketStats>,
-        initialized: true,
+        watchlist:              watchlistResp.data,
+        minProfitMarginPercent: settingsResp.data.min_profit_margin_percent ?? 0,
+        initialized:            true,
       })
     } catch { /* keep previous */ }
     void silent
   },
 
+  // Берём предвычисленные сигналы из Redis (/monitoring/signals) — та же
+  // логика и тот же ref/risk-margin/trend-guard, что у Telegram-бота и
+  // LotStatCard. Раньше лента считала "выгодность" по своей формуле
+  // (median_price_7d × 0.95) и могла показать карточку, по которой бот
+  // не пришлёт уведомление — рассинхрон устранён переходом на общий источник.
   loadAllLots: async () => {
     const { watchlist } = get()
     if (watchlist.length === 0) return
-    // Собираем все ответы локально и обновляем стор ОДНИМ set() —
-    // иначе 32 последовательных set() вызывают 32 каскадных ре-рендера всей страницы (включая графики).
+
     const pairs = await Promise.all(watchlist.map(async (entry) => {
       const params: Record<string, string | number> = { region: entry.region }
       if (entry.quality_filter !== null) params.quality_filter = entry.quality_filter
       if (entry.enchant_filter !== null) params.enchant_filter = entry.enchant_filter
       try {
-        const { data } = await api.get(`/lots/${entry.item_id}`, { params })
-        return [entry.id, data.lots ?? []] as [number, FeedLotItem[]]
+        const { data } = await api.get(`/monitoring/signals/${entry.item_id}`, { params })
+        return [entry.id, (data.lots ?? []) as SignalLot[]] as [number, SignalLot[]]
       } catch {
-        return null
+        return [entry.id, [] as SignalLot[]] as [number, SignalLot[]]
       }
     }))
 
-    const { stats, lotsMap: prevLotsMap, watchlist: wl } = get()
-    const lotsMap = { ...prevLotsMap }
-    for (const p of pairs) {
-      if (p) lotsMap[p[0]] = p[1]
+    const { watchlist: wl } = get()
+    const byId = new Map(wl.map(e => [e.id, e]))
+
+    const profitableItemIds: number[] = []
+    const feedItems: FeedItem[] = []
+
+    for (const [id, lots] of pairs) {
+      if (lots.length === 0) continue
+      const entry = byId.get(id)
+      if (!entry) continue
+
+      profitableItemIds.push(id)
+      const latest_lot_time = lots.reduce<string | null>((max, l) => {
+        if (!l.start_time) return max
+        return max === null || l.start_time > max ? l.start_time : max
+      }, null)
+      feedItems.push({ entry, count: lots.length, latest_lot_time })
     }
 
-    // Вычисляем выгодные позиции и feedItems атомарно
-    // Используем median_price_7d как ref — та же логика что у бота и Redis-сигналов.
-    // Находит лоты когда рынок просел ниже исторического уровня.
-    const { minProfitMarginPercent } = get()
+    feedItems.sort((a, b) => b.count - a.count)
 
-    const isLotProfitable = (l: FeedLotItem, entry: FeedWatchlistEntry, medianNet: number): boolean => {
-      if (l.is_expiring || l.buyout_price <= 0) return false
-      if (entry.quality_filter !== null && l.quality_name !== QLT_NAMES[entry.quality_filter]) return false
-      if (entry.enchant_filter !== null && l.enchant_level !== entry.enchant_filter) return false
-      const buyPerUnit = Math.floor(l.buyout_price / l.amount)
-      const profit = medianNet - buyPerUnit
-      if (profit <= 0) return false
-      if (minProfitMarginPercent > 0) {
-        const profitPct = (profit / buyPerUnit) * 100
-        if (profitPct < minProfitMarginPercent) return false
-      }
-      return true
-    }
-
-    const profitableItemIds = wl.filter(entry => {
-      const s = stats[entry.id]
-      const lots = lotsMap[entry.id]
-      if (!s?.median_price_7d || !lots || lots.length === 0) return false
-      const medianNet = Math.round(s.median_price_7d * (1 - FEED_COMMISSION))
-      return lots.some(l => isLotProfitable(l, entry, medianNet))
-    }).map(e => e.id)
-
-    const feedItems: FeedItem[] = wl
-      .filter(entry => profitableItemIds.includes(entry.id))
-      .flatMap(entry => {
-        const s    = stats[entry.id]
-        const lots = lotsMap[entry.id]
-        if (!s?.median_price_7d || !lots) return []
-        const medianNet = Math.round(s.median_price_7d * (1 - FEED_COMMISSION))
-        const profitableLots = lots.filter(l => isLotProfitable(l, entry, medianNet))
-        const count = profitableLots.length
-        if (count === 0) return []
-        const latest_lot_time = profitableLots.reduce<string | null>((max, l) => {
-          if (!l.start_time) return max
-          return max === null || l.start_time > max ? l.start_time : max
-        }, null)
-        return [{ entry, count, latest_lot_time }]
-      })
-      .sort((a, b) => b.count - a.count)
-
-    set({ lotsMap, lastLotRefresh: new Date(), profitableItemIds, feedItems })
+    set({ lastLotRefresh: new Date(), profitableItemIds, feedItems })
   },
 
   removeEntry: (id) => set(state => ({
     watchlist:         state.watchlist.filter(e => e.id !== id),
-    lotsMap:           Object.fromEntries(Object.entries(state.lotsMap).filter(([k]) => Number(k) !== id)),
-    stats:             Object.fromEntries(Object.entries(state.stats).filter(([k]) => Number(k) !== id)),
     profitableItemIds: state.profitableItemIds.filter(i => i !== id),
     feedItems:         state.feedItems.filter(fi => fi.entry.id !== id),
   })),
 
   reset: () => set({
     watchlist:              [],
-    stats:                  {},
-    lotsMap:                {},
     lastLotRefresh:         null,
     profitableItemIds:      [],
     feedItems:              [],

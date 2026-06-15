@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Box, Typography, CircularProgress, ToggleButtonGroup, ToggleButton, Chip } from '@mui/material'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip,
-  ResponsiveContainer, LineChart, Line, Legend,
+  ResponsiveContainer, ComposedChart, Area, Line, Legend,
 } from 'recharts'
 import api from '../api/client'
+import { tokens } from '../theme'
 
 interface SaleRecord {
   sale_time: string
@@ -107,6 +108,7 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
     min:   d.min_price,
     avg:   d.avg_price != null ? Math.round(d.avg_price) : null,
     max:   d.max_price,
+    range: d.min_price != null && d.max_price != null ? [d.min_price, d.max_price] : undefined,
     count: d.count,
   })) ?? []
 
@@ -204,23 +206,26 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
         </ResponsiveContainer>
       )}
 
-      {/* Line chart: мин / средняя / макс по дням (7д) */}
+      {/* Composed chart: коридор мин/макс + средняя по дням (7д/30д) */}
       {!loading && !isEmpty && resp!.mode === 'daily' && (
         <ResponsiveContainer width="100%" height={160} debounce={200}>
-          <LineChart data={dailyData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+          <ComposedChart data={dailyData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
             <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#7C7C7C' }} />
             <YAxis tickFormatter={fmtPrice} tick={{ fontSize: 10, fill: '#7C7C7C' }} width={48} />
             <ChartTooltip
               contentStyle={{ background: '#1A1F26', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 12 }}
               labelStyle={{ color: '#B8B8B8', marginBottom: 4 }}
-              formatter={(v: number, name: string) => [`${fmtPrice(v)} ₽`, name]}
+              formatter={(v: number | string | Array<number | string>, name) =>
+                Array.isArray(v)
+                  ? [`${fmtPrice(Number(v[0]))} – ${fmtPrice(Number(v[1]))} ₽`, name]
+                  : [`${fmtPrice(Number(v))} ₽`, name]
+              }
             />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Line type="monotone" dataKey="max" stroke="#3ED598" dot={{ r: 3 }} strokeDasharray="4 2" strokeWidth={1} name="Макс"    />
-            <Line type="monotone" dataKey="avg" stroke="#D9AF37" dot={{ r: 4 }} strokeWidth={2}       name="Средняя" />
-            <Line type="monotone" dataKey="min" stroke="#7C7C7C" dot={{ r: 3 }} strokeDasharray="4 2" strokeWidth={1} name="Мин"     />
-          </LineChart>
+            <Area type="monotone" dataKey="range" stroke={tokens.info} strokeOpacity={0.4} strokeWidth={1} fill={tokens.info} fillOpacity={0.15} name="Диапазон" />
+            <Line type="monotone" dataKey="avg" stroke={tokens.gold} dot={{ r: 4 }} strokeWidth={2} name="Средняя" />
+          </ComposedChart>
         </ResponsiveContainer>
       )}
     </Box>

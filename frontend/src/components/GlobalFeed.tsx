@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Box, Avatar, Typography, Skeleton } from '@mui/material'
+import { Box, Avatar, Typography, Skeleton, alpha } from '@mui/material'
 import { useFeedStore, QLT_NAMES } from '../store/feedStore'
-import { iconUrl } from '../utils/i18n'
+import { iconUrl, qualityColor } from '../utils/i18n'
+import { tokens } from '../theme'
 
 export const FEED_HEIGHT = 84
 
@@ -134,7 +135,9 @@ export default function GlobalFeed() {
         '&::-webkit-scrollbar': { height: '3px' },
         '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.09)', borderRadius: '2px' },
       }}>
-        {feedItems.map(({ entry, count, latest_lot_time }) => (
+        {feedItems.map(({ entry, count, latest_lot_time }) => {
+          const qColor = entry.quality_filter !== null ? qualityColor(QLT_NAMES[entry.quality_filter]) : null
+          return (
           <Box
             key={entry.id}
             onClick={() => handleClick(entry.id)}
@@ -149,7 +152,7 @@ export default function GlobalFeed() {
               transition: 'background 0.15s, border-color 0.15s, transform 0.1s',
               '&:hover': {
                 background: 'rgba(62,213,152,0.09)',
-                borderColor: 'rgba(62,213,152,0.65)',
+                borderColor: alpha(tokens.gold, 0.25),
                 transform: 'translateY(-1px)',
               },
               '&:active': { transform: 'translateY(0)' },
@@ -159,7 +162,12 @@ export default function GlobalFeed() {
               <Avatar
                 src={iconUrl(entry.icon_path) ?? undefined}
                 variant="rounded"
-                sx={{ width: 30, height: 30, flexShrink: 0, bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '5px', mt: 0.125 }}
+                sx={{
+                  width: 30, height: 30, flexShrink: 0,
+                  bgcolor: qColor ? alpha(qColor, 0.12) : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${qColor ? alpha(qColor, 0.3) : 'rgba(255,255,255,0.08)'}`,
+                  borderRadius: '5px', mt: 0.125,
+                }}
               >
                 {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
               </Avatar>
@@ -190,7 +198,8 @@ export default function GlobalFeed() {
               </Box>
             </Box>
           </Box>
-        ))}
+          )
+        })}
       </Box>
     </Box>
   )
