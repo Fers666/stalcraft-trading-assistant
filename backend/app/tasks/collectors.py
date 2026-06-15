@@ -123,7 +123,19 @@ def collect_all_history(self):
                 select(UserWatchlist).where(UserWatchlist.is_active == True)
             )).scalars().all()
 
+            # Дедупликация: один API-запрос на пару (item_id, region) —
+            # _collect_history_for_item и так дедуплицирует записи по (item_id, region)
+            # независимо от user_id, так что повторные вызовы для той же пары
+            # только впустую расходуют лимит запросов к Stalcraft API.
+            seen: set = set()
+            unique_entries = []
             for entry in watchlist:
+                key = (entry.item_id, entry.region)
+                if key not in seen:
+                    seen.add(key)
+                    unique_entries.append(entry)
+
+            for entry in unique_entries:
                 try:
                     await _collect_history_for_item(db, entry)
                 except Exception as e:
@@ -144,8 +156,7 @@ def force_refresh_all_history():
     """
     async def _run():
         from app.db.session import get_celery_db_session as get_db_session
-        from app.models.models import UserWatchlist, MasterItem
-        from app.tasks.analyzers import calculate_market_stats
+        from app.models.models import UserWatchlist
         from sqlalchemy import select
 
         async with get_db_session() as db:
@@ -507,6 +518,7 @@ async def _collect_history_for_item(db, entry):
     from app.services.collector.client import stalcraft_client
     from app.models.models import SalesHistory, CollectedData
     from sqlalchemy import select, update
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
     from datetime import timedelta
 
     client_region = stalcraft_client.region
@@ -527,27 +539,33 @@ async def _collect_history_for_item(db, entry):
         # нужны id и additional_info чтобы ретроактивно добавить qlt/ptn
         # для записей, собранных до добавления additional=true в API запросе.
         existing_rows = (await db.execute(
-            select(SalesHistory.id, SalesHistory.sale_time, SalesHistory.additional_info).where(
+            select(
+                SalesHistory.id, SalesHistory.sale_time, SalesHistory.additional_info,
+                SalesHistory.total_price, SalesHistory.amount,
+            ).where(
                 SalesHistory.item_id == entry.item_id,
                 SalesHistory.region  == entry.region,
                 SalesHistory.sale_time >= cutoff,
             )
         )).all()
 
-        # sale_time → (id, additional_info) + индекс по секунде для O(1)-поиска
-        # с допуском ±1с (вместо линейного перебора всех записей за 120 дней).
-        existing_map: dict = {}
-        existing_by_sec: dict = {}
+        # Индекс по (секунда sale_time, total_price, amount) → (id, sale_time, additional_info).
+        # Ключ включает total_price/amount, чтобы две РАЗНЫЕ продажи в одну и ту же
+        # секунду (с разной ценой/количеством) не считались одной записью.
+        # id=None означает «запись добавлена в этом же проходе» — используется ниже,
+        # чтобы не дублировать продажу, если API вернул её в /history несколько раз
+        # за один вызов (existing_rows — снэпшот ДО цикла и новые db.add() в него не попадают).
+        existing_index: dict[tuple[int, int, int], tuple[int | None, datetime, dict | None]] = {}
         for row in existing_rows:
-            existing_map[row.sale_time] = (row.id, row.additional_info)
-            existing_by_sec.setdefault(int(row.sale_time.timestamp()), []).append(row.sale_time)
+            key = (int(row.sale_time.timestamp()), row.total_price, row.amount)
+            existing_index[key] = (row.id, row.sale_time, row.additional_info)
 
-        def find_existing(sold_at: datetime):
+        def find_existing(sold_at: datetime, total_price: int, amount: int):
             sec = int(sold_at.timestamp())
             for cand_sec in (sec - 1, sec, sec + 1):
-                for t in existing_by_sec.get(cand_sec, ()):
-                    if abs((sold_at - t).total_seconds()) < 1:
-                        return existing_map[t]
+                found = existing_index.get((cand_sec, total_price, amount))
+                if found is not None and abs((sold_at - found[1]).total_seconds()) < 1:
+                    return found
             return None
 
         # Снэпшоты для матчинга лотов — грузим лениво, только если встретится
@@ -636,13 +654,14 @@ async def _collect_history_for_item(db, entry):
             amount         = record.get("amount", 1)
             price_per_unit = total_price // amount if amount > 0 else total_price
 
-            existing = find_existing(sold_at)
+            existing = find_existing(sold_at, total_price, amount)
             if existing is not None:
-                existing_id, existing_additional = existing
+                existing_id, _, existing_additional = existing
                 # Если у существующей записи ещё нет qlt — пробуем найти лот и добавить,
-                # но только пока продажа ещё может быть в окне снэпшотов
+                # но только пока продажа ещё может быть в окне снэпшотов.
+                # existing_id=None → запись добавлена в этом же проходе и уже обогащена выше.
                 needs_qlt = existing_additional is None or "qlt" not in (existing_additional or {})
-                if needs_qlt and sold_at >= snapshot_cutoff:
+                if existing_id is not None and needs_qlt and sold_at >= snapshot_cutoff:
                     lot_info = await find_lot_info(total_price, amount, sold_at)
                     if lot_info.get("qlt") is not None:
                         merged = dict(existing_additional or {})
@@ -659,7 +678,7 @@ async def _collect_history_for_item(db, entry):
             if sold_at >= snapshot_cutoff:
                 lot_info = await find_lot_info(total_price, amount, sold_at)
 
-            db.add(SalesHistory(
+            stmt = pg_insert(SalesHistory).values(
                 user_id=entry.user_id,
                 item_id=entry.item_id,
                 region=entry.region,
@@ -669,7 +688,16 @@ async def _collect_history_for_item(db, entry):
                 total_price=total_price,
                 additional_info=lot_info if lot_info else None,
                 will_be_deleted_at=sold_at + timedelta(days=120),
-            ))
+            ).on_conflict_do_nothing(
+                index_elements=["item_id", "region", "sale_time", "total_price", "amount"]
+            )
+            await db.execute(stmt)
+
+            # Отмечаем как обработанную — если /history вернёт эту же продажу
+            # повторно в этом же ответе, она будет найдена через existing_index.
+            existing_index[(int(sold_at.timestamp()), total_price, amount)] = (
+                None, sold_at, lot_info if lot_info else None,
+            )
 
         await db.commit()
 
