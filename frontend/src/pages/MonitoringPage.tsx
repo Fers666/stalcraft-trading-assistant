@@ -11,7 +11,7 @@ import LotStatCard from '../components/LotStatCard'
 import SalesHistoryCharts from '../components/SalesHistoryCharts'
 import api from '../api/client'
 import { useFeedStore, type FeedWatchlistEntry } from '../store/feedStore'
-import { iconUrl, qualityColor } from '../utils/i18n'
+import { qualityColor } from '../utils/i18n'
 import { tokens } from '../theme'
 
 const QLT_NAMES: Record<number, string> = {
@@ -170,9 +170,6 @@ export default function MonitoringPage() {
 
             {/* 4 графика истории продаж */}
             <Box>
-              <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em', mb: 2 }}>
-                ИСТОРИЯ ПРОДАЖ
-              </Typography>
               <SalesHistoryCharts
                 itemId={selected.item_id}
                 region={selected.region}
@@ -192,7 +189,7 @@ export default function MonitoringPage() {
         bgcolor: 'rgba(255,255,255,0.02)',
         overflow: 'hidden',
         position: 'sticky',
-        top: 16,
+        top: '156px',
       }}>
         <Box sx={{ p: 1.5, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em', mb: 1 }}>
@@ -278,11 +275,16 @@ export default function MonitoringPage() {
                   >
                     <ListItemAvatar sx={{ minWidth: 36 }}>
                       <Avatar
-                        src={iconUrl(entry.icon_path) ?? undefined}
                         variant="rounded"
-                        sx={{ width: 28, height: 28, borderRadius: '5px', bgcolor: 'rgba(255,255,255,0.04)' }}
+                        sx={{
+                          width: 28, height: 28, borderRadius: '5px',
+                          bgcolor: 'rgba(255,255,255,0.04)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          fontSize: '0.7rem', color: '#7C7C7C',
+                          fontFamily: '"Rajdhani", sans-serif', fontWeight: 700,
+                        }}
                       >
-                        {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
+                        {(entry.name_ru ?? entry.name_en ?? String(entry.item_id))?.[0]?.toUpperCase() ?? '?'}
                       </Avatar>
                     </ListItemAvatar>
                     <ListItemText

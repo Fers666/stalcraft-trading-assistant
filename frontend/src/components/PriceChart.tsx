@@ -162,48 +162,53 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
 
       {/* Scatter: каждая продажа — точка (12ч / 24ч / 48ч) */}
       {!loading && !isEmpty && resp!.mode === 'scatter' && (
-        <ResponsiveContainer width="100%" height={160} debounce={200}>
-          <ScatterChart margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-            <XAxis
-              dataKey="x"
-              type="number"
-              domain={['dataMin', 'dataMax']}
-              scale="time"
-              tickFormatter={fmtMs}
-              tick={{ fontSize: 10, fill: '#7C7C7C' }}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              dataKey="y"
-              tickFormatter={fmtPrice}
-              tick={{ fontSize: 10, fill: '#7C7C7C' }}
-              width={48}
-            />
-            <ChartTooltip
-              cursor={{ stroke: 'rgba(255,255,255,0.08)' }}
-              content={({ active, payload }) => {
-                if (!active || !payload?.length) return null
-                const d = payload[0].payload as { x: number; y: number; amount: number }
-                const dt = new Date(d.x)
-                const timeStr = `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')} `
-                  + `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
-                return (
-                  <Box sx={{ background: '#1A1F26', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', p: 1 }}>
-                    <Typography sx={{ fontSize: 11, color: '#7C7C7C', mb: 0.25 }}>{timeStr}</Typography>
-                    <Typography sx={{ fontSize: 13, color: '#D9AF37', fontWeight: 700 }}>
-                      {d.y.toLocaleString('ru-RU')} ₽
-                    </Typography>
-                    {d.amount > 1 && (
-                      <Typography sx={{ fontSize: 11, color: '#B8B8B8' }}>{d.amount} шт</Typography>
-                    )}
-                  </Box>
-                )
-              }}
-            />
-            <Scatter data={scatterData} fill="#D9AF37" opacity={0.8} />
-          </ScatterChart>
-        </ResponsiveContainer>
+        <>
+          <ResponsiveContainer width="100%" height={160} debounce={200}>
+            <ScatterChart margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis
+                dataKey="x"
+                type="number"
+                domain={['dataMin', 'dataMax']}
+                scale="time"
+                tickFormatter={fmtMs}
+                tick={{ fontSize: 10, fill: '#7C7C7C' }}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                dataKey="y"
+                tickFormatter={fmtPrice}
+                tick={{ fontSize: 10, fill: '#7C7C7C' }}
+                width={48}
+              />
+              <ChartTooltip
+                cursor={{ stroke: 'rgba(255,255,255,0.08)' }}
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null
+                  const d = payload[0].payload as { x: number; y: number; amount: number }
+                  const dt = new Date(d.x)
+                  const timeStr = `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')} `
+                    + `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+                  return (
+                    <Box sx={{ background: '#1A1F26', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', p: 1 }}>
+                      <Typography sx={{ fontSize: 11, color: '#7C7C7C', mb: 0.25 }}>{timeStr}</Typography>
+                      <Typography sx={{ fontSize: 13, color: '#D9AF37', fontWeight: 700 }}>
+                        {d.y.toLocaleString('ru-RU')} ₽
+                      </Typography>
+                      {d.amount > 1 && (
+                        <Typography sx={{ fontSize: 11, color: '#B8B8B8' }}>{d.amount} шт</Typography>
+                      )}
+                    </Box>
+                  )
+                }}
+              />
+              <Scatter data={scatterData} fill="#D9AF37" opacity={0.8} />
+            </ScatterChart>
+          </ResponsiveContainer>
+          <Typography sx={{ fontSize: 10, color: 'text.disabled', mt: 0.5 }}>
+            {resp!.total_count} сделок · наведите на точку
+          </Typography>
+        </>
       )}
 
       {/* Composed chart: коридор мин/макс + средняя по дням (7д/30д) */}
@@ -223,8 +228,8 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
               }
             />
             <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Area type="monotone" dataKey="range" stroke={tokens.info} strokeOpacity={0.4} strokeWidth={1} fill={tokens.info} fillOpacity={0.15} name="Диапазон" />
-            <Line type="monotone" dataKey="avg" stroke={tokens.gold} dot={{ r: 4 }} strokeWidth={2} name="Средняя" />
+            <Area type="monotone" dataKey="range" stroke={tokens.info} strokeOpacity={0.4} strokeWidth={1} fill={tokens.info} fillOpacity={0.15} name="Коридор мин–макс" />
+            <Line type="monotone" dataKey="avg" stroke={tokens.gold} dot={{ r: 4 }} strokeWidth={2} name="Средняя цена" />
           </ComposedChart>
         </ResponsiveContainer>
       )}

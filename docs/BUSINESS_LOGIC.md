@@ -358,8 +358,8 @@ else:
 
 | Эндпоинт | TTL | Ключ |
 |----------|-----|------|
-| `/lots` | 5 мин | `stalcraft:cache:{region}:{item_id}:lots` |
-| `/history` | 60 мин | `stalcraft:cache:{region}:{item_id}:history` |
+| `/lots` | 5 мин | `stalcraft:cache:v2:{region}:{item_id}:lots` |
+| `/history` | 60 мин | `stalcraft:cache:v2:{region}:{item_id}:history` |
 
 ---
 
@@ -440,6 +440,7 @@ user_settings = {
 | `SELL_COMMISSION` | 5% | Комиссия аукциона с каждой продажи |
 | `EXPIRY_THRESHOLD_HOURS` | 2 ч | Лот с остатком < 2ч считается неликвидным (никто не купил по этой цене) |
 | `MIN_SALES_FOR_STATS` | 3 | Минимум продаж за 30 дней для расчёта волатильности и лучшего времени |
+| `MIN_SALES_FOR_VOLATILITY` | 5 | Минимум продаж за 7д/30д для расчёта волатильности (отдельно от MIN_SALES_FOR_STATS) |
 | `MIN_BUYOUTS_FOR_TIME_MODEL` | 5 | Минимум точек с lot_start для nearest-neighbor прогноза времени продажи |
 | `COVERAGE_HIGH` | 30% | Покрытие lot_start ≥30% + ≥10 точек → высокая точность прогноза |
 | `COVERAGE_MEDIUM` | 10% | Покрытие lot_start 10–30% + ≥3 точки → средняя точность |
@@ -554,7 +555,7 @@ trend-guard на случай резкого падения рынка) позв
 5. **Время продажи** = интерполяция по реальным выкупам (или эвристика по продажам/день)
 6. **Batch matching** = жадный алгоритм по цене до target_quantity; для оценки профита — поправка цены продажи по `market_statistics.batch_stats` при ≥3 продажах в том же бакете объёма
 7. **Snapshot matching** = лот в снэпшоте ДО продажи и отсутствует ПОСЛЕ → восстанавливаем lot_start → time_on_market
-8. **Rate limit** = Token Bucket: 100 токенов/мин, восстановление 1.67/сек
+8. **Rate limit** = Token Bucket: 400 запросов/мин (период 60 сек), см. §9
 9. **Saturation** = `total_profitable_amount / (sales_volume_7d / 7)` — много профитных лотов сразу относительно недельного объёма продаж → рынок может не успеть их переварить
 10. **Demand bulk_spike** = резкий рост доли объёма продаж в пачках ≥10 шт за 24ч против базовой доли за ~29 дней (информационный сигнал)
 11. **Калибровка** = `signal_outcomes` логирует предсказания (по каждой комбинации quality/enchant) и раз в сутки сверяет их с фактическими продажами (`evaluate_signal_outcomes`) — для будущей подстройки констант

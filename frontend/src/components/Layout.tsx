@@ -2,12 +2,6 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { Box, IconButton, Tooltip, Typography, alpha } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
-import MonitorHeartIcon from '@mui/icons-material/MonitorHeart'
-import SearchIcon from '@mui/icons-material/Search'
-import InventoryIcon from '@mui/icons-material/Inventory'
-import MenuBookIcon from '@mui/icons-material/MenuBook'
-import LocalOfferIcon from '@mui/icons-material/LocalOffer'
-import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import { useAuthStore } from '../store/authStore'
 import { useFeedStore } from '../store/feedStore'
 import { tokens } from '../theme'
@@ -16,11 +10,26 @@ import GlobalFeed, { FEED_HEIGHT } from './GlobalFeed'
 const { gold: G2, goldAccent: G3, text2: T2, border: BORDER } = tokens
 
 const NAV_ITEMS = [
-  { label: 'Избранное', to: '/app/monitoring', Icon: MonitorHeartIcon },
-  { label: 'Каталог',   to: '/app/catalog',    Icon: MenuBookIcon    },
-  { label: 'Лоты',      to: '/app/lots',       Icon: SearchIcon      },
-  { label: 'Лента',     to: '/app/feed',       Icon: LocalOfferIcon  },
-  { label: 'Склад',     to: '/app/inventory',  Icon: InventoryIcon   },
+  {
+    label: 'Избранное', to: '/app/monitoring',
+    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M6 12h3l2 4 4-8 2 4h2"/></svg>,
+  },
+  {
+    label: 'Каталог', to: '/app/catalog',
+    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M4 4h7v16H4z"/><path d="M13 4h7v16h-7z"/></svg>,
+  },
+  {
+    label: 'Лоты', to: '/app/lots',
+    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>,
+  },
+  {
+    label: 'Лента', to: '/app/feed',
+    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M5 9l4 4-4 4M5 5h2l9 14h3"/></svg>,
+  },
+  {
+    label: 'Склад', to: '/app/inventory',
+    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="3" y="7" width="18" height="13" rx="1"/><path d="M3 7l2-3h14l2 3"/></svg>,
+  },
 ]
 
 function AppNav() {
@@ -81,7 +90,7 @@ function AppNav() {
 
       {/* Навигационные ссылки */}
       <div style={{ display: 'flex', flexGrow: 1, gap: 4 }}>
-        {NAV_ITEMS.map(({ label, to, Icon }) => (
+        {NAV_ITEMS.map(({ label, to, svg }) => (
           <NavLink
             key={to}
             to={to}
@@ -103,7 +112,7 @@ function AppNav() {
           >
             {({ isActive }) => (
               <>
-                <Icon style={{ fontSize: 14, color: isActive ? G3 : '#B8B8B8' }} />
+                <span style={{ color: isActive ? G3 : '#B8B8B8', display: 'flex', alignItems: 'center' }}>{svg}</span>
                 {label}
               </>
             )}
@@ -129,12 +138,7 @@ function AppNav() {
             flexShrink: 0,
           })}
         >
-          {({ isActive }) => (
-            <>
-              <AdminPanelSettingsIcon style={{ fontSize: 14, color: isActive ? G3 : G2 }} />
-              Админ
-            </>
-          )}
+          {() => 'Админ'}
         </NavLink>
       )}
 

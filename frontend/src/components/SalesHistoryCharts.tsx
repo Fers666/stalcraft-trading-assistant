@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { Box, ToggleButtonGroup, ToggleButton } from '@mui/material'
+import { Box, Typography } from '@mui/material'
 import PriceChart from './PriceChart'
 
 interface Props {
@@ -9,41 +8,45 @@ interface Props {
   enchantFilter?: number | null
 }
 
-const HOURS_OPTIONS = [
-  { label: '24ч', value: 24  },
-  { label: '48ч', value: 48  },
-  { label: '7д',  value: 168 },
-  { label: '30д', value: 720 },
+const PERIODS = [
+  { label: '24 часа',  value: 24  },
+  { label: '48 часов', value: 48  },
+  { label: '7 дней',   value: 168 },
+  { label: '30 дней',  value: 720 },
 ]
 
 export default function SalesHistoryCharts({ itemId, region, qualityFilter, enchantFilter }: Props) {
-  const [hours, setHours] = useState(24)
-
   return (
-    <Box sx={{
-      border: '1px solid rgba(255,255,255,0.08)',
-      borderRadius: '12px',
-      p: 1.5,
-      bgcolor: 'rgba(255,255,255,0.02)',
-    }}>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-        <ToggleButtonGroup value={hours} exclusive onChange={(_, v) => v && setHours(v)} size="small">
-          {HOURS_OPTIONS.map(o => (
-            <ToggleButton key={o.value} value={o.value} sx={{ py: 0, px: 1, fontSize: 11 }}>
-              {o.label}
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
+    <Box>
+      <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em', mb: 1.5, textTransform: 'uppercase' }}>
+        История продаж
+      </Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+        {PERIODS.map(p => (
+          <Box
+            key={p.value}
+            sx={{
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '12px',
+              p: 1.5,
+              bgcolor: 'rgba(255,255,255,0.02)',
+            }}
+          >
+            <Typography sx={{ fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em', color: 'text.disabled', mb: 1, textTransform: 'uppercase' }}>
+              {p.label}
+            </Typography>
+            <PriceChart
+              key={`${itemId}-${p.value}`}
+              itemId={itemId}
+              region={region}
+              qualityFilter={qualityFilter}
+              enchantFilter={enchantFilter}
+              defaultHours={p.value}
+              hideControls
+            />
+          </Box>
+        ))}
       </Box>
-      <PriceChart
-        key={hours}
-        itemId={itemId}
-        region={region}
-        qualityFilter={qualityFilter}
-        enchantFilter={enchantFilter}
-        defaultHours={hours}
-        hideControls
-      />
     </Box>
   )
 }

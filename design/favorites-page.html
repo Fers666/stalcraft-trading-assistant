@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC Trading — Избранное (макет для дизайнера)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Gold palette */
+    --gold-soft: #B78A2A;
+    --gold: #D9AF37;
+    --gold-accent: #F2C94C;
+    --gold-highlight: #FFB800;
+
+    /* Backgrounds */
+    --bg0: #080808;
+    --bg1: #11151A;
+    --bg2: #1A1F26;
+    --bg3: #202633;
+
+    /* Text */
+    --text0: #F5F5F5;
+    --text1: #B8B8B8;
+    --text2: #7C7C7C;
+
+    /* Status */
+    --success: #3ED598;
+    --warning: #F5B74F;
+    --danger: #FF5A5A;
+    --info: #53B7FF;
+
+    --border: rgba(255,255,255,0.08);
+    --glow: rgba(217,175,55,0.10);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--bg0);
+    color: var(--text0);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    margin: 0;
+  }
+
+  /* ─── Navbar ─────────────────────────────────────────────────────────── */
+  .navbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 56px;
+    background: rgba(17,21,26,0.92);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 24px; gap: 8px;
+    z-index: 1300;
+  }
+  .nav-logo {
+    display: flex; align-items: center; gap: 10px;
+    cursor: pointer; flex-shrink: 0; margin-right: 4px;
+  }
+  .nav-logo-text {
+    font-family: 'Rajdhani', sans-serif; font-weight: 700;
+    font-size: 16px; color: var(--text0); letter-spacing: 0.08em; line-height: 1;
+  }
+  .nav-logo-sub {
+    font-size: 8px; color: var(--text2); letter-spacing: 0.14em; line-height: 1; margin-top: 3px;
+  }
+  .nav-divider { width: 1px; height: 24px; background: var(--border); flex-shrink: 0; margin-right: 4px; }
+
+  .nav-links { display: flex; flex-grow: 1; gap: 4px; }
+  .nav-link {
+    display: flex; align-items: center; gap: 6px;
+    font-family: 'Rajdhani', sans-serif; font-weight: 500; font-size: 13px;
+    letter-spacing: 0.06em; color: var(--text1); text-decoration: none;
+    padding: 0 12px; height: 34px; border-radius: 8px;
+    border: 1px solid transparent; flex-shrink: 0;
+  }
+  .nav-link svg { width: 14px; height: 14px; }
+  .nav-link.active {
+    font-weight: 700; color: var(--gold-accent);
+    background: rgba(217,175,55,0.12);
+    border: 1px solid rgba(217,175,55,0.3);
+  }
+
+  .nav-user { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+  .nav-username {
+    padding: 3px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: rgba(255,255,255,0.02); margin-right: 4px;
+    font-size: 0.72rem; color: var(--text2); letter-spacing: 0.05em;
+  }
+  .icon-btn {
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    color: var(--text2); border-radius: 8px;
+  }
+  .icon-btn svg { width: 16px; height: 16px; }
+
+  /* ─── Global Feed bar ────────────────────────────────────────────────── */
+  .feed-bar {
+    position: fixed; top: 56px; left: 0; right: 0; height: 84px;
+    z-index: 1200;
+    background: rgba(9,12,16,0.97);
+    border-bottom: 1px solid rgba(255,255,255,0.055);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    display: flex; align-items: center;
+    padding: 0 24px; gap: 16px;
+  }
+  .feed-bar::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent 0%, rgba(183,138,42,0.5) 15%, rgba(217,175,55,0.7) 50%, rgba(183,138,42,0.5) 85%, transparent 100%);
+  }
+  .feed-label { flex-shrink: 0; width: 64px; }
+  .feed-label-title {
+    font-size: 0.58rem; font-weight: 700; letter-spacing: 0.16em;
+    color: rgba(217,175,55,0.65); line-height: 1; margin-bottom: 6px;
+    font-family: 'Inter', sans-serif;
+  }
+  .feed-label-time { display: flex; align-items: center; gap: 5px; }
+  .feed-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+  .feed-label-time span { font-size: 0.52rem; color: var(--text2); letter-spacing: 0.08em; line-height: 1; }
+  .feed-divider { width: 1px; height: 52px; background: rgba(255,255,255,0.07); flex-shrink: 0; }
+
+  .feed-cards { display: flex; align-items: center; gap: 10px; overflow-x: auto; flex: 1; height: 84px; }
+  .feed-card {
+    flex-shrink: 0; width: 172px; padding: 10px 10px 8px;
+    border-radius: 10px; border: 1px solid rgba(62,213,152,0.3);
+    background: rgba(62,213,152,0.035); cursor: pointer;
+  }
+  .feed-card-top { display: flex; gap: 7px; align-items: flex-start; margin-bottom: 5px; }
+  .feed-card-icon {
+    width: 30px; height: 30px; flex-shrink: 0; border-radius: 5px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+  }
+  .feed-card-name {
+    font-size: 0.72rem; font-weight: 600; line-height: 1.3;
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .feed-card-meta { display: flex; align-items: center; gap: 6px; }
+  .feed-card-meta .q { font-size: 0.6rem; color: var(--gold); font-weight: 600; }
+  .feed-card-meta .e { font-size: 0.62rem; color: var(--gold); font-weight: 700; }
+  .feed-card-meta .time { font-size: 0.54rem; color: var(--text2); }
+  .feed-card-count {
+    margin-left: auto; background: var(--success); color: #000; border-radius: 5px;
+    padding: 2px 7px; font-size: 0.68rem; font-weight: 700; line-height: 1.45;
+  }
+
+  /* ─── Page layout ────────────────────────────────────────────────────── */
+  .page {
+    margin-top: 140px; /* navbar 56 + feed 84 */
+    padding: 24px;
+    display: flex; gap: 16px; align-items: flex-start;
+  }
+  .content { flex: 1; min-width: 0; }
+
+  .page-title-label {
+    font-size: 0.6rem; color: var(--text2); letter-spacing: 0.14em;
+    font-weight: 600; line-height: 1; margin-bottom: 4px; text-transform: uppercase;
+  }
+  .page-title { font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 1.25rem; letter-spacing: 0.06em; }
+
+  /* ─── Card (LotStatCard) ─────────────────────────────────────────────── */
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    overflow: hidden;
+    margin-top: 20px;
+  }
+  .card-topbar { height: 3px; background: linear-gradient(90deg, var(--gold) 0%, var(--warning) 100%); }
+  .card-content { padding: 16px; }
+
+  .card-header { display: flex; gap: 12px; align-items: center; }
+  .item-avatar {
+    width: 64px; height: 64px; flex-shrink: 0; border-radius: 10px;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Rajdhani', sans-serif; font-weight: 700; font-size: 1.5rem; color: var(--text2);
+  }
+  .item-info { flex: 1; min-width: 0; }
+  .item-name { font-size: 1rem; font-weight: 700; color: var(--text0); }
+  .item-name .enchant { margin-left: 6px; font-size: 0.75rem; color: var(--gold); font-weight: 700; }
+  .item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 4px; }
+  .item-id { font-size: 0.6rem; color: var(--text2); font-family: monospace; }
+
+  .chip {
+    display: inline-flex; align-items: center; height: 18px; padding: 0 8px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.03em; border-radius: 8px;
+    border: 1px solid var(--border); color: var(--text1);
+  }
+  .chip-outlined { background: transparent; }
+  .chip-primary    { background: rgba(217,175,55,0.12); border-color: rgba(217,175,55,0.3); color: var(--gold-accent); }
+  .chip-success    { background: rgba(62,213,152,0.12); border-color: rgba(62,213,152,0.3); color: var(--success); }
+  .chip-success-o  { background: transparent; border-color: rgba(62,213,152,0.3); color: var(--success); }
+  .chip-warning    { background: rgba(245,183,79,0.12); border-color: rgba(245,183,79,0.3); color: var(--warning); }
+  .chip-info-o     { background: transparent; border-color: rgba(83,183,255,0.3); color: var(--info); }
+  .chip-legendary  { border-color: #FFB800; color: #FFB800; }
+
+  .median-price { text-align: right; flex-shrink: 0; }
+  .median-price .label { font-size: 0.55rem; color: var(--text2); letter-spacing: 0.08em; }
+  .median-price .value { font-size: 1.05rem; font-weight: 700; white-space: nowrap; }
+
+  .card-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .icon-btn-sm {
+    width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+    border-radius: 8px; color: var(--text1);
+  }
+  .icon-btn-sm svg { width: 16px; height: 16px; }
+  .icon-btn-sm.danger { color: var(--danger); }
+
+  /* status bar */
+  .status-bar {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.06);
+  }
+  .stat-block .label { font-size: 0.55rem; color: var(--text2); letter-spacing: 0.08em; }
+  .stat-block .value { font-size: 0.82rem; font-weight: 700; }
+
+  .toggle-group { display: inline-flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  .toggle-btn {
+    padding: 0 8px; height: 20px; display: flex; align-items: center;
+    font-size: 0.6rem; color: var(--text2); border-right: 1px solid var(--border);
+  }
+  .toggle-btn:last-child { border-right: none; }
+  .toggle-btn.active { color: var(--gold-accent); background: rgba(217,175,55,0.12); }
+
+  .last-update { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+  .last-update svg { width: 10px; height: 10px; color: var(--text2); }
+  .last-update span { font-size: 0.55rem; color: var(--text2); white-space: nowrap; }
+
+  /* divider */
+  .hr { border: none; border-top: 1px solid rgba(255,255,255,0.06); margin: 14px 0; }
+
+  /* stats grid */
+  .stats-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; }
+
+  .section-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .section-label { font-size: 0.65rem; color: var(--text2); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+  .section-icon { width: 13px; height: 13px; color: var(--gold); }
+
+  .lots-table {
+    display: grid; grid-template-columns: 1fr auto 86px 86px 86px; gap: 5px;
+  }
+  .lots-table-header span {
+    font-size: 0.58rem; color: var(--text2); letter-spacing: 0.06em; text-align: right;
+  }
+  .lots-table-header span:first-child { text-align: left; }
+  .lots-table-header .fast    { color: var(--success); font-weight: 700; }
+  .lots-table-header .normal  { color: var(--gold);    font-weight: 700; }
+  .lots-table-header .premium { color: var(--warning); font-weight: 700; }
+
+  .lots-row { padding: 5px; border-radius: 6px; }
+  .lots-row .price { font-size: 0.75rem; font-weight: 600; color: var(--text0); }
+  .lots-row .sub { font-size: 0.6rem; color: var(--text2); }
+  .lots-row .qual { font-size: 0.6rem; color: var(--text1); text-align: right; line-height: 1.3; }
+  .lots-row .qual .ench { color: var(--gold); font-weight: 600; display: block; }
+  .lots-row .profit { text-align: right; }
+  .lots-row .profit .v { font-size: 0.75rem; font-weight: 600; }
+  .lots-row .profit .v.pos { color: var(--success); }
+  .lots-row .profit .v.neg { color: var(--danger); }
+  .lots-row .profit .total { font-size: 0.6rem; color: var(--text2); display: block; }
+
+  /* right column (sell options + batches) */
+  .right-col { border-left: 1px solid rgba(255,255,255,0.06); padding-left: 20px; }
+
+  .sell-grid { display: grid; grid-template-columns: 1fr 86px 86px 86px; gap: 5px; align-items: center; }
+  .sell-grid .opt-head { font-size: 0.58rem; font-weight: 700; letter-spacing: 0.06em; text-align: right; }
+  .sell-grid .opt-head.fast    { color: var(--success); }
+  .sell-grid .opt-head.normal  { color: var(--gold); }
+  .sell-grid .opt-head.premium { color: var(--warning); }
+  .sell-grid .row-label { font-size: 0.65rem; color: var(--text2); }
+  .sell-grid .row-value { font-size: 0.8rem; font-weight: 700; text-align: right; }
+  .sell-grid .row-value.muted { font-size: 0.72rem; font-weight: 600; color: var(--text1); }
+  .sell-grid .row-value.profit { color: var(--success); }
+  .sell-grid .row-value.fast    { color: var(--success); }
+  .sell-grid .row-value.normal  { color: var(--gold); }
+  .sell-grid .row-value.premium { color: var(--warning); }
+  .sell-grid .row-value.caption { font-size: 0.72rem; font-weight: 400; color: var(--text1); }
+
+  .batches { margin-top: 16px; }
+  .batch-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .batch-row .b-label { font-size: 0.6rem; color: var(--text1); min-width: 52px; }
+  .batch-row .b-label.popular { color: var(--gold); font-weight: 700; }
+  .batch-bar { flex: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.06); overflow: hidden; }
+  .batch-bar-fill { height: 100%; border-radius: 2px; background: rgba(255,255,255,0.18); }
+  .batch-bar-fill.popular { background: var(--gold); }
+  .batch-row .b-pct { font-size: 0.58rem; color: var(--text2); min-width: 28px; text-align: right; }
+  .batch-row .b-price { font-size: 0.6rem; color: var(--text0); min-width: 68px; text-align: right; font-family: monospace; }
+  .batch-note { font-size: 0.62rem; margin-top: 6px; color: var(--success); }
+
+  /* ─── Sales history charts ──────────────────────────────────────────── */
+  .sales-history { margin-top: 24px; }
+  .sales-history-label {
+    font-size: 0.65rem; color: var(--text2); font-weight: 600; letter-spacing: 0.1em;
+    margin-bottom: 12px; text-transform: uppercase;
+  }
+  .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .chart-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: rgba(255,255,255,0.02); }
+  .chart-label { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em; color: var(--text2); margin-bottom: 8px; text-transform: uppercase; }
+  .chart-placeholder { width: 100%; height: 120px; display: block; }
+
+  /* ─── Sidebar ────────────────────────────────────────────────────────── */
+  .sidebar {
+    width: 260px; flex-shrink: 0;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: rgba(255,255,255,0.02);
+    overflow: hidden;
+    position: sticky; top: 16px;
+  }
+  .sidebar-header { padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .sidebar-title { font-size: 0.6rem; color: var(--text2); font-weight: 600; letter-spacing: 0.1em; margin-bottom: 8px; text-transform: uppercase; }
+  .search-input {
+    width: 100%; height: 32px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--bg1); color: var(--text0); font-size: 0.75rem;
+    padding: 0 10px; font-family: 'Inter', sans-serif;
+  }
+  .search-input::placeholder { color: var(--text2); }
+
+  .watchlist { max-height: 600px; overflow-y: auto; }
+  .watch-item {
+    display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+    border-left: 2px solid transparent; border-bottom: 1px solid rgba(255,255,255,0.04);
+    cursor: pointer;
+  }
+  .watch-item.selected { background: rgba(217,175,55,0.08); border-left-color: var(--gold); }
+  .watch-item.profitable { background: rgba(76,175,80,0.04); border-left-color: #4caf50; }
+  .watch-avatar {
+    width: 28px; height: 28px; border-radius: 5px; flex-shrink: 0;
+    background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; color: var(--text2);
+  }
+  .watch-info { min-width: 0; flex: 1; }
+  .watch-name { display: flex; align-items: center; gap: 5px; font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .watch-name.selected { font-weight: 700; color: var(--gold); }
+  .watch-name.profitable { color: #4caf50; }
+  .watch-dot { width: 6px; height: 6px; border-radius: 50%; background: #4caf50; flex-shrink: 0; }
+  .watch-ench { margin-left: 4px; font-size: 0.65rem; color: var(--gold); font-weight: 700; }
+  .watch-meta { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+  .watch-meta .chip { height: 13px; font-size: 9px; padding: 0 5px; }
+
+  /* ─── New section marker for designer ───────────────────────────────── */
+  .new-section {
+    margin: 32px 24px 24px;
+    border: 2px dashed rgba(217,175,55,0.4);
+    border-radius: 12px;
+    padding: 24px;
+    background: rgba(217,175,55,0.03);
+  }
+  .new-section h3 { color: var(--gold-accent); margin-bottom: 8px; }
+  .new-section p { color: var(--text1); font-size: 0.85rem; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+  <!-- ═══════════════════════════ NAVBAR ═══════════════════════════ -->
+  <div class="navbar">
+    <div class="nav-logo">
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+        <defs>
+          <linearGradient id="nav-gold" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0%" stop-color="#B78A2A" />
+            <stop offset="55%" stop-color="#D9AF37" />
+            <stop offset="100%" stop-color="#F2C94C" />
+          </linearGradient>
+          <clipPath id="nav-clip"><polygon points="16,1 31,16 16,31 1,16" /></clipPath>
+        </defs>
+        <polygon points="16,1 31,16 16,31 1,16" stroke="url(#nav-gold)" stroke-width="1.5" fill="none" />
+        <g clip-path="url(#nav-clip)">
+          <rect x="5"  y="21" width="4" height="9"  fill="url(#nav-gold)" opacity="0.55" />
+          <rect x="11" y="17" width="4" height="13" fill="url(#nav-gold)" opacity="0.7"  />
+          <rect x="16" y="12" width="4" height="18" fill="url(#nav-gold)" opacity="0.85" />
+          <rect x="21" y="7"  width="4" height="23" fill="url(#nav-gold)" />
+        </g>
+      </svg>
+      <div>
+        <div class="nav-logo-text">SC TRADING</div>
+        <div class="nav-logo-sub">ZONE MARKET TERMINAL</div>
+      </div>
+    </div>
+
+    <div class="nav-divider"></div>
+
+    <div class="nav-links">
+      <a class="nav-link active" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M6 12h3l2 4 4-8 2 4h2"/></svg>
+        Избранное
+      </a>
+      <a class="nav-link" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h7v16H4z"/><path d="M13 4h7v16h-7z"/></svg>
+        Каталог
+      </a>
+      <a class="nav-link" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        Лоты
+      </a>
+      <a class="nav-link" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l4 4-4 4M5 5h2l9 14h3"/></svg>
+        Лента
+      </a>
+      <a class="nav-link" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="1"/><path d="M3 7l2-3h14l2 3"/></svg>
+        Склад
+      </a>
+    </div>
+
+    <div class="nav-user">
+      <div class="nav-username">trader_07</div>
+      <div class="icon-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+      <div class="icon-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════ GLOBAL FEED ═══════════════════════════ -->
+  <div class="feed-bar">
+    <div class="feed-label">
+      <div class="feed-label-title">СИГНАЛЫ</div>
+      <div class="feed-label-time">
+        <div class="feed-dot"></div>
+        <span>14:32:08</span>
+      </div>
+    </div>
+    <div class="feed-divider"></div>
+    <div class="feed-cards">
+      <div class="feed-card">
+        <div class="feed-card-top">
+          <div class="feed-card-icon"></div>
+          <div class="feed-card-name">Артефакт «Вспышка»</div>
+        </div>
+        <div class="feed-card-meta">
+          <span class="q">Легендарный</span>
+          <span class="e">+5</span>
+          <span class="time">14:28</span>
+          <span class="feed-card-count">3</span>
+        </div>
+      </div>
+      <div class="feed-card">
+        <div class="feed-card-top">
+          <div class="feed-card-icon"></div>
+          <div class="feed-card-name">Артефакт «Слизь»</div>
+        </div>
+        <div class="feed-card-meta">
+          <span class="q">Особый</span>
+          <span class="time">14:30</span>
+          <span class="feed-card-count">1</span>
+        </div>
+      </div>
+      <div class="feed-card">
+        <div class="feed-card-top">
+          <div class="feed-card-icon"></div>
+          <div class="feed-card-name">Детектор аномалий «Свист»</div>
+        </div>
+        <div class="feed-card-meta">
+          <span class="time">14:31</span>
+          <span class="feed-card-count">2</span>
+        </div>
+      </div>
+      <div class="feed-card">
+        <div class="feed-card-top">
+          <div class="feed-card-icon"></div>
+          <div class="feed-card-name">Бронежилет СЕВА</div>
+        </div>
+        <div class="feed-card-meta">
+          <span class="q">Мастер</span>
+          <span class="time">14:25</span>
+          <span class="feed-card-count">4</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════ PAGE CONTENT ═══════════════════════════ -->
+  <div class="page">
+
+    <!-- ── Центральная часть ──────────────────────────────────── -->
+    <div class="content">
+
+      <div class="page-title-label">Избранное</div>
+      <h1 class="page-title">Артефакт «Вспышка» +5</h1>
+
+      <!-- ── LotStatCard ──────────────────────────────────────── -->
+      <div class="card">
+        <div class="card-topbar"></div>
+        <div class="card-content">
+
+          <!-- Хедер -->
+          <div class="card-header">
+            <div class="item-avatar">В</div>
+            <div class="item-info">
+              <div class="item-name">Артефакт «Вспышка»<span class="enchant">+5</span></div>
+              <div class="item-meta">
+                <span class="item-id">art_flash_01</span>
+                <span class="chip chip-outlined">RU</span>
+                <span class="chip chip-outlined chip-legendary">Легендарный</span>
+                <span class="chip chip-warning">7д: Умеренный риск</span>
+                <span class="chip chip-success-o">30д: Стабильный</span>
+              </div>
+            </div>
+            <div class="median-price">
+              <div class="label">МЕДИАНА 7Д</div>
+              <div class="value">145 320 ₽</div>
+            </div>
+            <div class="card-actions">
+              <div class="icon-btn-sm">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+              </div>
+              <div class="icon-btn-sm danger">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <!-- Статус-бар -->
+          <div class="status-bar">
+            <div class="stat-block">
+              <div class="label">ПРОДАЖ 7Д</div>
+              <div class="value">38</div>
+            </div>
+            <div class="toggle-group">
+              <div class="toggle-btn">Неделя</div>
+              <div class="toggle-btn active">Сегодня</div>
+            </div>
+            <span class="chip chip-success-o">▲ 20:00 · Вт</span>
+            <span class="chip chip-info-o">▼ 04:00 · Чт</span>
+            <div class="last-update">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span>обновлено 2 мин назад</span>
+            </div>
+          </div>
+
+          <hr class="hr">
+
+          <!-- Выгодные лоты + Варианты продажи / Пачки -->
+          <div class="stats-grid">
+
+            <!-- Выгодные лоты -->
+            <div>
+              <div class="section-header">
+                <span class="section-label">Выгодные лоты</span>
+                <span class="chip chip-success">3 / 12</span>
+                <div class="toggle-group" style="margin-left:auto">
+                  <div class="toggle-btn">Неделя</div>
+                  <div class="toggle-btn active">Сейчас</div>
+                </div>
+              </div>
+
+              <div class="lots-table lots-table-header">
+                <span>ЦЕНА / ШТ</span>
+                <span>КАЧЕСТВО</span>
+                <span class="fast">БЫСТРО</span>
+                <span class="normal">НОРМАЛЬНО</span>
+                <span class="premium">ВЫГОДНО</span>
+              </div>
+
+              <div class="lots-table lots-row">
+                <div>
+                  <div class="price">128 400 ₽</div>
+                </div>
+                <div class="qual">
+                  Легендарный
+                  <span class="ench">+5</span>
+                </div>
+                <div class="profit"><span class="v pos">+4 200 ₽</span></div>
+                <div class="profit"><span class="v pos">+6 800 ₽</span></div>
+                <div class="profit"><span class="v pos">+9 100 ₽</span></div>
+              </div>
+
+              <div class="lots-table lots-row">
+                <div>
+                  <div class="price">131 000 ₽</div>
+                  <div class="sub">2 шт · 262 000 ₽</div>
+                </div>
+                <div class="qual">
+                  Легендарный
+                  <span class="ench">+5</span>
+                </div>
+                <div class="profit">
+                  <span class="v pos">+1 600 ₽</span>
+                  <span class="total">итого +3 200 ₽</span>
+                </div>
+                <div class="profit">
+                  <span class="v pos">+4 200 ₽</span>
+                  <span class="total">итого +8 400 ₽</span>
+                </div>
+                <div class="profit">
+                  <span class="v pos">+6 500 ₽</span>
+                  <span class="total">итого +13 000 ₽</span>
+                </div>
+              </div>
+
+              <div class="lots-table lots-row">
+                <div>
+                  <div class="price">134 500 ₽</div>
+                </div>
+                <div class="qual">
+                  Легендарный
+                  <span class="ench">+4</span>
+                </div>
+                <div class="profit"><span class="v pos">+800 ₽</span></div>
+                <div class="profit"><span class="v pos">+3 400 ₽</span></div>
+                <div class="profit"><span class="v pos">+5 700 ₽</span></div>
+              </div>
+            </div>
+
+            <!-- Варианты продажи + Пачки -->
+            <div class="right-col">
+
+              <div class="section-header">
+                <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+                <span class="section-label">Варианты продажи</span>
+                <span class="chip chip-success" style="margin-left:auto">Высокая точность</span>
+              </div>
+
+              <div class="sell-grid">
+                <div></div>
+                <div class="opt-head fast">БЫСТРО</div>
+                <div class="opt-head normal">НОРМАЛЬНО</div>
+                <div class="opt-head premium">ВЫГОДНО</div>
+
+                <div class="row-label">Выставить за</div>
+                <div class="row-value">138 000 ₽</div>
+                <div class="row-value">145 320 ₽</div>
+                <div class="row-value">149 500 ₽</div>
+
+                <div class="row-label">Получишь (−5%)</div>
+                <div class="row-value fast">131 100 ₽</div>
+                <div class="row-value normal">138 054 ₽</div>
+                <div class="row-value premium">142 025 ₽</div>
+
+                <div class="row-label">Прибыль</div>
+                <div class="row-value profit">+2 700 ₽</div>
+                <div class="row-value profit">+9 654 ₽</div>
+                <div class="row-value profit">+13 625 ₽</div>
+
+                <div class="row-label">Купи до</div>
+                <div class="row-value muted">131 099 ₽</div>
+                <div class="row-value muted">138 053 ₽</div>
+                <div class="row-value muted">142 024 ₽</div>
+
+                <div class="row-label">Срок</div>
+                <div class="row-value caption">~3 ч</div>
+                <div class="row-value caption">~12 ч</div>
+                <div class="row-value caption">~1 д 4 ч</div>
+              </div>
+
+              <!-- Пачки -->
+              <div class="batches">
+                <div class="section-header">
+                  <span class="section-label">Пачки</span>
+                  <span class="chip chip-outlined">62% сделок</span>
+                  <span class="chip chip-primary">~5 шт</span>
+                </div>
+
+                <div class="batch-row">
+                  <span class="b-label">1 шт</span>
+                  <div class="batch-bar"><div class="batch-bar-fill" style="width:45%"></div></div>
+                  <span class="b-pct">45%</span>
+                  <span class="b-price">145 000 ₽/шт</span>
+                </div>
+                <div class="batch-row">
+                  <span class="b-label popular">2–5 шт</span>
+                  <div class="batch-bar"><div class="batch-bar-fill popular" style="width:35%"></div></div>
+                  <span class="b-pct">35%</span>
+                  <span class="b-price">138 500 ₽/шт</span>
+                </div>
+                <div class="batch-row">
+                  <span class="b-label">6–10 шт</span>
+                  <div class="batch-bar"><div class="batch-bar-fill" style="width:20%"></div></div>
+                  <span class="b-pct">20%</span>
+                  <span class="b-price">132 000 ₽/шт</span>
+                </div>
+
+                <div class="batch-note">Оптом дешевле на 4.7% — выгоднее покупать пачкой</div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── История продаж ──────────────────────────────────── -->
+      <div class="sales-history">
+        <div class="sales-history-label">История продаж</div>
+        <div class="charts-grid">
+
+          <div class="chart-card">
+            <div class="chart-label">24 часа</div>
+            <svg class="chart-placeholder" viewBox="0 0 300 120" preserveAspectRatio="none">
+              <polyline points="0,90 30,85 60,88 90,70 120,75 150,55 180,60 210,40 240,45 270,30 300,35" fill="none" stroke="#D9AF37" stroke-width="2"/>
+              <polyline points="0,100 30,98 60,99 90,95 120,96 150,90 180,92 210,85 240,87 270,80 300,82" fill="none" stroke="#3ED598" stroke-width="1.5" stroke-dasharray="4 3"/>
+            </svg>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-label">48 часов</div>
+            <svg class="chart-placeholder" viewBox="0 0 300 120" preserveAspectRatio="none">
+              <polyline points="0,60 30,75 60,65 90,80 120,60 150,70 180,50 210,65 240,45 270,55 300,40" fill="none" stroke="#D9AF37" stroke-width="2"/>
+              <polyline points="0,95 30,98 60,93 90,99 120,92 150,96 180,88 210,94 240,85 270,90 300,83" fill="none" stroke="#3ED598" stroke-width="1.5" stroke-dasharray="4 3"/>
+            </svg>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-label">7 дней</div>
+            <svg class="chart-placeholder" viewBox="0 0 300 120" preserveAspectRatio="none">
+              <polyline points="0,40 30,55 60,50 90,65 120,45 150,60 180,35 210,50 240,30 270,42 300,25" fill="none" stroke="#D9AF37" stroke-width="2"/>
+              <polyline points="0,90 30,92 60,88 90,94 120,86 150,90 180,82 210,88 240,78 270,84 300,75" fill="none" stroke="#3ED598" stroke-width="1.5" stroke-dasharray="4 3"/>
+            </svg>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-label">30 дней</div>
+            <svg class="chart-placeholder" viewBox="0 0 300 120" preserveAspectRatio="none">
+              <polyline points="0,80 30,70 60,75 90,60 120,68 150,50 180,58 210,45 240,52 270,38 300,45" fill="none" stroke="#D9AF37" stroke-width="2"/>
+              <polyline points="0,100 30,97 60,99 90,93 120,96 150,89 180,93 210,86 240,90 270,82 300,86" fill="none" stroke="#3ED598" stroke-width="1.5" stroke-dasharray="4 3"/>
+            </svg>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Правый sidebar — список избранного ──────────────────── -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-title">Избранное · 6</div>
+        <input class="search-input" placeholder="Поиск...">
+      </div>
+      <div class="watchlist">
+
+        <div class="watch-item selected">
+          <div class="watch-avatar">В</div>
+          <div class="watch-info">
+            <div class="watch-name selected">Артефакт «Вспышка»<span class="watch-ench">+5</span></div>
+            <div class="watch-meta">
+              <span class="chip chip-outlined">RU</span>
+              <span class="chip chip-outlined chip-legendary">Легендарный</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="watch-item profitable">
+          <div class="watch-avatar">С</div>
+          <div class="watch-info">
+            <div class="watch-name profitable"><span class="watch-dot"></span>Артефакт «Слизь»</div>
+            <div class="watch-meta">
+              <span class="chip chip-outlined">EU</span>
+              <span class="chip chip-outlined">Особый</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="watch-item">
+          <div class="watch-avatar">Б</div>
+          <div class="watch-info">
+            <div class="watch-name">Бронежилет СЕВА</div>
+            <div class="watch-meta">
+              <span class="chip chip-outlined">RU</span>
+              <span class="chip chip-outlined">Мастер</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="watch-item">
+          <div class="watch-avatar">А</div>
+          <div class="watch-info">
+            <div class="watch-name">АК-74М<span class="watch-ench">+3</span></div>
+            <div class="watch-meta">
+              <span class="chip chip-outlined">RU</span>
+              <span class="chip chip-outlined">Ветеран</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="watch-item">
+          <div class="watch-avatar">Д</div>
+          <div class="watch-info">
+            <div class="watch-name">Детектор аномалий «Свист»</div>
+            <div class="watch-meta">
+              <span class="chip chip-outlined">EU</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="watch-item">
+          <div class="watch-avatar">А</div>
+          <div class="watch-info">
+            <div class="watch-name">Аптечка армейская</div>
+            <div class="watch-meta">
+              <span class="chip chip-outlined">RU</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════ НОВАЯ ЧАСТЬ — ЗОНА ДЛЯ ДИЗАЙНЕРА ═══════════════════════════ -->
+  <div class="new-section">
+    <h3>Новый блок (пример)</h3>
+    <p>
+      Сюда можно встроить новый элемент макета — используя уже подключённые классы
+      (<code>.card</code>, <code>.chip</code>, <code>.section-label</code>, цвета из <code>:root</code> и т.д.),
+      чтобы он сразу выглядел в общем стиле страницы.
+    </p>
+  </div>
+
+</body>
+</html>

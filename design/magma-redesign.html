@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC Trading — Магма (редизайн)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* backgrounds */
+    --bg:#080808;          /* BG0 page */
+    --surface:#11151A;     /* BG1 table headers, inputs */
+    --card:#1A1F26;        /* BG2 card surface */
+    --elevated:#202633;    /* BG3 elevated */
+    /* gold scale */
+    --gold-soft:#B78A2A;
+    --gold:#D9AF37;
+    --gold-accent:#F2C94C;
+    --gold-hi:#FFB800;
+    --gold-glow:rgba(217,175,55,.10);
+    /* text */
+    --text:#F5F5F5;
+    --muted:#B8B8B8;
+    --muted-2:#7C7C7C;
+    /* status */
+    --green:#3ED598;       /* success / profit */
+    --green-dim:#2a8c66;
+    --green-glow:rgba(62,213,152,.14);
+    --warn:#F5B74F;
+    --danger:#FF5A5A;
+    --info:#53B7FF;
+    /* lines */
+    --border:rgba(255,255,255,.08);
+    --border-hi:rgba(217,175,55,.25);
+    --grad-gold:linear-gradient(90deg,#B78A2A,#D9AF37,#F2C94C);
+    --head:"Rajdhani",system-ui,sans-serif;
+    --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --num:"Inter",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:13px;line-height:1.4}
+  body{padding:20px;max-width:1560px;margin:0 auto}
+  .num{font-family:var(--num);font-variant-numeric:tabular-nums}
+  .muted{color:var(--muted)}
+  .eyebrow{font-family:var(--head);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);font-weight:600}
+
+  /* ---------- top bar ---------- */
+  .topbar{display:flex;align-items:center;gap:20px;padding:6px 6px 18px}
+  .brand{display:flex;align-items:center;gap:11px}
+  .brand .logo{width:32px;height:32px;flex:none}
+  .brand .bt{line-height:1.05}
+  .brand .bt .n{font-family:var(--head);font-weight:700;font-size:16px;letter-spacing:.06em;color:var(--text)}
+  .brand .bt .s{font-size:8.5px;letter-spacing:.22em;color:var(--muted-2);text-transform:uppercase}
+  .nav{display:flex;gap:3px;margin-left:6px}
+  .nav a{font-family:var(--head);font-weight:600;font-size:12.5px;letter-spacing:.04em;color:var(--muted);
+    padding:7px 13px;border-radius:8px;text-decoration:none;cursor:pointer;transition:.15s}
+  .nav a:hover{color:var(--text);background:var(--surface)}
+  .nav a.on{color:var(--gold-accent);background:var(--gold-glow)}
+  .tb-right{margin-left:auto;display:flex;align-items:center;gap:11px}
+  .tb-user{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .tb-badge{font-family:var(--head);font-weight:700;font-size:11px;letter-spacing:.03em;color:#080808;background:var(--grad-gold);padding:5px 12px;border-radius:8px}
+
+  /* ---------- signals strip ---------- */
+  .signals{display:flex;align-items:stretch;gap:10px;padding:10px 12px;margin-bottom:16px;
+    background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow-x:auto}
+  .sig-label{display:flex;flex-direction:column;justify-content:center;padding:0 16px 0 4px;border-right:1px solid var(--border);flex:none}
+  .sig-label .t{font-family:var(--head);font-size:10px;letter-spacing:.16em;color:var(--muted-2);text-transform:uppercase}
+  .sig-label .time{font-size:11px;color:var(--green);font-variant-numeric:tabular-nums;display:flex;align-items:center;gap:5px;margin-top:4px}
+  .sig-label .time::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green)}
+  .sig-card{display:flex;align-items:center;gap:9px;padding:7px 11px;background:var(--card);border:1px solid var(--border);
+    border-radius:10px;min-width:188px;cursor:pointer;transition:.15s;flex:none}
+  .sig-card:hover{border-color:var(--border-hi)}
+  .sig-ico{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;font-family:var(--head);font-weight:700;font-size:14px;flex:none}
+  .sig-main{flex:1;min-width:0}
+  .sig-name{font-weight:600;font-size:12.5px}
+  .sig-sub{font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums}
+  .sig-badge{font-family:var(--num);font-variant-numeric:tabular-nums;font-size:12px;font-weight:700;color:var(--green);
+    background:rgba(62,213,152,.12);border:1px solid rgba(62,213,152,.3);border-radius:7px;padding:3px 9px}
+
+  /* ---------- page layout + sidebar ---------- */
+  .layout{display:grid;grid-template-columns:1fr 268px;gap:16px;align-items:start}
+  .page-head{margin-bottom:11px}
+  .page-head .eyebrow{margin-bottom:3px}
+  .page-title{font-family:var(--head);font-size:30px;font-weight:700;letter-spacing:.03em;margin:0;color:var(--text)}
+
+  .favs{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 12px;position:sticky;top:14px}
+  .favs-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:11px;padding:0 3px}
+  .favs-head .t{font-family:var(--head);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted-2)}
+  .favs-head .n{font-family:var(--num);font-size:11px;color:var(--gold);font-variant-numeric:tabular-nums}
+  .fav-search{display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-bottom:9px}
+  .fav-search input{flex:1;background:transparent;border:0;outline:0;color:var(--text);font:inherit;font-size:12px}
+  .fav-search input::placeholder{color:var(--muted-2)}
+  .fav-search .mi{color:var(--muted-2);font-size:12px}
+  .fav-list{display:flex;flex-direction:column;gap:1px;max-height:660px;overflow-y:auto;
+    scrollbar-width:thin;scrollbar-color:rgba(217,175,55,.45) transparent;padding-right:4px}
+  .fav-list::-webkit-scrollbar{width:8px}
+  .fav-list::-webkit-scrollbar-track{background:transparent;border-radius:8px}
+  .fav-list::-webkit-scrollbar-thumb{
+    background:linear-gradient(180deg,var(--gold-soft),var(--gold));
+    border-radius:8px;border:2px solid var(--card);background-clip:padding-box}
+  .fav-list::-webkit-scrollbar-thumb:hover{
+    background:linear-gradient(180deg,var(--gold),var(--gold-accent));
+    border:2px solid var(--card);background-clip:padding-box}
+  .fav{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;cursor:pointer;border-left:2px solid transparent;transition:.12s}
+  .fav:hover{background:var(--surface)}
+  .fav.on{background:var(--gold-glow);border-left-color:var(--gold)}
+  .fav .fd{width:7px;height:7px;border-radius:50%;flex:none}
+  .fav .fmain{flex:1;min-width:0}
+  .fav .frow{display:flex;align-items:center;gap:6px}
+  .fav .fname{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fav.on .fname{color:var(--gold-accent)}
+  .fav .plus{font-size:8.5px;font-weight:700;color:var(--gold);background:var(--gold-glow);border-radius:4px;padding:1px 4px;flex:none}
+  .fav .fsub{display:flex;align-items:center;gap:6px;font-size:9.5px;color:var(--muted-2);margin-top:2px}
+  .chip{font-size:9px;padding:1px 6px;border-radius:6px;border:1px solid;white-space:nowrap}
+  .chip.info{color:var(--info);border-color:rgba(83,183,255,.3);background:rgba(83,183,255,.12)}
+  .chip.warn{color:var(--warn);border-color:rgba(245,183,79,.3);background:rgba(245,183,79,.12)}
+  .chip.gold{color:var(--gold-accent);border-color:rgba(217,175,55,.3);background:var(--gold-glow)}
+  .chip.succ{color:var(--green);border-color:rgba(62,213,152,.3);background:rgba(62,213,152,.12)}
+  .chip.mut{color:var(--muted-2);border-color:var(--border);background:var(--surface)}
+
+  @media(max-width:1100px){
+    .layout{grid-template-columns:1fr}
+    .favs{position:static}
+  }
+
+  /* ---------- card shell ---------- */
+  .card{
+    background:var(--card);
+    border:1px solid var(--border);
+    border-radius:18px;
+    overflow:hidden;
+    transition:border-color .2s;
+    box-shadow:0 0 0 1px rgba(0,0,0,.4),0 24px 60px -24px rgba(0,0,0,.9),0 0 60px -30px var(--gold-glow);
+  }
+  .card:hover{border-color:var(--border-hi)}
+  .card-top{height:2px;background:var(--grad-gold)}
+
+  /* ---------- header ---------- */
+  .head{display:flex;align-items:flex-start;gap:18px;padding:18px 22px 15px}
+  .glyph{width:48px;height:48px;border-radius:12px;flex:none;display:grid;place-items:center;
+    background:radial-gradient(circle at 35% 30%,#7a1d12,#2a0c08);border:1px solid #5a1810;font-size:22px}
+  .head-main{flex:1;min-width:0}
+  .title-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  h1{font-family:var(--head);font-size:26px;margin:0;font-weight:700;letter-spacing:.04em;color:var(--text)}
+  .seller{color:var(--muted-2);font-size:11px;font-variant-numeric:tabular-nums}
+  .q-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:8px;
+    font-size:10px;font-weight:600;border:1px solid rgba(83,183,255,.3);color:var(--info);background:rgba(83,183,255,.12)}
+  .q-chip .dot{width:6px;height:6px;border-radius:50%;background:var(--info);box-shadow:0 0 6px var(--info)}
+
+  .tags{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;align-items:center}
+  .tag{font-size:11px;padding:4px 9px;border-radius:8px;background:var(--surface);border:1px solid var(--border);color:var(--muted)}
+  .risk{display:inline-flex;align-items:center;gap:6px}
+  .risk .rdot{width:7px;height:7px;border-radius:50%}
+  .r-low{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .r-mid{background:var(--warn);box-shadow:0 0 6px var(--warn)}
+  .r-high{background:var(--danger);box-shadow:0 0 6px var(--danger)}
+
+  .stats{display:flex;gap:26px;margin-top:14px}
+  .stat .eyebrow{margin-bottom:3px}
+  .stat .v{font-family:var(--num);font-variant-numeric:tabular-nums;font-size:16px;font-weight:600}
+  .stat .v.g{color:var(--green)}
+
+  .head-right{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .icon-btns{display:flex;gap:8px}
+  .ibtn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--surface);
+    color:var(--muted);display:grid;place-items:center;cursor:pointer;font-size:13px;transition:.15s}
+  .ibtn:hover{border-color:var(--gold);color:var(--gold-accent)}
+  .ibtn.del:hover{color:var(--danger);border-color:var(--danger)}
+  .stamp{font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums}
+
+  /* ---------- body grid ---------- */
+  .body{display:grid;grid-template-columns:1fr 360px;gap:1px;background:var(--border);border-top:1px solid var(--border)}
+  .col{background:var(--bg);padding:16px 20px}
+  .col-right{background:var(--bg);padding:16px 18px}
+
+  .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .sec-title{display:flex;align-items:center;gap:8px}
+  .sec-title h2{font-family:var(--head);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0;font-weight:700}
+  .count{font-family:var(--num);font-variant-numeric:tabular-nums;font-size:10.5px;padding:2px 8px;border-radius:8px;background:rgba(62,213,152,.12);color:var(--green);border:1px solid rgba(62,213,152,.3)}
+  .data-flag{font-size:10px;color:var(--gold-accent);border:1px solid rgba(217,175,55,.3);background:rgba(217,175,55,.12);padding:2px 8px;border-radius:8px}
+
+  /* quality filter (was repeated 8x) */
+  .qbar{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:11px;color:var(--muted)}
+  .qbar b{color:var(--text);font-weight:600}
+  .qbar .seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+  .qbar .seg button{font:inherit;font-size:10.5px;background:transparent;border:0;color:var(--muted);padding:4px 11px;cursor:pointer}
+  .qbar .seg button.on{background:var(--grad-gold);color:#080808;font-weight:700}
+
+  /* ---------- unified lots table ---------- */
+  table{width:100%;border-collapse:collapse}
+  thead th{font-family:var(--head);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);font-weight:600;
+    text-align:right;padding:7px 0 8px;border-bottom:1px solid var(--border);background:var(--surface)}
+  thead th.l{text-align:left;padding-left:10px}
+  thead th.strat{text-align:right;padding-left:14px}
+  thead th .sname{font-weight:700}
+  thead th[data-sort]{cursor:pointer;user-select:none;transition:color .15s}
+  thead th[data-sort]:hover{color:var(--muted)}
+  thead th.sort-on{color:var(--gold-accent)}
+  thead th .caret{font-size:8px;margin-left:3px;color:var(--gold)}
+
+  tbody tr{cursor:pointer;border-bottom:1px solid var(--border)}
+  tbody tr:hover{background:rgba(217,175,55,.04)}
+  tbody tr.sel{background:rgba(217,175,55,.08)}
+  tbody tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--gold)}
+  td{padding:9px 0;text-align:right;font-family:var(--num);font-variant-numeric:tabular-nums;font-size:12.5px}
+  td.price{text-align:left;font-weight:600;font-size:13px;padding-left:10px}
+  td.qa{text-align:left;color:var(--muted-2);font-size:10px}
+  td.qa .acc{color:var(--info)}
+
+  /* profit cell — plain colored value (lots already sorted, no heat bars) */
+  .pcell{padding-left:14px}
+  .pval{color:var(--green);font-weight:600}
+  td.qa .ench-no{color:var(--muted-2)}
+  td.qa .ench{color:var(--gold-accent);font-weight:700}
+
+  .hint{margin-top:11px;font-size:10.5px;color:var(--muted-2);display:flex;gap:6px;align-items:center}
+
+  /* ---------- right: sell options as compact grid ---------- */
+  .sell-note{font-size:10.5px;color:var(--muted-2);margin-bottom:10px}
+  .sell-note b{color:var(--gold-accent);font-variant-numeric:tabular-nums}
+  .sell-grid{display:grid;grid-template-columns:1fr auto auto auto;gap:6px 12px;align-items:baseline}
+  .sell-grid .opt-head{font-family:var(--head);font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;text-align:right;padding-bottom:2px}
+  .sell-grid .opt-head.fast{color:var(--green)}
+  .sell-grid .opt-head.norm{color:var(--warn)}
+  .sell-grid .opt-head.best{color:var(--gold-accent)}
+  .sell-grid .rl{font-size:11px;color:var(--muted)}
+  .sell-grid .rv{font-family:var(--num);font-variant-numeric:tabular-nums;font-size:12px;font-weight:600;text-align:right;color:var(--text)}
+  .sell-grid .rv.net{color:var(--gold-soft);font-weight:500}
+  .sell-grid .rv.profit{color:var(--green);font-weight:700}
+  .sell-grid .rv.cap{color:var(--muted);font-weight:400}
+  .sell-grid .rdiv{grid-column:1/-1;height:1px;background:var(--border);margin:3px 0}
+
+  /* ---------- batches ---------- */
+  .batches{margin-top:18px;padding-top:14px;border-top:1px solid var(--border)}
+  .batch-row{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+  .batch-row .bl{font-size:10.5px;color:var(--muted);min-width:54px}
+  .batch-row .bl.pop{color:var(--gold-accent);font-weight:700}
+  .bbar{flex:1;height:5px;border-radius:3px;background:var(--surface);overflow:hidden}
+  .bbar-fill{height:100%;border-radius:3px;background:rgba(255,255,255,.16)}
+  .bbar-fill.pop{background:var(--grad-gold)}
+  .batch-row .bp{font-size:10px;color:var(--muted-2);min-width:30px;text-align:right;font-variant-numeric:tabular-nums}
+  .batch-row .bpr{font-size:10.5px;color:var(--text);min-width:96px;text-align:right;font-family:var(--num);font-variant-numeric:tabular-nums}
+  .batch-note{font-size:10.5px;color:var(--green);margin-top:9px}
+
+  .sel-note{font-size:10.5px;color:var(--muted);margin-bottom:11px;font-variant-numeric:tabular-nums}
+  .sel-note b{color:var(--gold-accent)}
+
+  /* ---------- charts ---------- */
+  .charts{border-top:1px solid var(--border);background:var(--bg);padding:16px 20px 18px}
+  .ctabs{display:flex;gap:6px;margin-bottom:14px}
+  .ctab{font:inherit;font-family:var(--head);font-weight:600;font-size:12px;color:var(--muted);background:var(--surface);border:1px solid var(--border);
+    border-radius:8px;padding:6px 14px;cursor:pointer;display:flex;align-items:center;gap:7px;transition:.15s}
+  .ctab:hover{border-color:var(--border-hi)}
+  .ctab .cnt{font-family:var(--num);font-variant-numeric:tabular-nums;font-weight:400;font-size:10px;color:var(--muted-2)}
+  .ctab.on{background:var(--elevated);border-color:var(--gold);color:var(--gold-accent)}
+  .ctab.on .cnt{color:var(--gold)}
+  .chart-wrap{position:relative}
+  .legend{display:flex;gap:18px;margin-top:10px;font-size:10.5px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .lg{width:14px;height:0;border-top-width:2px;border-top-style:solid}
+  .lg.avg{border-color:var(--gold)}
+  .lg.band{height:9px;border:0;width:14px;background:rgba(83,183,255,.18);border-radius:2px}
+  .lg.sale-dot{height:9px;width:9px;border:0;border-radius:50%;background:var(--gold);box-shadow:0 0 6px var(--gold-glow)}
+  svg .grid{stroke:rgba(255,255,255,.05);stroke-width:1}
+  svg .axis{fill:var(--muted-2);font-family:var(--num);font-size:9px}
+  svg .band{fill:rgba(83,183,255,.08);stroke:rgba(83,183,255,.3);stroke-width:1;stroke-dasharray:3 3}
+  svg .avgline{fill:none;stroke:var(--gold);stroke-width:2}
+  svg .dot{fill:var(--gold);stroke:var(--bg);stroke-width:1.5}
+  svg .sale{fill:var(--gold);stroke:var(--bg);stroke-width:1.5;cursor:pointer;transition:r .1s}
+  svg .sale:hover{fill:var(--gold-accent);r:6;filter:drop-shadow(0 0 5px var(--gold-glow))}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" aria-label="SC Trading">
+      <defs>
+        <linearGradient id="lgGold" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#B78A2A"/>
+          <stop offset=".5" stop-color="#D9AF37"/>
+          <stop offset="1" stop-color="#F2C94C"/>
+        </linearGradient>
+        <clipPath id="dia"><path d="M16 1 L31 16 L16 31 L1 16 Z"/></clipPath>
+      </defs>
+      <g clip-path="url(#dia)" fill="url(#lgGold)">
+        <rect x="3"  y="20" width="4.4" height="12" rx="1"/>
+        <rect x="9.7" y="14" width="4.4" height="18" rx="1"/>
+        <rect x="16.4" y="8" width="4.4" height="24" rx="1"/>
+        <rect x="23.1" y="2" width="4.4" height="30" rx="1"/>
+      </g>
+      <path d="M16 1 L31 16 L16 31 L1 16 Z" fill="none" stroke="url(#lgGold)" stroke-width="1.1" opacity=".55"/>
+    </svg>
+    <div class="bt">
+      <div class="n">SC TRADING</div>
+      <div class="s">Zone Market Terminal</div>
+    </div>
+  </div>
+  <nav class="nav">
+    <a class="on">Избранное</a><a>Каталог</a><a>Лоты</a><a>Лента</a><a>Склад</a>
+  </nav>
+  <div class="tb-right">
+    <span class="tb-badge">Админ</span>
+    <span class="tb-user">mr_jonson_ponson</span>
+  </div>
+</div>
+
+<!-- SIGNALS STRIP -->
+<div class="signals">
+  <div class="sig-label">
+    <div class="t">Сигналы</div>
+    <div class="time">15:53:50</div>
+  </div>
+  <div class="sig-card">
+    <div class="sig-ico" style="color:var(--info);background:rgba(83,183,255,.12);border:1px solid rgba(83,183,255,.3)">Ге</div>
+    <div class="sig-main"><div class="sig-name">Гелий</div><div class="sig-sub">Ветеран · 15:28</div></div>
+    <span class="sig-badge">10</span>
+  </div>
+  <div class="sig-card">
+    <div class="sig-ico" style="color:var(--muted);background:var(--elevated);border:1px solid var(--border)">П</div>
+    <div class="sig-main"><div class="sig-name">Протоартефакт</div><div class="sig-sub">Особый +0 · 15:41</div></div>
+    <span class="sig-badge">10</span>
+  </div>
+  <div class="sig-card">
+    <div class="sig-ico" style="color:#e07a52;background:rgba(224,122,82,.12);border:1px solid rgba(224,122,82,.3)">Ма</div>
+    <div class="sig-main"><div class="sig-name">Магма</div><div class="sig-sub">Особый · 14:59</div></div>
+    <span class="sig-badge">7</span>
+  </div>
+  <div class="sig-card">
+    <div class="sig-ico" style="color:var(--warn);background:rgba(245,183,79,.12);border:1px solid rgba(245,183,79,.3)">Ра</div>
+    <div class="sig-main"><div class="sig-name">Радиатор</div><div class="sig-sub">Мастер · 14:29</div></div>
+    <span class="sig-badge">3</span>
+  </div>
+</div>
+
+<!-- LAYOUT: main + favorites sidebar -->
+<div class="layout">
+<div class="main">
+  <div class="page-head">
+    <div class="eyebrow">Избранное</div>
+    <h2 class="page-title">Магма</h2>
+  </div>
+
+  <div class="card">
+  <div class="card-top"></div>
+
+  <!-- HEADER -->
+  <div class="head">
+    <div class="glyph">🜂</div>
+    <div class="head-main">
+      <div class="title-row">
+        <h1>Магма</h1>
+        <span class="q-chip"><span class="dot"></span>Особый</span>
+        <span class="seller">RU · jkq7</span>
+      </div>
+      <div class="tags">
+        <span class="tag risk"><span class="rdot r-mid"></span>7д · умеренный риск</span>
+        <span class="tag risk"><span class="rdot r-mid"></span>30д · умеренный риск</span>
+      </div>
+      <div class="stats">
+        <div class="stat">
+          <div class="eyebrow">Медиана 7д</div>
+          <div class="v">12 950 000 ₽</div>
+        </div>
+        <div class="stat">
+          <div class="eyebrow">Продаж 7д</div>
+          <div class="v">27</div>
+        </div>
+        <div class="stat">
+          <div class="eyebrow">Лучшая прибыль</div>
+          <div class="v g">+4 417 625 ₽</div>
+        </div>
+      </div>
+    </div>
+    <div class="head-right">
+      <div class="icon-btns">
+        <button class="ibtn" title="Поиск похожих лотов">⌕</button>
+        <button class="ibtn del" title="Убрать из избранного">🗑</button>
+      </div>
+      <div class="stamp">обновлено 13:50</div>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body">
+    <!-- LEFT: unified lots table -->
+    <div class="col">
+      <div class="sec-head">
+        <div class="sec-title">
+          <h2>Выгодные лоты</h2>
+          <span class="count" id="lotCount">7 / 10</span>
+        </div>
+        <div class="seg-period">
+          <span class="data-flag">источник: рынок · сейчас</span>
+        </div>
+      </div>
+
+      <div class="qbar">
+        Фильтр качества: <b>Особый · не точёный</b>
+        <span class="seg">
+          <button class="on">Сейчас</button>
+          <button>Неделя</button>
+        </span>
+        <span style="margin-left:auto;color:var(--muted-2)">прибыль = чистыми (−5% комиссии) − цена лота</span>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th class="l" data-sort="price">Цена / шт<span class="caret"></span></th>
+            <th class="qa l">Качество</th>
+            <th class="strat" data-sort="fast"><span class="sname" style="color:var(--green)">Быстро</span><span class="caret"></span><br><span style="font-size:8px;color:var(--muted-2)">~8 ч</span></th>
+            <th class="strat" data-sort="norm"><span class="sname" style="color:var(--warn)">Нормально</span><span class="caret"></span><br><span style="font-size:8px;color:var(--muted-2)">~1–2 дня</span></th>
+            <th class="strat" data-sort="best"><span class="sname" style="color:var(--gold-accent)">Выгодно</span><span class="caret"></span><br><span style="font-size:8px;color:var(--muted-2)">~3 дня</span></th>
+          </tr>
+        </thead>
+        <tbody id="lotBody"></tbody>
+      </table>
+
+      <div class="hint">↳ Кликните лот — «Варианты продажи» пересчитаются от его цены покупки.</div>
+    </div>
+
+    <!-- RIGHT: sell options as compact table -->
+    <div class="col-right">
+      <div class="sec-head">
+        <div class="sec-title"><h2>Варианты продажи</h2></div>
+        <span class="data-flag">мало данных</span>
+      </div>
+      <div class="sell-note">Расчёт для лота <b id="selPrice">8 500 000 ₽</b></div>
+      <div class="sell-grid" id="sellGrid"></div>
+
+      <div class="batches">
+        <div class="sec-head" style="margin-bottom:11px">
+          <div class="sec-title"><h2>Пачки</h2></div>
+          <span class="data-flag" style="color:var(--muted);border-color:var(--border);background:var(--surface)">62% сделок</span>
+        </div>
+        <div class="batch-row">
+          <span class="bl">1 шт</span>
+          <div class="bbar"><div class="bbar-fill" style="width:45%"></div></div>
+          <span class="bp">45%</span><span class="bpr">13 000 000 ₽</span>
+        </div>
+        <div class="batch-row">
+          <span class="bl pop">2–5 шт</span>
+          <div class="bbar"><div class="bbar-fill pop" style="width:35%"></div></div>
+          <span class="bp">35%</span><span class="bpr">12 480 000 ₽</span>
+        </div>
+        <div class="batch-row">
+          <span class="bl">6–10 шт</span>
+          <div class="bbar"><div class="bbar-fill" style="width:20%"></div></div>
+          <span class="bp">20%</span><span class="bpr">12 090 000 ₽</span>
+        </div>
+        <div class="batch-note">Оптом дешевле на ~7% — пачкой 2–5 шт берут чаще всего</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="charts">
+    <div class="sec-head" style="margin-bottom:12px">
+      <div class="sec-title"><h2>История продаж</h2></div>
+      <span class="muted" style="font-size:10.5px">медиана и коридор мин/макс</span>
+    </div>
+    <div class="ctabs" id="ctabs">
+      <button class="ctab on" data-tf="24h">24 часа <span class="cnt">12</span></button>
+      <button class="ctab" data-tf="48h">48 часов <span class="cnt">14</span></button>
+      <button class="ctab" data-tf="7d">7 дней <span class="cnt">27</span></button>
+      <button class="ctab" data-tf="30d">30 дней <span class="cnt">70</span></button>
+    </div>
+    <div class="chart-wrap">
+      <svg id="chart" viewBox="0 0 1000 280" preserveAspectRatio="none" style="width:100%;height:240px"></svg>
+    </div>
+    <div class="legend" id="legend">
+      <span><i class="lg avg"></i> Средняя цена</span>
+      <span><i class="lg band"></i> Коридор мин–макс</span>
+    </div>
+  </div>
+</div>
+</div><!-- /.main -->
+
+<aside class="favs">
+  <div class="favs-head"><span class="t">Избранное</span><span class="n">· 13</span></div>
+  <div class="fav-search"><span class="mi">⌕</span><input id="favSearch" placeholder="Поиск..." autocomplete="off"></div>
+  <div class="fav-list" id="favList"></div>
+</aside>
+</div><!-- /.layout -->
+
+<script>
+const RUB = n => Math.round(n).toLocaleString('ru-RU') + ' ₽';
+const PLUS = n => '+' + RUB(n);
+
+// fixed net receive (after -5%) per strategy — same for the item
+const STRAT = {
+  fast: {name:'Быстро',  time:'~8 ч',     list:12561500, net:11933425},
+  norm: {name:'Нормально',time:'~1–2 дня', list:12950000, net:12302500},
+  best: {name:'Выгодно',  time:'~3 дня',   list:13597500, net:12917625},
+};
+const lots = [8500000,8800000,8900000,9100000,9300000,9499999,9500000];
+
+// best profit anywhere = Выгодно on cheapest lot
+const globalMax = STRAT.best.net - Math.min(...lots);
+
+const tbody = document.getElementById('lotBody');
+const gridEl = document.getElementById('sellGrid');
+
+const ROWS = lots.map(price=>({
+  price,
+  fast: STRAT.fast.net - price,
+  norm: STRAT.norm.net - price,
+  best: STRAT.best.net - price,
+}));
+let selPrice = ROWS[0].price;
+let sort = {key:'price', dir:1};   // 1 = по возрастанию, -1 = по убыванию
+
+function render(){
+  const view=[...ROWS].sort((a,b)=>(a[sort.key]-b[sort.key])*sort.dir);
+  const cell=(val)=>`<td class="pcell"><span class="pval">${PLUS(val)}</span></td>`;
+  tbody.innerHTML=view.map(r=>
+    `<tr data-price="${r.price}" class="${r.price===selPrice?'sel':''}">
+       <td class="price">${RUB(r.price)}</td>
+       <td class="qa">Особый · <span class="ench-no">не точёный</span></td>
+       ${cell(r.fast)}${cell(r.norm)}${cell(r.best)}
+     </tr>`).join('');
+
+  document.querySelectorAll('th[data-sort]').forEach(th=>{
+    const on=th.dataset.sort===sort.key;
+    th.classList.toggle('sort-on',on);
+    th.querySelector('.caret').textContent = on ? (sort.dir>0?'▲':'▼') : '';
+  });
+
+  tbody.querySelectorAll('tr').forEach(tr=>{
+    tr.addEventListener('click',()=>{ selPrice=+tr.dataset.price; markSel(); showOpts(selPrice); });
+  });
+}
+function markSel(){
+  tbody.querySelectorAll('tr').forEach(tr=>tr.classList.toggle('sel',+tr.dataset.price===selPrice));
+}
+
+function showOpts(price){
+  document.getElementById('selPrice').textContent = RUB(price);
+  const K=['fast','norm','best'];
+  const hcls={fast:'fast',norm:'norm',best:'best'};
+  const row=(label,fn,cls='')=>
+    `<div class="rl">${label}</div>`+
+    K.map(k=>`<div class="rv ${cls}">${fn(STRAT[k])}</div>`).join('');
+  gridEl.innerHTML =
+    `<div></div>`+
+    K.map(k=>`<div class="opt-head ${hcls[k]}">${STRAT[k].name}</div>`).join('')+
+    row('Выставить за', s=>RUB(s.list))+
+    row('Получишь (−5%)', s=>RUB(s.net), 'net')+
+    `<div class="rdiv"></div>`+
+    row('Прибыль', s=>PLUS(s.net-price), 'profit')+
+    row('Срок', s=>s.time, 'cap');
+}
+
+document.querySelectorAll('th[data-sort]').forEach(th=>{
+  th.addEventListener('click',()=>{
+    const k=th.dataset.sort;
+    if(sort.key===k) sort.dir*=-1;
+    else { sort.key=k; sort.dir = (k==='price') ? 1 : -1; } // профит логичнее по убыванию
+    render();
+  });
+});
+
+render();
+showOpts(selPrice);
+
+/* ---------------- favorites sidebar ---------------- */
+const FAVS = [
+  {name:'Гелий', role:'Ветеран', chip:'warn', dot:'var(--info)'},
+  {name:'Магма', role:'Особый', chip:'info', dot:'#e07a52', on:true},
+  {name:'Радиатор', role:'Мастер', chip:'gold', dot:'var(--warn)'},
+  {name:'Протоартефакт', role:'Особый', chip:'info', dot:'var(--muted-2)'},
+  {name:'Петля', plus:'+15', role:'Ветеран', chip:'warn', dot:'var(--green)'},
+  {name:'«Трофейный»', role:'', chip:'', dot:'var(--muted-2)'},
+  {name:'Катализатор', role:'', chip:'', dot:'var(--muted-2)'},
+  {name:'Солнце', plus:'+15', role:'Ветеран', chip:'warn', dot:'var(--warn)'},
+  {name:'Солнце', role:'Ветеран', chip:'warn', dot:'var(--warn)'},
+  {name:'Протоартефакт', role:'Необычный', chip:'succ', dot:'var(--green)'},
+  {name:'Протоартефакт', role:'Ветеран', chip:'warn', dot:'var(--muted-2)'},
+  {name:'Ветка Калины', plus:'+15', role:'Ветеран', chip:'warn', dot:'var(--green)'},
+  {name:'Атом', plus:'+15', role:'Ветеран', chip:'warn', dot:'var(--warn)'},
+];
+const favList=document.getElementById('favList');
+function renderFavs(q=''){
+  const ql=q.trim().toLowerCase();
+  favList.innerHTML=FAVS.filter(f=>f.name.toLowerCase().includes(ql)).map((f,i)=>{
+    const idx=FAVS.indexOf(f);
+    const chip=f.role?`<span class="chip ${f.chip}">${f.role}</span>`:'';
+    const plus=f.plus?`<span class="plus">${f.plus}</span>`:'';
+    return `<div class="fav ${f.on?'on':''}" data-i="${idx}">
+      <span class="fd" style="background:${f.dot};box-shadow:0 0 5px ${f.dot}"></span>
+      <div class="fmain">
+        <div class="frow"><span class="fname">${f.name}</span>${plus}</div>
+        <div class="fsub">RU ${chip}</div>
+      </div>
+    </div>`;
+  }).join('') || `<div style="padding:14px 9px;color:var(--muted-2);font-size:11px">Ничего не найдено</div>`;
+  favList.querySelectorAll('.fav').forEach(el=>{
+    el.addEventListener('click',()=>{
+      FAVS.forEach(f=>f.on=false);
+      FAVS[+el.dataset.i].on=true;
+      renderFavs(document.getElementById('favSearch').value);
+    });
+  });
+}
+renderFavs();
+document.getElementById('favSearch').addEventListener('input',e=>renderFavs(e.target.value));
+
+/* ---------------- charts ---------------- */
+// 24h / 48h: individual sales — each dot is one sale (time + price)
+const SALES = {
+  '24h':[
+    {t:'16:19',p:14.0e6},{t:'16:46',p:10.5e6},{t:'17:11',p:12.8e6},{t:'17:47',p:14.0e6},
+    {t:'18:08',p:10.6e6},{t:'18:41',p:11.1e6},{t:'19:06',p:10.5e6},{t:'19:24',p:13.4e6},
+    {t:'19:53',p:11.8e6},{t:'20:21',p:10.6e6},{t:'20:47',p:11.7e6},{t:'21:30',p:14.0e6}
+  ],
+  '48h':[
+    {t:'13:23',p:13.9e6},{t:'15:10',p:11.2e6},{t:'16:46',p:10.6e6},{t:'18:30',p:13.6e6},
+    {t:'21:30',p:11.0e6},{t:'23:40',p:12.4e6},{t:'02:15',p:10.5e6},{t:'06:40',p:13.8e6},
+    {t:'10:05',p:11.5e6},{t:'13:48',p:14.0e6},{t:'16:46',p:10.7e6},{t:'18:08',p:12.0e6},
+    {t:'19:53',p:13.5e6},{t:'21:30',p:11.3e6}
+  ],
+};
+// 7d / 30d: aggregated with min/avg/max corridor
+function gen(n, base, spread, labels){
+  const pts=[];
+  for(let i=0;i<n;i++){
+    const wob = Math.sin(i*0.9)*spread*0.5 + (Math.sin(i*2.3)*spread*0.25);
+    const avg = base + wob;
+    pts.push({label:labels[i]||'', avg, min:avg-spread*0.9, max:avg+spread*0.85});
+  }
+  return pts;
+}
+const BANDS = {
+  '7d' : gen(7,12.4e6,2.6e6,['08.06','09.06','10.06','11.06','12.06','13.06','14.06']),
+  '30d': gen(10,12.2e6,3.4e6,['04.06','07.06','10.06','13.06','16.06','19.06','22.06','25.06','28.06','30.06']),
+};
+
+const svg=document.getElementById('chart');
+const legendEl=document.getElementById('legend');
+const W=1000,H=280,PL=58,PR=14,PT=14,PB=28;
+
+function yAxis(lo,hi,y){
+  let g='';
+  for(let t=0;t<=4;t++){
+    const val=lo+(hi-lo)*t/4, yy=y(val);
+    g+=`<line class="grid" x1="${PL}" y1="${yy}" x2="${W-PR}" y2="${yy}"/>`;
+    g+=`<text class="axis" x="${PL-8}" y="${yy+3}" text-anchor="end">${(val/1e6).toFixed(1)}M</text>`;
+  }
+  return g;
+}
+
+function drawSales(tf){
+  const d=SALES[tf];
+  const prices=d.map(s=>s.p);
+  const lo=Math.min(...prices)*0.94, hi=Math.max(...prices)*1.06;
+  const x=i=>PL+(W-PL-PR)*(i/(d.length-1));
+  const y=v=>PT+(H-PT-PB)*(1-(v-lo)/(hi-lo));
+  let g=yAxis(lo,hi,y);
+  d.forEach((s,i)=>{
+    g+=`<circle class="sale" cx="${x(i)}" cy="${y(s.p)}" r="4">`+
+       `<title>${s.t} · ${RUB(s.p)}</title></circle>`;
+    if(d.length<=12 || i%2===0)
+      g+=`<text class="axis" x="${x(i)}" y="${H-10}" text-anchor="middle">${s.t}</text>`;
+  });
+  svg.innerHTML=g;
+  legendEl.innerHTML=`<span><i class="lg sale-dot"></i> Продажа (время · цена)</span>`+
+    `<span style="color:var(--muted-2)">${d.length} сделок · наведите на точку</span>`;
+}
+
+function drawBand(tf){
+  const d=BANDS[tf];
+  const all=d.flatMap(p=>[p.min,p.max]);
+  const lo=Math.min(...all)*0.96, hi=Math.max(...all)*1.04;
+  const x=i=>PL+(W-PL-PR)*(i/(d.length-1));
+  const y=v=>PT+(H-PT-PB)*(1-(v-lo)/(hi-lo));
+  let g=yAxis(lo,hi,y);
+  let top='',bot='';
+  d.forEach((p,i)=>{ top+=`${i?'L':'M'}${x(i)},${y(p.max)} `; });
+  for(let i=d.length-1;i>=0;i--){ bot+=`L${x(i)},${y(d[i].min)} `; }
+  g+=`<path class="band" d="${top}${bot}Z"/>`;
+  let line='';
+  d.forEach((p,i)=>{ line+=`${i?'L':'M'}${x(i)},${y(p.avg)} `; });
+  g+=`<path class="avgline" d="${line}"/>`;
+  d.forEach((p,i)=>{
+    g+=`<circle class="dot" cx="${x(i)}" cy="${y(p.avg)}" r="3.2"/>`;
+    if(p.label && (d.length<=10 || i%2===0))
+      g+=`<text class="axis" x="${x(i)}" y="${H-10}" text-anchor="middle">${p.label}</text>`;
+  });
+  svg.innerHTML=g;
+  legendEl.innerHTML=`<span><i class="lg avg"></i> Средняя цена</span>`+
+    `<span><i class="lg band"></i> Коридор мин–макс</span>`;
+}
+
+function draw(tf){ (tf==='24h'||tf==='48h') ? drawSales(tf) : drawBand(tf); }
+
+draw('24h');
+document.getElementById('ctabs').addEventListener('click',e=>{
+  const b=e.target.closest('.ctab'); if(!b)return;
+  document.querySelectorAll('.ctab').forEach(t=>t.classList.toggle('on',t===b));
+  draw(b.dataset.tf);
+});
+</script>
+</body>
+</html>
