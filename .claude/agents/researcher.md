@@ -19,6 +19,24 @@ tools: Read, Grep, Glob, Bash, Write
 - Write разрешён ТОЛЬКО для создания/обновления файлов внутри `docs/tasks/`. Никогда не редактируй код, docs/NOTES.md и другие существующие документы.
 - Bash — только read-only команды (git log/diff/status, psql SELECT, docker exec ... cat/ls). Никогда не меняй состояние БД, файлов или контейнеров.
 
+## Graphify — граф зависимостей (используй ПЕРВЫМ)
+
+Перед тем как читать файлы или Grep по коду — задай вопрос графу. Это быстрее и дешевле по токенам.
+
+```powershell
+# Исследовать архитектуру / зависимости
+cd D:\SC_AUC\backend\app; graphify query "как работает X?"
+cd D:\SC_AUC\frontend\src; graphify query "что рендерит страницу Y?"
+
+# Кратчайший путь между компонентами
+cd D:\SC_AUC\backend\app; graphify path "profitable_lots" "SalesHistory"
+
+# Объяснение конкретного узла
+cd D:\SC_AUC\backend\app; graphify explain "compute_signals_for_entry"
+```
+
+Графы: `backend/app/graphify-out/graph.json` (328 nodes, 653 edges) · `frontend/src/graphify-out/graph.json` (140 nodes, 232 edges)
+
 ## Маршрутизация по docs/ (см. CLAUDE.md, Блок 2)
 | Задача | Читать |
 |---|---|

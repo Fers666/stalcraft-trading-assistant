@@ -26,6 +26,19 @@ frontend/src/
 - `theme.palette.primary.contrastText` должен оставаться светлым (#F5F5F5) — не менять на тёмный
 - Используй токены из `frontend/src/theme.ts` (`export const tokens`), не хардкодь цвета заново
 
+## Graphify — навигация по компонентам (используй перед Grep/Read)
+
+```powershell
+# Найти зависимости компонента
+cd D:\SC_AUC\frontend\src; graphify query "как работает X компонент?"
+cd D:\SC_AUC\frontend\src; graphify path "ComponentA" "StoreB"
+cd D:\SC_AUC\frontend\src; graphify explain "useHookName"
+# Обновить граф после изменений:
+cd D:\SC_AUC\frontend\src; graphify update .
+```
+
+Граф: `frontend/src/graphify-out/graph.json` (140 nodes, 232 edges, 10 communities)
+
 ## Документация
 - Перед изменениями, влияющими на расчёт прибыли/маржи — читай docs/BUSINESS_LOGIC.md
 - docs/NOTES.md — после выполнения задачи отметь `[ ]` → `[x]` если задача была в очереди (история изменений — в docs/CHANGELOG.md, не в NOTES.md)

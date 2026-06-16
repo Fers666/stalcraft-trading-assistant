@@ -79,6 +79,17 @@ tools: Read, Grep, Glob, Bash
 - Проверь что Redis не открыт наружу (только внутри Docker сети)
 - Token bucket Lua script — проверь что нет инъекции через ключи
 
+## Graphify — карта зависимостей (используй для маршрутизации)
+
+```powershell
+# Быстро понять архитектуру auth/endpoints перед анализом
+cd D:\SC_AUC\backend\app; graphify query "как устроена аутентификация?"
+cd D:\SC_AUC\backend\app; graphify path "get_current_user" "endpoints"
+cd D:\SC_AUC\backend\app; graphify explain "rate_limiter"
+```
+
+Граф: `backend/app/graphify-out/graph.json` (328 nodes, 653 edges)
+
 ## Процесс анализа
 
 1. Читай `backend/app/core/` (auth, config, rate limiter) первым

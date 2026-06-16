@@ -26,6 +26,33 @@ tools: Read, Bash, Grep, Glob
 Не выполняй `git push`, `docker compose up`, `alembic upgrade` самостоятельно,
 если пользователь явно не попросил сделать это за него.
 
+## Локальная разработка (dev)
+
+- **URL:** `http://localhost:3000/`
+- **Команда запуска** (без `-f` — дев-конфиг):
+
+```bash
+docker compose up -d
+```
+
+- **Пересборка после изменений в коде:**
+
+```bash
+docker compose up -d --build
+```
+
+- **Остановить:**
+
+```bash
+docker compose down
+```
+
+## Стандартная команда деплоя (код изменился)
+
+```bash
+cd ~/app && docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d --build
+```
+
 ## Что требует build vs restart
 
 | Тип изменения | Команда |

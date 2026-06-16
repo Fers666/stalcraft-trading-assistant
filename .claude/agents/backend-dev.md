@@ -19,6 +19,19 @@ backend/app/
   tasks/     — Celery задачи (collectors, analyzers, cleanup, celery_app)
 ```
 
+## Graphify — навигация по коду (используй перед Grep/Read)
+
+```powershell
+# Найти зависимости функции/модуля
+cd D:\SC_AUC\backend\app; graphify query "как работает X?"
+cd D:\SC_AUC\backend\app; graphify path "ModuleA" "ModuleB"
+cd D:\SC_AUC\backend\app; graphify explain "function_name"
+# Если граф устарел после изменений:
+cd D:\SC_AUC\backend\app; graphify update .
+```
+
+Граф: `backend/app/graphify-out/graph.json` (328 nodes, 653 edges, 32 communities)
+
 ## Документация
 - docs/BUSINESS_LOGIC.md — формулы/маржа: читай перед изменением расчёта прибыли
 - docs/SERVICES.md — Celery таски и сервисный слой

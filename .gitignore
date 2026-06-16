@@ -12,3 +12,4 @@ venv/
 backend/app/static/
 celerybeat-schedule
 backend/celerybeat-schedule
+graphify-out/

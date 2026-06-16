@@ -31,7 +31,15 @@ docker logs sc_auc-backend-1 --tail=100
 docker exec sc_auc-db-1 psql -U stalcraft -d stalcraft -c "SELECT COUNT(*) FROM lots;"
 ```
 
-**Анализ кода:**
+**Graphify (используй ПЕРВЫМ при исследовании кода):**
+```powershell
+cd D:\SC_AUC\backend\app; graphify query "как работает X?"
+cd D:\SC_AUC\backend\app; graphify path "ServiceA" "EndpointB"
+cd D:\SC_AUC\frontend\src; graphify query "что вызывает компонент Y?"
+```
+Графы: `backend/app/graphify-out/graph.json` · `frontend/src/graphify-out/graph.json`
+
+**Анализ кода (если graphify не дал достаточно):**
 - Grep для поиска использований функции/переменной
 - Read для чтения конкретных файлов
 - Glob для поиска тест-файлов или конфигов
