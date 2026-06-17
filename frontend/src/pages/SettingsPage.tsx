@@ -79,14 +79,17 @@ export default function SettingsPage() {
     if (!linkCode) return
     const t = setInterval(async () => {
       await loadTgStatus()
-      const { data } = await api.get<TelegramStatus>('/telegram/status').catch(() => ({ data: null }))
-      if (data?.is_linked) {
-        setLinkCode(null)
-        setCodeTimer(0)
-      }
     }, 5000)
     return () => clearInterval(t)
   }, [linkCode, loadTgStatus])
+
+  // Реакция на успешную привязку — закрыть код
+  useEffect(() => {
+    if (tgStatus?.is_linked && linkCode) {
+      setLinkCode(null)
+      setCodeTimer(0)
+    }
+  }, [tgStatus?.is_linked, linkCode])
 
   const handleSave = async () => {
     if (!settings) return

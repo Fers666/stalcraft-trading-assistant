@@ -29,7 +29,8 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   const user = useAuthStore((s) => s.user)
   const token = localStorage.getItem('access_token')
   if (!token) return <Navigate to="/" replace />
-  if (user && !user.is_admin) return <Navigate to="/app/monitoring" replace />
+  if (!user) return null                              // fetchMe ещё не вернул
+  if (!user.is_admin) return <Navigate to="/app/monitoring" replace />
   return <>{children}</>
 }
 

@@ -29,7 +29,7 @@ export function useRefreshCooldown(cooldownSeconds = 120) {
       })
     }, 1000)
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [secondsLeft > 0])
+  }, [secondsLeft])
 
   const isCoolingDown = secondsLeft > 0
 

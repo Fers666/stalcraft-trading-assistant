@@ -104,12 +104,7 @@ class ApiCache:
             return cached
 
         from app.services.collector.client import stalcraft_client
-        original_region = stalcraft_client.region
-        stalcraft_client.region = region
-        try:
-            data = await stalcraft_client.get_auction_lots(item_id)
-        finally:
-            stalcraft_client.region = original_region
+        data = await stalcraft_client.get_auction_lots(item_id, region=region)
 
         await self.set_lots(region, item_id, data)
         data["_from_cache"] = False

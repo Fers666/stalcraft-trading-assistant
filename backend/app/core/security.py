@@ -21,7 +21,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(user_id: int) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    return jwt.encode({"sub": str(user_id), "exp": expire}, settings.secret_key, algorithm=ALGORITHM)
+    return jwt.encode({"sub": str(user_id), "exp": expire, "type": "access"}, settings.secret_key, algorithm=ALGORITHM)
 
 
 def create_refresh_token(user_id: int) -> str:
@@ -29,9 +29,11 @@ def create_refresh_token(user_id: int) -> str:
     return jwt.encode({"sub": str(user_id), "exp": expire, "type": "refresh"}, settings.secret_key, algorithm=ALGORITHM)
 
 
-def decode_token(token: str) -> Optional[int]:
+def decode_token(token: str, expected_type: str = "access") -> Optional[int]:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+        if payload.get("type") != expected_type:
+            return None
         return int(payload["sub"])
     except JWTError:
         return None

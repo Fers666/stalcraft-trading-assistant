@@ -263,82 +263,75 @@ async def _collect_lots_for_item(db, entry):
     from app.models.models import CollectedData
     import statistics
 
-    client_region = stalcraft_client.region
-    stalcraft_client.region = entry.region
-
     EXPIRY_THRESHOLD_HOURS = 2  # лот считается неликвидным если < 2ч до конца
 
-    try:
-        now = datetime.now(timezone.utc)
-        data = await stalcraft_client.get_auction_lots(entry.item_id)
-        lots = data.get("lots", [])
+    now = datetime.now(timezone.utc)
+    data = await stalcraft_client.get_auction_lots(entry.item_id, region=entry.region)
+    lots = data.get("lots", [])
 
-        # Обновляем Redis-кэш сразу — GET /lots/{id} отдаст свежие данные
-        await api_cache.set_lots(entry.region, entry.item_id, data)
+    # Обновляем Redis-кэш сразу — GET /lots/{id} отдаст свежие данные
+    await api_cache.set_lots(entry.region, entry.item_id, data)
 
-        if not lots:
-            return
+    if not lots:
+        return
 
-        def lot_price_per_unit(lot):
-            price = lot.get("buyoutPrice", 0) or lot.get("startPrice", 0)
-            amount = lot.get("amount", 1)
-            return price // amount if amount > 0 else price
+    def lot_price_per_unit(lot):
+        price = lot.get("buyoutPrice", 0) or lot.get("startPrice", 0)
+        amount = lot.get("amount", 1)
+        return price // amount if amount > 0 else price
 
-        def hours_remaining(lot) -> float | None:
-            end_str = lot.get("endTime")
-            if not end_str:
-                return None
-            end = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-            return (end - now).total_seconds() / 3600
+    def hours_remaining(lot) -> float | None:
+        end_str = lot.get("endTime")
+        if not end_str:
+            return None
+        end = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+        return (end - now).total_seconds() / 3600
 
-        liquid_lots   = [l for l in lots if (h := hours_remaining(l)) is None or h >= EXPIRY_THRESHOLD_HOURS]
-        expiring_lots = [l for l in lots if (h := hours_remaining(l)) is not None and h < EXPIRY_THRESHOLD_HOURS]
+    liquid_lots   = [l for l in lots if (h := hours_remaining(l)) is None or h >= EXPIRY_THRESHOLD_HOURS]
+    expiring_lots = [l for l in lots if (h := hours_remaining(l)) is not None and h < EXPIRY_THRESHOLD_HOURS]
 
-        all_prices    = [lot_price_per_unit(l) for l in lots    if lot_price_per_unit(l) > 0]
-        liquid_prices = [lot_price_per_unit(l) for l in liquid_lots if lot_price_per_unit(l) > 0]
-        amounts       = [l.get("amount", 1) for l in lots]
-        best_lot      = min(lots, key=lot_price_per_unit, default=None)
+    all_prices    = [lot_price_per_unit(l) for l in lots    if lot_price_per_unit(l) > 0]
+    liquid_prices = [lot_price_per_unit(l) for l in liquid_lots if lot_price_per_unit(l) > 0]
+    amounts       = [l.get("amount", 1) for l in lots]
+    best_lot      = min(lots, key=lot_price_per_unit, default=None)
 
-        snapshot = CollectedData(
-            user_id=None,
-            item_id=entry.item_id,
-            region=entry.region,
-            collect_time=now,
-            collect_type="auto",
-            total_lots=len(lots),
-            total_available_amount=sum(amounts),
-            best_price_per_unit=min(all_prices) if all_prices else None,
-            best_price_total=best_lot.get("buyoutPrice") if best_lot else None,
-            best_price_amount=best_lot.get("amount") if best_lot else None,
-            best_lot_id=best_lot.get("startTime") if best_lot else None,
-            avg_price_per_unit=round(statistics.mean(all_prices), 2) if all_prices else None,
-            median_price_per_unit=round(statistics.median(all_prices), 2) if all_prices else None,
-            min_price_per_unit=min(all_prices) if all_prices else None,
-            max_price_per_unit=max(all_prices) if all_prices else None,
-            best_buyout_per_unit=min(all_prices) if all_prices else None,
-            liquid_lots_count=len(liquid_lots),
-            expiring_lots_count=len(expiring_lots),
-            detected_buyouts_count=None,
-            best_liquid_price_per_unit=min(liquid_prices) if liquid_prices else None,
-            raw_lots=sorted(lots, key=lot_price_per_unit)[:200],
-        )
-        db.add(snapshot)
+    snapshot = CollectedData(
+        user_id=None,
+        item_id=entry.item_id,
+        region=entry.region,
+        collect_time=now,
+        collect_type="auto",
+        total_lots=len(lots),
+        total_available_amount=sum(amounts),
+        best_price_per_unit=min(all_prices) if all_prices else None,
+        best_price_total=best_lot.get("buyoutPrice") if best_lot else None,
+        best_price_amount=best_lot.get("amount") if best_lot else None,
+        best_lot_id=best_lot.get("startTime") if best_lot else None,
+        avg_price_per_unit=round(statistics.mean(all_prices), 2) if all_prices else None,
+        median_price_per_unit=round(statistics.median(all_prices), 2) if all_prices else None,
+        min_price_per_unit=min(all_prices) if all_prices else None,
+        max_price_per_unit=max(all_prices) if all_prices else None,
+        best_buyout_per_unit=min(all_prices) if all_prices else None,
+        liquid_lots_count=len(liquid_lots),
+        expiring_lots_count=len(expiring_lots),
+        detected_buyouts_count=None,
+        best_liquid_price_per_unit=min(liquid_prices) if liquid_prices else None,
+        raw_lots=sorted(lots, key=lot_price_per_unit)[:200],
+    )
+    db.add(snapshot)
 
-        entry.last_successful_check = now
-        entry.error_status = None
+    entry.last_successful_check = now
+    entry.error_status = None
 
-        await db.commit()
-        logger.info(
-            f"Collected {len(lots)} lots for {entry.item_id}/{entry.region} | "
-            f"liquid={len(liquid_lots)} expiring={len(expiring_lots)}"
-        )
+    await db.commit()
+    logger.info(
+        f"Collected {len(lots)} lots for {entry.item_id}/{entry.region} | "
+        f"liquid={len(liquid_lots)} expiring={len(expiring_lots)}"
+    )
 
-        # После коммита — публикуем предвычисленные сигналы в Redis.
-        # Бот и API читают из одного ключа → рассинхрон исключён.
-        await _publish_signals(db, entry.item_id, entry.region, snapshot)
-
-    finally:
-        stalcraft_client.region = client_region
+    # После коммита — публикуем предвычисленные сигналы в Redis.
+    # Бот и API читают из одного ключа → рассинхрон исключён.
+    await _publish_signals(db, entry.item_id, entry.region, snapshot)
 
 
 async def _publish_signals(db, item_id: str, region: str, snap) -> None:
@@ -393,8 +386,9 @@ async def _publish_signals(db, item_id: str, region: str, snap) -> None:
             for s in rows
         }
 
-    r = aioredis.from_url(settings.redis_url, decode_responses=True)
+    r = None
     try:
+        r = aioredis.from_url(settings.redis_url, decode_responses=True)
         for entry in entries:
             try:
                 margin_pct, exclude_less_than = user_settings_map.get(entry.user_id, (0.0, 1))
@@ -414,7 +408,8 @@ async def _publish_signals(db, item_id: str, region: str, snap) -> None:
                     f"_publish_signals: entry user={entry.user_id} {item_id}/{region}: {e}"
                 )
     finally:
-        await r.aclose()
+        if r is not None:
+            await r.aclose()
 
     # Лог для будущей калибровки — раз за цикл на каждую уникальную комбинацию
     # (quality_filter, enchant_filter), встречающуюся в watchlist для этого item/region.
@@ -521,188 +516,181 @@ async def _collect_history_for_item(db, entry):
     from sqlalchemy.dialects.postgresql import insert as pg_insert
     from datetime import timedelta
 
-    client_region = stalcraft_client.region
-    stalcraft_client.region = entry.region
+    data = await stalcraft_client.get_auction_history(entry.item_id, region=entry.region)
+    prices = data.get("prices", [])
 
-    try:
-        data = await stalcraft_client.get_auction_history(entry.item_id)
-        prices = data.get("prices", [])
+    if not prices:
+        return
 
-        if not prices:
-            return
+    now    = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=120)
+    snapshot_cutoff = now - timedelta(hours=SNAPSHOT_MATCH_WINDOW_HOURS)
 
-        now    = datetime.now(timezone.utc)
-        cutoff = now - timedelta(days=120)
-        snapshot_cutoff = now - timedelta(hours=SNAPSHOT_MATCH_WINDOW_HOURS)
+    # Загружаем все существующие записи за 120 дней:
+    # нужны id и additional_info чтобы ретроактивно добавить qlt/ptn
+    # для записей, собранных до добавления additional=true в API запросе.
+    existing_rows = (await db.execute(
+        select(
+            SalesHistory.id, SalesHistory.sale_time, SalesHistory.additional_info,
+            SalesHistory.total_price, SalesHistory.amount,
+        ).where(
+            SalesHistory.item_id == entry.item_id,
+            SalesHistory.region  == entry.region,
+            SalesHistory.sale_time >= cutoff,
+        )
+    )).all()
 
-        # Загружаем все существующие записи за 120 дней:
-        # нужны id и additional_info чтобы ретроактивно добавить qlt/ptn
-        # для записей, собранных до добавления additional=true в API запросе.
-        existing_rows = (await db.execute(
-            select(
-                SalesHistory.id, SalesHistory.sale_time, SalesHistory.additional_info,
-                SalesHistory.total_price, SalesHistory.amount,
-            ).where(
-                SalesHistory.item_id == entry.item_id,
-                SalesHistory.region  == entry.region,
-                SalesHistory.sale_time >= cutoff,
-            )
-        )).all()
+    # Индекс по (секунда sale_time, total_price, amount) → (id, sale_time, additional_info).
+    # Ключ включает total_price/amount, чтобы две РАЗНЫЕ продажи в одну и ту же
+    # секунду (с разной ценой/количеством) не считались одной записью.
+    # id=None означает «запись добавлена в этом же проходе» — используется ниже,
+    # чтобы не дублировать продажу, если API вернул её в /history несколько раз
+    # за один вызов (existing_rows — снэпшот ДО цикла и новые db.add() в него не попадают).
+    existing_index: dict[tuple[int, int, int], tuple[int | None, datetime, dict | None]] = {}
+    for row in existing_rows:
+        key = (int(row.sale_time.timestamp()), row.total_price, row.amount)
+        existing_index[key] = (row.id, row.sale_time, row.additional_info)
 
-        # Индекс по (секунда sale_time, total_price, amount) → (id, sale_time, additional_info).
-        # Ключ включает total_price/amount, чтобы две РАЗНЫЕ продажи в одну и ту же
-        # секунду (с разной ценой/количеством) не считались одной записью.
-        # id=None означает «запись добавлена в этом же проходе» — используется ниже,
-        # чтобы не дублировать продажу, если API вернул её в /history несколько раз
-        # за один вызов (existing_rows — снэпшот ДО цикла и новые db.add() в него не попадают).
-        existing_index: dict[tuple[int, int, int], tuple[int | None, datetime, dict | None]] = {}
-        for row in existing_rows:
-            key = (int(row.sale_time.timestamp()), row.total_price, row.amount)
-            existing_index[key] = (row.id, row.sale_time, row.additional_info)
+    def find_existing(sold_at: datetime, total_price: int, amount: int):
+        sec = int(sold_at.timestamp())
+        for cand_sec in (sec - 1, sec, sec + 1):
+            found = existing_index.get((cand_sec, total_price, amount))
+            if found is not None and abs((sold_at - found[1]).total_seconds()) < 1:
+                return found
+        return None
 
-        def find_existing(sold_at: datetime, total_price: int, amount: int):
-            sec = int(sold_at.timestamp())
-            for cand_sec in (sec - 1, sec, sec + 1):
-                found = existing_index.get((cand_sec, total_price, amount))
-                if found is not None and abs((sold_at - found[1]).total_seconds()) < 1:
-                    return found
-            return None
+    # Снэпшоты для матчинга лотов — грузим лениво, только если встретится
+    # продажа моложе snapshot_cutoff, которой нужен матчинг.
+    snapshots_cache: list | None = None
 
-        # Снэпшоты для матчинга лотов — грузим лениво, только если встретится
-        # продажа моложе snapshot_cutoff, которой нужен матчинг.
-        snapshots_cache: list | None = None
+    async def get_snapshots():
+        nonlocal snapshots_cache
+        if snapshots_cache is None:
+            snapshots_cache = (await db.execute(
+                select(CollectedData)
+                .where(
+                    CollectedData.user_id == None,
+                    CollectedData.item_id == entry.item_id,
+                    CollectedData.region  == entry.region,
+                    CollectedData.raw_lots.isnot(None),
+                )
+                .order_by(CollectedData.collect_time.desc())
+                .limit(200)  # ~1.7 ч при интервале 20 сек — перекрывает окно между hourly сборами
+            )).scalars().all()
+        return snapshots_cache
 
-        async def get_snapshots():
-            nonlocal snapshots_cache
-            if snapshots_cache is None:
-                snapshots_cache = (await db.execute(
-                    select(CollectedData)
-                    .where(
-                        CollectedData.user_id == None,
-                        CollectedData.item_id == entry.item_id,
-                        CollectedData.region  == entry.region,
-                        CollectedData.raw_lots.isnot(None),
-                    )
-                    .order_by(CollectedData.collect_time.desc())
-                    .limit(200)  # ~1.7 ч при интервале 20 сек — перекрывает окно между hourly сборами
-                )).scalars().all()
-            return snapshots_cache
+    async def find_lot_info(total_price: int, amount: int, sold_at: datetime) -> dict:
+        """
+        Ищет лот в снэпшотах по (buyoutPrice, amount, endTime).
+        Возвращает dict с lot_start, qlt, ptn — всё что удалось извлечь.
+        Это единственный способ узнать качество/заточку проданного артефакта,
+        так как Stalcraft API /history не возвращает additional с qlt/ptn.
+        """
+        snapshots = await get_snapshots()
 
-        async def find_lot_info(total_price: int, amount: int, sold_at: datetime) -> dict:
-            """
-            Ищет лот в снэпшотах по (buyoutPrice, amount, endTime).
-            Возвращает dict с lot_start, qlt, ptn — всё что удалось извлечь.
-            Это единственный способ узнать качество/заточку проданного артефакта,
-            так как Stalcraft API /history не возвращает additional с qlt/ptn.
-            """
-            snapshots = await get_snapshots()
+        before = [s for s in snapshots if s.collect_time <= sold_at]
+        after  = [s for s in snapshots if s.collect_time > sold_at]
 
-            before = [s for s in snapshots if s.collect_time <= sold_at]
-            after  = [s for s in snapshots if s.collect_time > sold_at]
+        if not before:
+            return {}
 
-            if not before:
-                return {}
+        before_lots = before[0].raw_lots or []
+        candidates = [
+            lot for lot in before_lots
+            if lot.get("buyoutPrice") == total_price
+            and lot.get("amount") == amount
+            and _lot_end_after(lot, sold_at)
+        ]
 
-            before_lots = before[0].raw_lots or []
+        if not candidates:
+            return {}
+
+        if after:
+            after_start_times = {
+                l.get("startTime") for l in (after[0].raw_lots or [])
+            }
             candidates = [
-                lot for lot in before_lots
-                if lot.get("buyoutPrice") == total_price
-                and lot.get("amount") == amount
-                and _lot_end_after(lot, sold_at)
+                c for c in candidates
+                if c.get("startTime") not in after_start_times
             ]
 
-            if not candidates:
-                return {}
+        if not candidates:
+            return {}
 
-            if after:
-                after_start_times = {
-                    l.get("startTime") for l in (after[0].raw_lots or [])
-                }
-                candidates = [
-                    c for c in candidates
-                    if c.get("startTime") not in after_start_times
-                ]
+        candidates.sort(key=lambda l: l.get("startTime", ""))
+        matched = candidates[0]
 
-            if not candidates:
-                return {}
+        result: dict = {}
+        if matched.get("startTime"):
+            result["lot_start"] = matched["startTime"]
 
-            candidates.sort(key=lambda l: l.get("startTime", ""))
-            matched = candidates[0]
+        lot_add = matched.get("additional") or {}
+        if "qlt" in lot_add:
+            result["qlt"] = lot_add["qlt"]
+        if "ptn" in lot_add and lot_add["ptn"] is not None:
+            result["ptn"] = lot_add["ptn"]
 
-            result: dict = {}
-            if matched.get("startTime"):
-                result["lot_start"] = matched["startTime"]
+        return result
 
-            lot_add = matched.get("additional") or {}
-            if "qlt" in lot_add:
-                result["qlt"] = lot_add["qlt"]
-            if "ptn" in lot_add and lot_add["ptn"] is not None:
-                result["ptn"] = lot_add["ptn"]
+    for record in prices:
+        sold_at_str = record.get("time")
+        if not sold_at_str:
+            continue
 
-            return result
+        sold_at = datetime.fromisoformat(sold_at_str.replace("Z", "+00:00"))
+        if sold_at < cutoff:
+            continue
 
-        for record in prices:
-            sold_at_str = record.get("time")
-            if not sold_at_str:
-                continue
+        total_price    = record.get("price", 0)
+        amount         = record.get("amount", 1)
+        price_per_unit = total_price // amount if amount > 0 else total_price
 
-            sold_at = datetime.fromisoformat(sold_at_str.replace("Z", "+00:00"))
-            if sold_at < cutoff:
-                continue
-
-            total_price    = record.get("price", 0)
-            amount         = record.get("amount", 1)
-            price_per_unit = total_price // amount if amount > 0 else total_price
-
-            existing = find_existing(sold_at, total_price, amount)
-            if existing is not None:
-                existing_id, _, existing_additional = existing
-                # Если у существующей записи ещё нет qlt — пробуем найти лот и добавить,
-                # но только пока продажа ещё может быть в окне снэпшотов.
-                # existing_id=None → запись добавлена в этом же проходе и уже обогащена выше.
-                needs_qlt = existing_additional is None or "qlt" not in (existing_additional or {})
-                if existing_id is not None and needs_qlt and sold_at >= snapshot_cutoff:
-                    lot_info = await find_lot_info(total_price, amount, sold_at)
-                    if lot_info.get("qlt") is not None:
-                        merged = dict(existing_additional or {})
-                        merged.update(lot_info)
-                        await db.execute(
-                            update(SalesHistory)
-                            .where(SalesHistory.id == existing_id)
-                            .values(additional_info=merged)
-                        )
-                continue
-
-            # Новая запись: пробуем сматчить лот из снэпшотов → получаем lot_start + qlt + ptn
-            lot_info = {}
-            if sold_at >= snapshot_cutoff:
+        existing = find_existing(sold_at, total_price, amount)
+        if existing is not None:
+            existing_id, _, existing_additional = existing
+            # Если у существующей записи ещё нет qlt — пробуем найти лот и добавить,
+            # но только пока продажа ещё может быть в окне снэпшотов.
+            # existing_id=None → запись добавлена в этом же проходе и уже обогащена выше.
+            needs_qlt = existing_additional is None or "qlt" not in (existing_additional or {})
+            if existing_id is not None and needs_qlt and sold_at >= snapshot_cutoff:
                 lot_info = await find_lot_info(total_price, amount, sold_at)
+                if lot_info.get("qlt") is not None:
+                    merged = dict(existing_additional or {})
+                    merged.update(lot_info)
+                    await db.execute(
+                        update(SalesHistory)
+                        .where(SalesHistory.id == existing_id)
+                        .values(additional_info=merged)
+                    )
+            continue
 
-            stmt = pg_insert(SalesHistory).values(
-                user_id=entry.user_id,
-                item_id=entry.item_id,
-                region=entry.region,
-                sale_time=sold_at,
-                price_per_unit=price_per_unit,
-                amount=amount,
-                total_price=total_price,
-                additional_info=lot_info if lot_info else None,
-                will_be_deleted_at=sold_at + timedelta(days=120),
-            ).on_conflict_do_nothing(
-                index_elements=["item_id", "region", "sale_time", "total_price", "amount"]
-            )
-            await db.execute(stmt)
+        # Новая запись: пробуем сматчить лот из снэпшотов → получаем lot_start + qlt + ptn
+        lot_info = {}
+        if sold_at >= snapshot_cutoff:
+            lot_info = await find_lot_info(total_price, amount, sold_at)
 
-            # Отмечаем как обработанную — если /history вернёт эту же продажу
-            # повторно в этом же ответе, она будет найдена через existing_index.
-            existing_index[(int(sold_at.timestamp()), total_price, amount)] = (
-                None, sold_at, lot_info if lot_info else None,
-            )
+        stmt = pg_insert(SalesHistory).values(
+            user_id=entry.user_id,
+            item_id=entry.item_id,
+            region=entry.region,
+            sale_time=sold_at,
+            price_per_unit=price_per_unit,
+            amount=amount,
+            total_price=total_price,
+            additional_info=lot_info if lot_info else None,
+            will_be_deleted_at=sold_at + timedelta(days=120),
+        ).on_conflict_do_nothing(
+            index_elements=["item_id", "region", "sale_time", "total_price", "amount"]
+        )
+        await db.execute(stmt)
 
-        await db.commit()
+        # Отмечаем как обработанную — если /history вернёт эту же продажу
+        # повторно в этом же ответе, она будет найдена через existing_index.
+        existing_index[(int(sold_at.timestamp()), total_price, amount)] = (
+            None, sold_at, lot_info if lot_info else None,
+        )
 
-    finally:
-        stalcraft_client.region = client_region
+    await db.commit()
 
 
 def _lot_end_after(lot: dict, sold_at: datetime) -> bool:

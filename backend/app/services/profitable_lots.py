@@ -181,7 +181,7 @@ async def compute_signals_for_entry(
             median_hist = float(stats.median_price_7d) if stats and stats.median_price_7d else None
             ref_info = compute_reference(median_hist, None, current_min)
             vol = volume_7d
-        vol_for_opts = vol if prices else volume_7d
+        vol_for_opts = vol if prices else None
 
     if ref_info is None:
         return None
@@ -191,7 +191,7 @@ async def compute_signals_for_entry(
     trend      = ref_info["trend"]
     risk       = classify_risk(msg_volatility)
 
-    sell_options = make_sell_options(ref, vol_for_opts)
+    sell_options = make_sell_options(ref, vol_for_opts) if vol_for_opts is not None else None
     batch_stats  = stats.batch_stats if stats else None
 
     profitable: list[dict] = []

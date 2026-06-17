@@ -50,22 +50,23 @@ class StalcraftClient:
         response.raise_for_status()
         return response.json() if response.content else {}
 
-    async def get_auction_lots(self, item_id: str, offset: int = 0, limit: int = 200) -> dict:
+    async def get_auction_lots(self, item_id: str, region: str, offset: int = 0, limit: int = 200) -> dict:
         return await self._request(
-            "GET", f"/{self.region}/auction/{item_id}/lots",
+            "GET", f"/{region}/auction/{item_id}/lots",
             cost=TokenCost.LOTS,
             params={"offset": offset, "limit": min(limit, 200), "additional": "true"},
         )
 
-    async def get_auction_history(self, item_id: str, offset: int = 0, limit: int = 200) -> dict:
+    async def get_auction_history(self, item_id: str, region: str, offset: int = 0, limit: int = 200) -> dict:
         return await self._request(
-            "GET", f"/{self.region}/auction/{item_id}/history",
+            "GET", f"/{region}/auction/{item_id}/history",
             cost=TokenCost.HISTORY,
             params={"offset": offset, "limit": min(limit, 200), "additional": "true"},
         )
 
-    async def get_emission(self) -> dict:
-        return await self._request("GET", f"/{self.region}/emission", cost=TokenCost.EMISSION)
+    async def get_emission(self, region: str | None = None) -> dict:
+        r = region or self.region
+        return await self._request("GET", f"/{r}/emission", cost=TokenCost.EMISSION)
 
     async def close(self):
         if self._client:

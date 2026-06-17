@@ -271,7 +271,10 @@
       "PowerShell(git -C D:\\\\SC_AUC diff --stat HEAD)",
       "PowerShell(git -C D:\\\\SC_AUC diff CLAUDE.md)",
       "PowerShell(git -C D:\\\\SC_AUC rm --cached backend/celerybeat-schedule)",
-      "PowerShell(git -C D:\\\\SC_AUC add .claude/agents/backend-dev.md .claude/agents/deploy.md .claude/agents/frontend-dev.md .claude/agents/qa-tester.md .claude/agents/researcher.md .claude/agents/security.md .claude/agents/tech-writer.md .claude/settings.json CLAUDE.md .gitignore)"
+      "PowerShell(git -C D:\\\\SC_AUC add .claude/agents/backend-dev.md .claude/agents/deploy.md .claude/agents/frontend-dev.md .claude/agents/qa-tester.md .claude/agents/researcher.md .claude/agents/security.md .claude/agents/tech-writer.md .claude/settings.json CLAUDE.md .gitignore)",
+      "PowerShell(git -C D:\\\\SC_AUC push origin main)",
+      "Skill(code-review)",
+      "Skill(code-review:*)"
     ],
     "additionalDirectories": [
       "\\tmp",

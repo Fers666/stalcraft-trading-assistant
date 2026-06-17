@@ -72,13 +72,15 @@ export default function GlobalFeed() {
     return () => clearInterval(t)
   }, [loadWatchlistAndStats])
 
+  const watchlistIds = watchlist.map((w) => w.id).join(',')
+
   // Лоты: каждые 30 сек
   useEffect(() => {
-    if (watchlist.length === 0) return
+    if (!watchlistIds) return
     loadAllLots()
     const t = setInterval(loadAllLots, 30_000)
     return () => clearInterval(t)
-  }, [watchlist, loadAllLots])
+  }, [watchlistIds, loadAllLots])
 
   // Быстрый опрос пока есть непроверенные позиции
   useEffect(() => {
@@ -86,7 +88,7 @@ export default function GlobalFeed() {
     if (!hasPending) return
     const t = setInterval(() => loadWatchlistAndStats(true), 30_000)
     return () => clearInterval(t)
-  }, [watchlist, loadWatchlistAndStats])
+  }, [watchlistIds, loadWatchlistAndStats])
 
   if (!initialized || watchlist.length === 0) return null
 
