@@ -56,6 +56,23 @@ cd D:\SC_AUC\backend\app; graphify path "NodeA" "NodeB"
 React 18 + Vite + MUI (gold: #D9AF37, bg: #080808, font: Rajdhani)  
 Docker Compose. Данные глобальные (user_id=NULL), персонализация на уровне запроса.
 
+**Структура:**
+```
+backend/app/   — FastAPI (entry: main.py), SQLAlchemy models, Celery tasks (graphify: 328 nodes)
+frontend/src/  — React/TS (entry: App.tsx), Zustand store, MUI (graphify: 140 nodes)
+docs/          — формулы, БД, архитектура, деплой (см. таблицу в Блоке 2)
+.claude/       — агенты, skills, команды Claude Code
+```
+
+**Команды:**
+| Команда | Когда |
+|---------|-------|
+| `docker compose up -d` | Локальный запуск → http://localhost:3000 |
+| `docker compose -f docker-compose.prod.yml up -d --build` | Прод (полный процесс → docs/DEPLOY.md) |
+| `cd frontend; npm run dev` | Frontend standalone без Docker (Vite) |
+| `cd frontend; npm run build` | Production build (tsc + vite build) |
+| `docker compose exec backend alembic upgrade head` | Применить миграции (локально) |
+
 **API Rate Limit:** 400 запросов/мин (verified experimentally 2026-06-07, NOT документация 100 токенов!)
 - /lots = 2, /history = 2, /emission = 1 (Request-based, не token-based)
 - Текущее: 54.5 запросов/мин (13.6% от лимита) — БЕЗОПАСНО
@@ -83,6 +100,8 @@ Docker Compose. Данные глобальные (user_id=NULL), персона
 | `security` | Перед деплоем или по запросу — OWASP ревью |
 
 Агенты следуют правилам коммуникации из Блока 3 (план → подтверждение → выполнение).
+
+**Skills** (вызываются автоматически по контексту задачи): `test-driven-development` (перед написанием кода), `systematic-debugging` (при отладке багов), `using-git-worktrees`, `verification-before-completion`, `receiving-code-review`, `finishing-a-development-branch`, `dispatching-parallel-agents`, `writing-skills`, `claude-md-improver` (аудит этого файла, команда `/revise-claude-md`).
 
 ---
 
