@@ -28,6 +28,13 @@ docker compose -f docker-compose.prod.yml up -d
 ```bash
 docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
 ```
+> **Внимание:** команда выше пересобирает только `backend` и `frontend`. `worker`, `scheduler` и `telegram_bot` — отдельные образы (`app-worker`, `app-scheduler`, `app-telegram_bot`) и **не подхватывают** изменения кода автоматически. Если правки затронули `app/tasks/*`, `app/services/*` (используется воркером/шедулером) или `telegram_bot/*` — пересобрать и их явно:
+> ```bash
+> docker compose -f docker-compose.prod.yml build --no-cache worker scheduler telegram_bot
+> docker compose -f docker-compose.prod.yml up -d
+> ```
+
+> **При переписанной git-истории** (например, после `git-filter-repo`) обычный `git pull` не сработает (история разошлась) — нужен `git fetch && git reset --hard origin/main`.
 
 ## Caddy: применить новый Caddyfile без даунтайма
 ```bash

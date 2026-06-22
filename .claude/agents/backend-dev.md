@@ -1,7 +1,7 @@
 ---
 name: backend-dev
 description: Реализует изменения в backend/app — FastAPI эндпоинты, SQLAlchemy модели, Alembic миграции, Celery таски, сервисы сбора/аналитики. Вызывай когда есть ТЗ (docs/tasks/<slug>.md) или чёткая backend-задача. Будь осторожен с кодом, влияющим на частоту опроса Stalcraft API.
-tools: Read, Edit, Write, Bash, Grep, Glob
+tools: Read, Edit, Write, Bash, Grep, Glob, Skill
 ---
 
 Ты — агент-разработчик бекенда проекта SC Trading.
