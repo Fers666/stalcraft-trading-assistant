@@ -9,10 +9,45 @@
 
 ## Закрытые задачи
 
+- [x] **Админ-статистика — устранение пробела после фазы «Статистика в
+  админке» ← 2026-06-28** — при реализации той фазы (см. запись «Админ-статистика —
+  следующая фаза роадмапа подписок» ниже) черновой план обсуждался в чате, но
+  не зафиксировался структурно в `docs/NOTES.md` — ТЗ восстанавливалось по
+  куцей записи и 4 пункта из оригинального запроса потерялись. Эта задача их
+  добавляет поверх уже реализованного, ничего из сделанного ранее не
+  переписывает. ТЗ — `docs/tasks/admin-stats-gaps.md`.
+  - Backend (`backend/app/api/v1/endpoints/admin.py`): `AdminStatsResponse`
+    дополнен тремя полями после `users_online_now` — `users_active_today`
+    (количество пользователей с `last_seen` после начала текущих суток по
+    московскому времени, `timezone(timedelta(hours=3))`, тот же паттерн что в
+    `market_stats.py` — календарный день МСК, не скользящие 24ч),
+    `users_active_week` (скользящее окно последних 7×24 часа от UTC),
+    `users_telegram_linked` (`telegram_chat_id IS NOT NULL` — единственный
+    достоверный признак подключения бота, тот же признак что в `GET
+    /telegram/status`). `get_admin_stats` считает все три новых поля.
+  - `UserAdminResponse` дополнен полем `telegram_chat_id: int | None` (рядом
+    с уже существующим `telegram_username`), `list_users` заполняет его из
+    `User.telegram_chat_id`. Никаких новых миграций — все используемые поля
+    (`last_seen`, `telegram_chat_id`) уже существовали, Alembic head не
+    менялся.
+  - Frontend (`frontend/src/pages/AdminPage.tsx`): интерфейсы `AdminStats` и
+    `AdminUser` дополнены соответствующими полями. В блок System stats (после
+    карточки «Rate limit Stalcraft API») добавлены 3 новые карточки тем же
+    визуальным паттерном: «Зашли сегодня», «Активны за неделю», «Подключили
+    Telegram» (иконка `TelegramIcon`). В таблицу пользователей добавлена
+    колонка «Telegram» (между «До» и «Был онлайн») — показывает `@username`
+    из `telegram_username` либо «—».
+  - **Решение пользователя, зафиксировано явно:** колонка «Telegram» в
+    таблице показывает `telegram_username` напрямую, **независимо** от
+    `telegram_chat_id` — то есть отражает введённый username, а не факт
+    реального подключения бота. Это осознанная асимметрия с метрикой
+    `users_telegram_linked` (которая использует только `telegram_chat_id`) —
+    не баг, два разных способа определения «телеграма» в одной фиче
+    намеренно не унифицированы.
+
 - [x] **Ручной override лимита избранного (watchlist) вне тарифа ← 2026-06-28** —
   следующая фаза роадмапа подписок (роадмап остаётся открытым пунктом, см.
-  `docs/NOTES.md`; новости, форма обращений, "Радар рынка", FAQ/STALZONE —
-  не реализованы).
+  `docs/NOTES.md`; новости, форма обращений, FAQ/STALZONE — не реализованы).
   - Поле `User.favorites_limit_override` (`Integer`, nullable, default `None`,
     миграция `0029_favorites_limit_override.py`, down_revision `0028`). `NULL`
     = нет override, лимит = тариф; не-`NULL` значение **заменяет** лимит
@@ -50,6 +85,69 @@
     отдельный admin-эндпоинт, без биллинга») та же. Подробности и альтернативы
     (сложение vs замена лимита) — `docs/tasks/favorites-limit-override.md`.
   - ТЗ — `docs/tasks/favorites-limit-override.md`.
+
+- [x] **«Радар рынка» — кросс-юзерная агрегация watchlist, отдельный аддон ← 2026-06-28** —
+  следующая фаза роадмапа подписок (роадмап остаётся открытым пунктом, см.
+  `docs/NOTES.md`; новости, форма обращений, FAQ/STALZONE — не реализованы).
+  - Гейтинг — отдельный boolean-флаг `User.has_market_radar_addon` (поле
+    существовало с миграции `0026_user_tiers.py` как задел без логики, новая
+    миграция не нужна), НЕ часть тарифной лестницы `TierLimits`. Новый
+    dependency `get_market_radar_access` (`backend/app/core/dependencies.py`)
+    пропускает `is_admin=True` или `has_market_radar_addon=True`, иначе 403.
+  - Backend: новый сервис `app/services/analytics/market_radar.py`
+    (`get_market_radar_aggregate`) — SQL-агрегация `user_watchlist`
+    (`COUNT(DISTINCT user_id)` GROUP BY `item_id`, `FILTER` по `created_at >=
+    now()-24h` для прироста), JOIN `master_items` + глобальная
+    `market_statistics` (`user_id IS NULL`) для контекста цены/объёма.
+    ORDER BY count DESC LIMIT 20. Redis-кэш TTL 60 сек
+    (`market_radar:aggregate`). Не делает новых обращений к Stalcraft API —
+    агрегация только над собственной БД, rate limit не затронут.
+  - Новый эндпоинт `GET /market-radar/`
+    (`backend/app/api/v1/endpoints/market_radar.py`), зарегистрирован в
+    `main.py`. `UserResponse` (`auth.py`) и `UserAdminResponse`/`list_users`
+    (`admin.py`) дополнены полем `has_market_radar_addon`. Новый эндпоинт
+    `POST /admin/users/{id}/market-radar-addon` (`{"enabled": bool}`) для
+    ручной выдачи/отзыва аддона — без биллинга, по аналогии с выдачей `tier`.
+  - Никаких новых миграций — Alembic head остаётся `0028_registration_settings.py`.
+  - Frontend: новый пункт навигации «Радар рынка» в `Layout.tsx` (гейт с
+    tooltip «Доступно как отдельный аддон — обратитесь к администратору»;
+    рефакторинг — добавлен словарь `gateKey`/`GATE_TOOLTIP`, чтобы у «Лотов»
+    (`auction_access`) остался прежний тарифный текст). Новая страница
+    `MarketRadarPage.tsx` — топ-20 предметов (ранг, иконка, имя,
+    watchers_count + прирост 24ч, avg_price_24h/sales_volume_24h или «нет
+    данных», чип SPIKE при `bulk_spike`), сводка `total_active_watchers`/
+    `unique_items_tracked` в шапке, отдельный экран при 403. Роут
+    `/app/market-radar` в `App.tsx`, поле `has_market_radar_addon` в
+    `authStore.ts`.
+  - **Ревизия 1 (тот же день):** топ перегруппирован с `item_id` на
+    `(item_id, quality_filter, enchant_filter)` — один предмет может занимать
+    несколько строк топа для разных комбинаций фильтров среди watcher'ов.
+    Источник цены/объёма ветвится: бакет без фильтра — как раньше, из
+    глобальной `market_statistics` (`price_window="24h"`); бакет с заданным
+    фильтром — медиана `SalesHistory.price_per_unit` за 7д через
+    `_build_sales_filter` (перенесена из `monitoring.py` в новый общий
+    `backend/app/services/analytics/pricing.py`), `price_window="7d"`. Ответ
+    API дополнен `quality_filter`, `enchant_filter`, `price_window`.
+  - **Ревизия 2 (тот же день):** добавлена метрика
+    `profitable_offers_count: int | None` — число реально выгодных лотов в
+    текущем снэпшоте аукциона для бакета, **дедуплицированное по физическим
+    лотам, не по пользователям** (10 watcher'ов одного выгодного лота видят
+    число `1`, не `10`); отдельная метрика от `watchers_count`, показывается
+    рядом. Расчёт (`_count_profitable_offers`,
+    `backend/app/services/analytics/market_radar.py`): по регионам активных
+    watcher'ов `item_id` берётся последний глобальный снэпшот
+    `CollectedData`, `sell_options` считаются один раз на бакет через
+    `make_sell_options(int(avg_price), sales_volume)` (переиспользуя уже
+    посчитанные значения ревизии 1), затем каждый лот `raw_lots` фильтруется
+    по базовым условиям/`quality_filter`/`enchant_filter` бакета и проверяется
+    через `evaluate_lot_profit(risk="low", min_margin_pct=0.0)` — канонический
+    неперсонализированный порог. `None`, если у бакета нет `avg_price`. Хелперы
+    `_is_artefact`, `_lot_quality_enchant`, `_is_liquid` перенесены из
+    `profitable_lots.py` в `pricing.py` (в дополнение к `_build_sales_filter`).
+    Кэш/Celery не менялись — TTL остаётся 60с, без новой периодической задачи.
+    Frontend (`MarketRadarPage.tsx`): новый блок «ВЫГОДНЫХ» в строке карточки
+    — `null` → серое «нет данных», `0` → обычный текст, `>0` → зелёный акцент.
+  - ТЗ — `docs/tasks/market-radar.md` (включая обе ревизии).
 
 - [x] **Fix: `_publish_signals` падал с `'NoneType' object is not iterable` ← 2026-06-28** —
   регрессия от **Fix 8** (`docs/tasks/security-and-bugfix.md`, 2026-06-17, см. запись

@@ -135,6 +135,7 @@ OAuth2 Client Credentials flow для Stalcraft API.
   fast/normal/premium (`ref × 0.97/1.00/1.05`) с прогнозом времени (см. ниже,
   логика идентична `market_stats._calculate_sell_options`)
 - `batch_bucket_for_amount(amount)` — бакет размера пачки (`x1`, `x2_5`, ... `x51_plus`)
+- `_build_sales_filter(quality_filter, enchant_filter)` — строит доп. условия фильтрации `SalesHistory` по `qlt`/`ptn` из `additional_info` (перенесена сюда 2026-06-28 из `app/api/v1/endpoints/monitoring.py`, чтобы сервисный слой `market_radar.py` не импортировал из слоя api/endpoints); используется в `monitoring.py` (history-эндпоинты) и в `market_radar.py` (медиана 7д для бакетов с заданным quality/enchant).
 - `evaluate_lot_profit(buyout_per_unit, amount, sell_options, risk, min_margin_pct, batch_stats)`:
   профит считается от тира **"fast"**; при ≥`MIN_BATCH_SAMPLES` реальных продажах
   в том же бакете (`market_statistics.batch_stats`) цена продажи корректируется
@@ -311,7 +312,7 @@ OAuth2 Client Credentials flow для Stalcraft API.
 
 `app/tasks/tiers.py` — Celery task `sweep_expired_tiers` (beat `crontab(hour=3, minute=30)`): SQL-выборка пользователей с `tier != 'base' AND tier_expires_at < now()`, для каждого — `deactivate_excess_watchlist` + понижение до `base`. Дополняет ленивое понижение — гарантирует, что админка не показывает устаревший тариф у давно неактивных пользователей. Не обращается к Stalcraft API.
 
-`POST /admin/users/{user_id}/favorites-limit-override` (`backend/app/api/v1/endpoints/admin.py`, `Depends(get_current_admin)`) — устанавливает или снимает `User.favorites_limit_override` (`{"override": int | None}`, `Field(None, ge=0, le=100_000)`). Если новый эффективный лимит меньше текущего количества активных карточек пользователя — вызывает `deactivate_excess_watchlist`. `set_user_tier` обновлён аналогично: при смене тарифа лишние карточки деактивируются по `effective_watchlist_limit(user)`, а не по жёсткому лимиту нового тарифа — override переживает смену тарифа.
+`POST /admin/users/{user_id}/favorites-limit-override` (`backend/app/api/v1/endpoints/admin.py`, `Depends(get_current_admin)`) — устанавливает или снимает `User.favorites_limit_override` (`{"override": int | None}`, `Field(None, ge=0)`). Если новый эффективный лимит меньше текущего количества активных карточек пользователя — вызывает `deactivate_excess_watchlist`. `set_user_tier` обновлён аналогично: при смене тарифа лишние карточки деактивируются по `effective_watchlist_limit(user)`, а не по жёсткому лимиту нового тарифа — override переживает смену тарифа.
 
 `telegram_bot/bot.py::notify_profitable_lots` — третье условие в фильтре получателей: `user.is_admin or get_tier_limits(user).telegram_notifications` (помимо существующих `telegram_chat_id IS NOT NULL` и `user_settings.notify_telegram`). Гейтит только отправку уведомлений, не привязку аккаунта.
 
@@ -401,13 +402,42 @@ Token Bucket алгоритм для соблюдения лимита Stalcraft
 
 - `users_by_tier: dict[str, int]` — `GROUP BY User.tier`
 - `users_online_now: int` — `User.last_seen >= now() - ONLINE_THRESHOLD_MINUTES` (тот же порог, что в `GET /admin/users`)
+- `users_active_today: int` — количество пользователей с `last_seen` после начала **текущих суток по московскому времени** (`timezone(timedelta(hours=3))`, тот же паттерн, что в `market_stats.py`) — календарный день МСК, не скользящие 24ч.
+- `users_active_week: int` — количество пользователей с `last_seen` за последние 7×24 часа (скользящее окно от `datetime.now(timezone.utc)`, без привязки к календарной неделе — для скользящего окна MSK-сдвиг не имеет значения).
+- `users_telegram_linked: int` — количество пользователей с `telegram_chat_id IS NOT NULL`. Это единственный достоверный признак реального подключения Telegram-бота (`telegram_username` сам по себе подключение не доказывает) — тот же признак использует `GET /telegram/status` (`telegram.py`).
 - `unique_watchlist_pairs: int` — `DISTINCT (item_id, region) WHERE is_active=true`, та же семантика дедупликации, что в коллекторе (`collectors.py`)
 - `total_watchlist_entries: int` — общее число активных записей `user_watchlist` (для контраста с уникальными парами)
 - `rate_limit: dict` — результат `rate_limiter.get_consumption_stats()`
 
 Фронтенд (`AdminPage.tsx`) грузит этот эндпоинт один раз при монтировании страницы (`loadStats()`) — без поллинга, снэпшот на момент открытия.
 
+`UserAdminResponse` (`GET /admin/users`) дополнен полем `telegram_chat_id: int | None` (рядом с уже существующим `telegram_username`) — заполняется в `list_users`. Используется как раздельный источник данных от `telegram_username`: таблица пользователей в `AdminPage.tsx` показывает именно `telegram_username` (введённый юзернейм), а агрегатная метрика `users_telegram_linked` выше — `telegram_chat_id` (факт подключения бота). Это намеренная асимметрия между отображением в таблице и подсчётом статистики, не баг.
+
+Добавлены 2026-06-28 — устранение пробела, см. `docs/tasks/admin-stats-gaps.md`.
+
 ---
+
+## app/services/analytics/market_radar.py — get_market_radar_aggregate
+
+«Радар рынка» — кросс-юзерная агрегация `user_watchlist` (аддон `User.has_market_radar_addon`, не тариф, см. `docs/BUSINESS_LOGIC.md` §17). Эндпоинт `GET /market-radar/` (`backend/app/api/v1/endpoints/market_radar.py`), гейтится `Depends(get_market_radar_access)`.
+
+**Входные данные:** только собственная БД — `user_watchlist`, `master_items`, `market_statistics`. Не делает новых обращений к Stalcraft API, не затрагивает rate limit.
+
+**SQL-агрегация** (без новой Celery-задачи и без новой таблицы):
+1. `SELECT item_id, quality_filter, enchant_filter, COUNT(DISTINCT user_id) AS watchers_count, COUNT(DISTINCT user_id) FILTER (WHERE created_at >= now() - interval '24 hours') AS new_watchers_24h FROM user_watchlist WHERE is_active=true GROUP BY item_id, quality_filter, enchant_filter ORDER BY watchers_count DESC LIMIT 20`. **Ревизия 2026-06-28:** `GROUP BY` дополнен `quality_filter, enchant_filter` (раньше — только `item_id`) — один `item_id` может занять несколько строк топа для разных комбинаций фильтров среди watcher'ов; `NULL`/`NULL` — отдельный бакет, PostgreSQL естественно разделяет его от заданных значений без доп. логики.
+2. JOIN `master_items` по `item_id` из топа — имя/иконка (`name_ru`, `name_en`, `icon_path`).
+3. **Источник цены/объёма ветвится по бакету:**
+   - `quality_filter IS NULL AND enchant_filter IS NULL` — JOIN глобальной `market_statistics` (`user_id IS NULL`) по `item_id` — `avg_price_24h`, `sales_volume_24h`, `demand_signals.bulk_spike`, `price_window="24h"`; `null`, если записи нет.
+   - Бакет с хотя бы одним заданным фильтром — прямой запрос к `SalesHistory` (`price_per_unit`, `sale_time >= now() - 7d`, без фильтра по `region`) отфильтрованный через `_build_sales_filter(quality_filter, enchant_filter)` — функция перенесена из `backend/app/api/v1/endpoints/monitoring.py` в `backend/app/services/analytics/pricing.py` (общий сервисный модуль, чтобы services не импортировал из слоя api/endpoints; оба вызова в `monitoring.py` обновлены на импорт из нового места). Цена-ориентир = `statistics.median(prices)`, объём = `len(prices)`, `price_window="7d"`. При низком покрытии qlt/ptn в `sales_history` (2-6%, см. `docs/NOTES.md`) `prices` часто пуст → оба поля `null` — ожидаемое поведение, строка не скрывается из топа.
+   - `null` в обоих случаях — UI показывает «нет данных», предмет/бакет не скрывается из топа.
+4. Сводка: `total_active_watchers` (`COUNT(*)` активных записей `user_watchlist`), `unique_items_tracked` (`COUNT(DISTINCT item_id)` активных).
+5. Ответ API на каждый элемент `top_items` дополнен `quality_filter`, `enchant_filter`, `price_window` — фронт (`MarketRadarPage.tsx`) показывает чип качества/суффикс заточки и подпись окна цены под каждой строкой.
+6. **`profitable_offers_count` (ревизия 2026-06-28, `_count_profitable_offers`):** на каждый бакет топа, если есть `avg_price` (п.3) — подзапрос `SELECT DISTINCT region FROM user_watchlist WHERE item_id=... AND is_active=true` (регионы по `item_id`, без фильтра quality/enchant — снэпшот лотов общий для всех бакетов одного `item_id`), затем на каждый найденный регион — последний глобальный снэпшот `SELECT * FROM collected_data WHERE item_id=... AND region=... AND user_id IS NULL ORDER BY collect_time DESC LIMIT 1`. `sell_options = make_sell_options(int(avg_price), sales_volume)` считается один раз на бакет (переиспользует уже посчитанные в п.3 значения, без повторного запроса). Каждый лот `raw_lots` снэпшота проверяется на `buyout>0`, `amount>0`, ликвидность (`_is_liquid`) и совпадение `quality_filter`/`enchant_filter` бакета (`_lot_quality_enchant`), затем `evaluate_lot_profit(risk="low", min_margin_pct=0.0)` — канонический порог без риск-надбавки (при `min_margin_pct=0.0` `risk` не влияет на результат математически, но передаётся явно, не как побочный эффект). Сумма выгодных лотов across регионов = `profitable_offers_count`; считается по уникальным физическим лотам снэпшота, не по watcher'ам — число не зависит от `watchers_count`. `None`, если `avg_price` бакета `None`. Не увеличивает TTL/не добавляет Celery-задачу — рост стоимости одного cache-miss (до ~60 доп. SQL-запросов снэпшотов на полный пересчёт топ-20, по индексу) признан некритичным при TTL=60с (см. `docs/tasks/market-radar.md`, ревизия 2, п.6).
+   - **Перенос хелперов:** `_is_artefact`, `_lot_quality_enchant`, `_is_liquid` перенесены из `backend/app/services/profitable_lots.py` в `backend/app/services/analytics/pricing.py` (в дополнение к `_build_sales_filter`, перенесённой ревизией 1) — общий сервисный слой; `profitable_lots.py` импортирует их обратно.
+
+Без минимального порога анонимности — в топ попадают предметы даже с 1 watcher'ом (Phase 1, осознанное решение).
+
+**Кэш:** Redis, ключ `market_radar:aggregate`, TTL 60 сек — защищает от пересчёта при частых одновременных заходах на страницу; при недоступности Redis читает/пишет с `logger.warning` и просто пересчитывает на каждый запрос (без хард-фейла).
 
 ---
 

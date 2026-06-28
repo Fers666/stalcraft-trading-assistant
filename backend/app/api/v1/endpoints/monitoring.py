@@ -2,7 +2,7 @@ import json
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func
 from pydantic import BaseModel
 from datetime import datetime, timezone, timedelta
 import statistics as _statistics
@@ -12,7 +12,7 @@ from app.models.models import User, MarketStatistics, CollectedData, SalesHistor
 from app.core.dependencies import get_current_user
 from app.core.tiers import get_tier_limits, max_stats_hours
 from app.services.profitable_lots import signals_key
-from app.services.analytics.pricing import make_sell_options, classify_risk, GLITCH_RATIO
+from app.services.analytics.pricing import make_sell_options, classify_risk, GLITCH_RATIO, _build_sales_filter
 
 router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
 
@@ -52,31 +52,6 @@ class MonitoringItemResponse(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-def _build_sales_filter(quality_filter: int | None, enchant_filter: int | None) -> list:
-    """Возвращает список SQL-условий для фильтрации SalesHistory по качеству/заточке."""
-    conds = []
-    if quality_filter is not None:
-        if quality_filter == 0:
-            # qlt=0: поле qlt отсутствует или явно равно 0
-            conds.append(or_(
-                SalesHistory.additional_info['qlt'].astext.is_(None),
-                SalesHistory.additional_info['qlt'].astext == '0',
-            ))
-        else:
-            conds.append(SalesHistory.additional_info['qlt'].astext == str(quality_filter))
-    if enchant_filter is not None:
-        if enchant_filter == 0:
-            # 0 = "Не точёный" артефакт: ptn отсутствует или явно равен 0
-            conds.append(or_(
-                SalesHistory.additional_info['ptn'].astext.is_(None),
-                SalesHistory.additional_info['ptn'].astext == '0',
-            ))
-        else:
-            conds.append(SalesHistory.additional_info['ptn'].astext == str(enchant_filter))
-    return conds
-
 
 
 def _make_sell_options(median: float, volume_7d: int) -> list[dict]:

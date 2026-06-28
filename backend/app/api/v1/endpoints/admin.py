@@ -20,6 +20,7 @@ class UserAdminResponse(BaseModel):
     username: str
     email: str
     telegram_username: str | None
+    telegram_chat_id: int | None
     is_admin: bool
     is_approved: bool
     is_active: bool
@@ -29,6 +30,7 @@ class UserAdminResponse(BaseModel):
     last_seen: datetime | None
     is_online: bool
     watchlist_count: int
+    has_market_radar_addon: bool
     favorites_limit_override: int | None
     effective_watchlist_limit: int | None
 
@@ -63,6 +65,7 @@ async def list_users(
             username=user.username,
             email=user.email,
             telegram_username=user.telegram_username,
+            telegram_chat_id=user.telegram_chat_id,
             is_admin=user.is_admin,
             is_approved=user.is_approved,
             is_active=user.is_active,
@@ -72,6 +75,7 @@ async def list_users(
             last_seen=user.last_seen,
             is_online=bool(user.last_seen and user.last_seen >= online_threshold),
             watchlist_count=count,
+            has_market_radar_addon=user.has_market_radar_addon,
             favorites_limit_override=user.favorites_limit_override,
             effective_watchlist_limit=effective_watchlist_limit(user),
         )
@@ -133,6 +137,9 @@ async def revoke_user(
 class AdminStatsResponse(BaseModel):
     users_by_tier: dict[str, int]
     users_online_now: int
+    users_active_today: int
+    users_active_week: int
+    users_telegram_linked: int
     unique_watchlist_pairs: int
     total_watchlist_entries: int
     rate_limit: dict
@@ -157,6 +164,21 @@ async def get_admin_stats(
         select(func.count()).select_from(User).where(User.last_seen >= online_threshold)
     )).scalar_one()
 
+    MSK = timezone(timedelta(hours=3))
+    today_start_msk = datetime.now(MSK).replace(hour=0, minute=0, second=0, microsecond=0)
+    users_active_today = (await db.execute(
+        select(func.count()).select_from(User).where(User.last_seen >= today_start_msk)
+    )).scalar_one()
+
+    week_threshold = datetime.now(timezone.utc) - timedelta(days=7)
+    users_active_week = (await db.execute(
+        select(func.count()).select_from(User).where(User.last_seen >= week_threshold)
+    )).scalar_one()
+
+    users_telegram_linked = (await db.execute(
+        select(func.count()).select_from(User).where(User.telegram_chat_id.is_not(None))
+    )).scalar_one()
+
     unique_pairs_subq = (
         select(UserWatchlist.item_id, UserWatchlist.region)
         .where(UserWatchlist.is_active == True)
@@ -176,6 +198,9 @@ async def get_admin_stats(
     return AdminStatsResponse(
         users_by_tier=users_by_tier,
         users_online_now=users_online_now,
+        users_active_today=users_active_today,
+        users_active_week=users_active_week,
+        users_telegram_linked=users_telegram_linked,
         unique_watchlist_pairs=unique_watchlist_pairs,
         total_watchlist_entries=total_watchlist_entries,
         rate_limit=rate_limit,
@@ -236,6 +261,29 @@ async def extend_user_tier(
     user.tier_expires_at = base_time + delta_map[payload.delta]
     await db.commit()
     return {"ok": True, "tier_expires_at": user.tier_expires_at}
+
+
+# ─── Радар рынка (аддон, не тариф) ────────────────────────────────────────────
+
+class MarketRadarAddonRequest(BaseModel):
+    enabled: bool
+
+
+@router.post("/users/{user_id}/market-radar-addon")
+async def set_market_radar_addon(
+    user_id: int,
+    payload: MarketRadarAddonRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    """Ручная выдача/отзыв аддона «Радар рынка» — независим от tier."""
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.has_market_radar_addon = payload.enabled
+    await db.commit()
+    return {"ok": True}
 
 
 # ─── Override лимита избранного (вне тарифа) ──────────────────────────────────

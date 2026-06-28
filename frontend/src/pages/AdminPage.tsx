@@ -14,6 +14,7 @@ import TuneIcon from '@mui/icons-material/Tune'
 import InventoryIcon from '@mui/icons-material/Inventory'
 import WifiTetheringIcon from '@mui/icons-material/WifiTethering'
 import SpeedIcon from '@mui/icons-material/Speed'
+import TelegramIcon from '@mui/icons-material/Telegram'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import api from '../api/client'
@@ -59,6 +60,7 @@ interface AdminUser {
   username: string
   email: string
   telegram_username: string | null
+  telegram_chat_id: number | null
   is_admin: boolean
   is_approved: boolean
   is_active: boolean
@@ -68,6 +70,7 @@ interface AdminUser {
   last_seen: string | null
   is_online: boolean
   watchlist_count: number
+  has_market_radar_addon: boolean
   favorites_limit_override: number | null
   effective_watchlist_limit: number | null
 }
@@ -81,6 +84,9 @@ interface RegistrationSettings {
 interface AdminStats {
   users_by_tier: Record<string, number>
   users_online_now: number
+  users_active_today: number
+  users_active_week: number
+  users_telegram_linked: number
   unique_watchlist_pairs: number
   total_watchlist_entries: number
   rate_limit: {
@@ -111,6 +117,9 @@ export default function AdminPage() {
   // Favorites (watchlist) limit override — per-row pending input
   const [favOverrideInput, setFavOverrideInput] = useState<Record<number, string>>({})
   const [favOverrideLoading, setFavOverrideLoading] = useState<number | null>(null)
+
+  // Радар рынка (аддон, не тариф) — ручная выдача/отзыв
+  const [marketRadarLoading, setMarketRadarLoading] = useState<number | null>(null)
 
   // Registration settings card
   const [regSettings, setRegSettings] = useState<RegistrationSettings | null>(null)
@@ -288,6 +297,16 @@ export default function AdminPage() {
       await loadUsers()
     } finally {
       setFavOverrideLoading(null)
+    }
+  }
+
+  const toggleMarketRadar = async (id: number, enabled: boolean) => {
+    setMarketRadarLoading(id)
+    try {
+      await api.post(`/admin/users/${id}/market-radar-addon`, { enabled })
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, has_market_radar_addon: enabled } : u))
+    } finally {
+      setMarketRadarLoading(null)
     }
   }
 
@@ -533,6 +552,69 @@ export default function AdminPage() {
             )
           })()}
         </Box>
+
+        {/* Зашли сегодня */}
+        <Box sx={{
+          px: 2.5, py: 1.5,
+          background: BG2,
+          border: `1px solid ${BORDER}`,
+          borderRadius: '10px',
+          minWidth: 140,
+        }}>
+          <Typography sx={{ fontSize: '0.68rem', color: T2, letterSpacing: '0.06em', mb: 0.4 }}>
+            ЗАШЛИ СЕГОДНЯ
+          </Typography>
+          {statsLoading || !stats ? (
+            <CircularProgress size={16} sx={{ color: G2 }} />
+          ) : (
+            <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: T0, lineHeight: 1 }}>
+              {stats.users_active_today}
+            </Typography>
+          )}
+        </Box>
+
+        {/* Активны за неделю */}
+        <Box sx={{
+          px: 2.5, py: 1.5,
+          background: BG2,
+          border: `1px solid ${BORDER}`,
+          borderRadius: '10px',
+          minWidth: 140,
+        }}>
+          <Typography sx={{ fontSize: '0.68rem', color: T2, letterSpacing: '0.06em', mb: 0.4 }}>
+            АКТИВНЫ ЗА НЕДЕЛЮ
+          </Typography>
+          {statsLoading || !stats ? (
+            <CircularProgress size={16} sx={{ color: G2 }} />
+          ) : (
+            <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: T0, lineHeight: 1 }}>
+              {stats.users_active_week}
+            </Typography>
+          )}
+        </Box>
+
+        {/* Подключили Telegram */}
+        <Box sx={{
+          px: 2.5, py: 1.5,
+          background: BG2,
+          border: `1px solid ${BORDER}`,
+          borderRadius: '10px',
+          minWidth: 160,
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, mb: 0.4 }}>
+            <TelegramIcon sx={{ fontSize: 14, color: G2 }} />
+            <Typography sx={{ fontSize: '0.68rem', color: T2, letterSpacing: '0.06em' }}>
+              ПОДКЛЮЧИЛИ TELEGRAM
+            </Typography>
+          </Box>
+          {statsLoading || !stats ? (
+            <CircularProgress size={16} sx={{ color: G2 }} />
+          ) : (
+            <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: T0, lineHeight: 1 }}>
+              {stats.users_telegram_linked}
+            </Typography>
+          )}
+        </Box>
       </Box>
 
       {/* Registration settings card */}
@@ -679,7 +761,7 @@ export default function AdminPage() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                {['Пользователь', 'Email', 'Статус', 'Зарегистрирован', 'Тариф', 'До', 'Был онлайн', 'Карточек', 'Действие'].map(h => (
+                {['Пользователь', 'Email', 'Статус', 'Зарегистрирован', 'Тариф', 'До', 'Telegram', 'Был онлайн', 'Карточек', 'Радар рынка', 'Действие'].map(h => (
                   <TableCell key={h} sx={{
                     color: T2, fontSize: '0.68rem', fontWeight: 600,
                     letterSpacing: '0.1em', textTransform: 'uppercase',
@@ -845,6 +927,13 @@ export default function AdminPage() {
                     </Typography>
                   </TableCell>
 
+                  {/* Telegram */}
+                  <TableCell>
+                    <Typography sx={{ fontSize: '0.78rem', color: u.telegram_username ? T1 : T2 }}>
+                      {u.telegram_username ? `@${u.telegram_username}` : '—'}
+                    </Typography>
+                  </TableCell>
+
                   {/* Last seen / online */}
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
@@ -890,6 +979,20 @@ export default function AdminPage() {
                         </Button>
                       </Box>
                     </Box>
+                  </TableCell>
+
+                  {/* Радар рынка (аддон) */}
+                  <TableCell>
+                    <Switch
+                      size="small"
+                      checked={u.has_market_radar_addon}
+                      disabled={marketRadarLoading === u.id}
+                      onChange={() => toggleMarketRadar(u.id, !u.has_market_radar_addon)}
+                      sx={{
+                        '& .MuiSwitch-switchBase.Mui-checked': { color: G2 },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { background: alpha(G2, 0.5) },
+                      }}
+                    />
                   </TableCell>
 
                   {/* Action */}

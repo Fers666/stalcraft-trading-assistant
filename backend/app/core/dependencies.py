@@ -56,3 +56,10 @@ async def get_current_admin(current_user: User = Depends(get_current_user)) -> U
     if not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return current_user
+
+
+async def get_market_radar_access(current_user: User = Depends(get_current_user)) -> User:
+    """Радар рынка — отдельный аддон-флаг, не часть тарифной лестницы. Админы обходят флаг."""
+    if not current_user.is_admin and not current_user.has_market_radar_addon:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Market radar addon required")
+    return current_user

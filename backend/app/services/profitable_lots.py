@@ -15,7 +15,7 @@ from typing import Optional
 
 from app.services.analytics.pricing import (
     classify_risk, compute_reference, make_sell_options, evaluate_lot_profit,
-    STALE_SECONDS,
+    STALE_SECONDS, _is_artefact, _lot_quality_enchant, _is_liquid,
 )
 
 SIGNALS_TTL = 300       # секунд — TTL ключа сигналов (запас на случай задержки цикла)
@@ -25,48 +25,10 @@ _QLT_NAMES: dict[int, str] = {
     0: "Обычный", 1: "Необычный", 2: "Особый",
     3: "Ветеран",  4: "Мастер",   5: "Легендарный",
 }
-_COLOR_TO_QLT: dict[str, int] = {
-    "default": 0, "rank_newbie": 1, "rank_stalker": 2, "rank_veteran": 3,
-    "rank_master": 4, "rank_legend": 5, "quest_item": 5,
-    "gray": 0, "grey": 0, "white": 0, "green": 1, "blue": 2,
-    "violet": 3, "purple": 3, "yellow": 4, "black": 4, "red": 5,
-}
 
 
 def signals_key(user_id: int, item_id: str, region: str, quality_filter, enchant_filter) -> str:
     return f"signals:{user_id}:{item_id}:{region}:{quality_filter}:{enchant_filter}"
-
-
-def _is_artefact(category: Optional[str]) -> bool:
-    return bool(category and "artefact" in category.lower())
-
-
-def _lot_quality_enchant(lot: dict, master, is_art: bool) -> tuple[Optional[int], Optional[int]]:
-    additional = lot.get("additional") or {}
-    qlt = additional.get("qlt")
-    ptn = additional.get("ptn")
-
-    if is_art:
-        qlt_val = int(qlt) if qlt is not None else 0
-        enchant = 0 if ptn is None else int(ptn)
-    else:
-        color_qlt = _COLOR_TO_QLT.get((master.color or "").lower())
-        qlt_val   = int(qlt) if qlt is not None else color_qlt
-        enchant   = int(ptn) if ptn is not None and int(ptn) > 0 else None
-
-    return qlt_val, enchant
-
-
-def _is_liquid(lot: dict, now: datetime) -> bool:
-    """Лот ликвиден, если до конца аукциона >= 2ч (или endTime неизвестен)."""
-    end_str = lot.get("endTime", "")
-    if not end_str:
-        return True
-    try:
-        end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-        return (end_dt - now).total_seconds() / 3600 >= 2
-    except Exception:
-        return True
 
 
 def _filtered_median_now(raw_lots: list, master, entry, is_art: bool, now: datetime) -> Optional[float]:

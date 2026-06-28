@@ -19,7 +19,7 @@ const NAV_ITEMS = [
     svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M4 4h7v16H4z"/><path d="M13 4h7v16h-7z"/></svg>,
   },
   {
-    label: 'Лоты', to: '/app/lots', gated: true,
+    label: 'Лоты', to: '/app/lots', gated: true, gateKey: 'auction_access' as const,
     svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>,
     lockSvg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>,
   },
@@ -31,7 +31,17 @@ const NAV_ITEMS = [
     label: 'Склад', to: '/app/inventory',
     svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="3" y="7" width="18" height="13" rx="1"/><path d="M3 7l2-3h14l2 3"/></svg>,
   },
+  {
+    label: 'Радар рынка', to: '/app/market-radar', gated: true, gateKey: 'market_radar' as const,
+    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><circle cx="12" cy="12" r="2"/><path d="M12 12 L12 4 M12 12 L18 17"/><circle cx="12" cy="12" r="9"/></svg>,
+    lockSvg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>,
+  },
 ]
+
+const GATE_TOOLTIP: Record<string, string> = {
+  auction_access: 'Доступно на тарифах Продвинутая Плюс/Макс',
+  market_radar: 'Доступно как отдельный аддон — обратитесь к администратору',
+}
 
 function AppNav() {
   const navigate   = useNavigate()
@@ -91,11 +101,15 @@ function AppNav() {
 
       {/* Навигационные ссылки */}
       <div style={{ display: 'flex', flexGrow: 1, gap: 4 }}>
-        {NAV_ITEMS.map(({ label, to, svg, gated, lockSvg }) => {
-          const locked = !!gated && !user?.is_admin && user?.auction_access === false
+        {NAV_ITEMS.map(({ label, to, svg, gated, gateKey, lockSvg }) => {
+          const locked = !!gated && !user?.is_admin && (
+            gateKey === 'market_radar'
+              ? !user?.has_market_radar_addon
+              : user?.auction_access === false
+          )
           if (locked) {
             return (
-              <Tooltip key={to} title="Доступно на тарифах Продвинутая Плюс/Макс">
+              <Tooltip key={to} title={GATE_TOOLTIP[gateKey ?? ''] ?? ''}>
                 <div
                   onClick={(e) => e.preventDefault()}
                   style={{

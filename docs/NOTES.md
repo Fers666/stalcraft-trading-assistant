@@ -23,10 +23,19 @@
   - [x] Статистика в админке (rate-limit consumption, уникальные карточки по
     всем пользователям) ← 2026-06-28, см. `docs/CHANGELOG.md`,
     `docs/SERVICES.md` (`GET /admin/stats`, `get_consumption_stats()`).
+    Дополнено 2026-06-28 — 4 пункта, потерянных при первом восстановлении ТЗ
+    (зашедшие сегодня, активные за неделю, счётчик подключивших Telegram,
+    колонка Telegram в таблице пользователей): см. `docs/CHANGELOG.md`,
+    `docs/SERVICES.md`, `docs/tasks/admin-stats-gaps.md`.
   - [ ] Раздел новостей.
   - [ ] Форма обращений → Telegram админам.
-  - [ ] "Радар рынка" (кросс-юзерная агрегация watchlist, отдельный аддон не
-    по тарифам).
+  - [x] "Радар рынка" (кросс-юзерная агрегация watchlist, отдельный аддон не
+    по тарифам, гейтинг через `User.has_market_radar_addon`; топ группируется
+    по `item_id, quality_filter, enchant_filter` — один предмет может занимать
+    несколько строк; метрика `profitable_offers_count` — число выгодных лотов
+    в снэпшоте, дедуплицированное по лотам, не по watcher'ам) ← 2026-06-28,
+    см. `docs/CHANGELOG.md`, `docs/BUSINESS_LOGIC.md` §17, `docs/SERVICES.md`
+    (`GET /market-radar/`, `get_market_radar_aggregate()`).
   - [ ] FAQ-онбординг + копирайт лендинга под переименование игры в STALZONE.
   - [x] Ручной override лимита избранного (watchlist) вне тарифа ← 2026-06-28,
     см. `docs/CHANGELOG.md`, `docs/BUSINESS_LOGIC.md` §17 (подраздел «Override

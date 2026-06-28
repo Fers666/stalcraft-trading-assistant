@@ -16,6 +16,7 @@ interface User {
   telegram_notifications: boolean
   stats_windows: string[]
   auction_access: boolean
+  has_market_radar_addon: boolean
 }
 
 interface AuthState {

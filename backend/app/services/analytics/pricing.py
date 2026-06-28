@@ -7,10 +7,19 @@
 - market_stats._calculate_sell_options — прогноз цены/времени продажи
   для статистики товара
 - monitoring._make_sell_options — то же для API /monitoring/item/{item_id}
+- market_radar — SQL-фильтр SalesHistory по quality/enchant для бакетов
+  топа с заданным фильтром (см. _build_sales_filter), фильтрация raw_lots
+  снэпшота по quality/enchant бакета (см. _lot_quality_enchant) и подсчёт
+  profitable_offers_count (см. _is_artefact, _is_liquid)
 """
 
 import statistics
+from datetime import datetime
 from typing import Optional
+
+from sqlalchemy import or_
+
+from app.models.models import SalesHistory
 
 
 COMMISSION       = 0.05   # комиссия аукциона при продаже
@@ -35,6 +44,74 @@ BATCH_BUCKETS: list[tuple[str, int, int]] = [
     ("x26_50",   26,  50),
     ("x51_plus", 51,  10_000),
 ]
+
+
+def _build_sales_filter(quality_filter: int | None, enchant_filter: int | None) -> list:
+    """Возвращает список SQL-условий для фильтрации SalesHistory по качеству/заточке."""
+    conds = []
+    if quality_filter is not None:
+        if quality_filter == 0:
+            # qlt=0: поле qlt отсутствует или явно равно 0
+            conds.append(or_(
+                SalesHistory.additional_info['qlt'].astext.is_(None),
+                SalesHistory.additional_info['qlt'].astext == '0',
+            ))
+        else:
+            conds.append(SalesHistory.additional_info['qlt'].astext == str(quality_filter))
+    if enchant_filter is not None:
+        if enchant_filter == 0:
+            # 0 = "Не точёный" артефакт: ptn отсутствует или явно равен 0
+            conds.append(or_(
+                SalesHistory.additional_info['ptn'].astext.is_(None),
+                SalesHistory.additional_info['ptn'].astext == '0',
+            ))
+        else:
+            conds.append(SalesHistory.additional_info['ptn'].astext == str(enchant_filter))
+    return conds
+
+
+_QLT_NAMES: dict[int, str] = {
+    0: "Обычный", 1: "Необычный", 2: "Особый",
+    3: "Ветеран",  4: "Мастер",   5: "Легендарный",
+}
+_COLOR_TO_QLT: dict[str, int] = {
+    "default": 0, "rank_newbie": 1, "rank_stalker": 2, "rank_veteran": 3,
+    "rank_master": 4, "rank_legend": 5, "quest_item": 5,
+    "gray": 0, "grey": 0, "white": 0, "green": 1, "blue": 2,
+    "violet": 3, "purple": 3, "yellow": 4, "black": 4, "red": 5,
+}
+
+
+def _is_artefact(category: Optional[str]) -> bool:
+    return bool(category and "artefact" in category.lower())
+
+
+def _lot_quality_enchant(lot: dict, master, is_art: bool) -> tuple[Optional[int], Optional[int]]:
+    additional = lot.get("additional") or {}
+    qlt = additional.get("qlt")
+    ptn = additional.get("ptn")
+
+    if is_art:
+        qlt_val = int(qlt) if qlt is not None else 0
+        enchant = 0 if ptn is None else int(ptn)
+    else:
+        color_qlt = _COLOR_TO_QLT.get((master.color or "").lower())
+        qlt_val   = int(qlt) if qlt is not None else color_qlt
+        enchant   = int(ptn) if ptn is not None and int(ptn) > 0 else None
+
+    return qlt_val, enchant
+
+
+def _is_liquid(lot: dict, now: datetime) -> bool:
+    """Лот ликвиден, если до конца аукциона >= 2ч (или endTime неизвестен)."""
+    end_str = lot.get("endTime", "")
+    if not end_str:
+        return True
+    try:
+        end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+        return (end_dt - now).total_seconds() / 3600 >= 2
+    except Exception:
+        return True
 
 
 def classify_risk(volatility_pct: Optional[float]) -> str:
