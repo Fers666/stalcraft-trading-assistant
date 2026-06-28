@@ -11,6 +11,7 @@ celery_app = Celery(
         "app.tasks.collectors",
         "app.tasks.cleanup",
         "app.tasks.analyzers",
+        "app.tasks.tiers",
     ],
 )
 
@@ -48,6 +49,12 @@ celery_app.conf.update(
         "evaluate-signal-outcomes": {
             "task": "app.tasks.analyzers.evaluate_signal_outcomes",
             "schedule": crontab(hour=4, minute=30),
+        },
+        # Понижение тарифов с истёкшим tier_expires_at — между cleanup (3:00) и
+        # часовым пересчётом статистики (минута 5). Не обращается к Stalcraft API.
+        "sweep-expired-tiers": {
+            "task": "app.tasks.tiers.sweep_expired_tiers",
+            "schedule": crontab(hour=3, minute=30),
         },
         # Telegram-уведомления — обрабатываются telegram_bot сервисом (polling),
         # scan_and_notify отключён во избежание дублирования.

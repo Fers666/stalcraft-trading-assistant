@@ -19,8 +19,9 @@ const NAV_ITEMS = [
     svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M4 4h7v16H4z"/><path d="M13 4h7v16h-7z"/></svg>,
   },
   {
-    label: 'Лоты', to: '/app/lots',
+    label: 'Лоты', to: '/app/lots', gated: true,
     svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>,
+    lockSvg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>,
   },
   {
     label: 'Лента', to: '/app/feed',
@@ -90,34 +91,60 @@ function AppNav() {
 
       {/* Навигационные ссылки */}
       <div style={{ display: 'flex', flexGrow: 1, gap: 4 }}>
-        {NAV_ITEMS.map(({ label, to, svg }) => (
-          <NavLink
-            key={to}
-            to={to}
-            style={({ isActive }) => ({
-              display: 'flex', alignItems: 'center', gap: 4,
-              fontFamily: '"Rajdhani", sans-serif',
-              fontWeight: isActive ? 700 : 500,
-              fontSize: 13, letterSpacing: '0.06em',
-              color: isActive ? G3 : '#B8B8B8',
-              textDecoration: 'none',
-              padding: '0 12px', height: 34, borderRadius: 8,
-              background: isActive ? alpha(G2, 0.12) : 'transparent',
-              border: isActive
-                ? `1px solid ${alpha(G2, 0.3)}`
-                : '1px solid transparent',
-              transition: 'all 0.2s',
-              flexShrink: 0,
-            })}
-          >
-            {({ isActive }) => (
-              <>
-                <span style={{ color: isActive ? G3 : '#B8B8B8', display: 'flex', alignItems: 'center' }}>{svg}</span>
-                {label}
-              </>
-            )}
-          </NavLink>
-        ))}
+        {NAV_ITEMS.map(({ label, to, svg, gated, lockSvg }) => {
+          const locked = !!gated && !user?.is_admin && user?.auction_access === false
+          if (locked) {
+            return (
+              <Tooltip key={to} title="Доступно на тарифах Продвинутая Плюс/Макс">
+                <div
+                  onClick={(e) => e.preventDefault()}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    fontFamily: '"Rajdhani", sans-serif',
+                    fontWeight: 500,
+                    fontSize: 13, letterSpacing: '0.06em',
+                    color: T2,
+                    cursor: 'not-allowed',
+                    padding: '0 12px', height: 34, borderRadius: 8,
+                    border: '1px solid transparent',
+                    flexShrink: 0,
+                  }}
+                >
+                  <span style={{ color: T2, display: 'flex', alignItems: 'center' }}>{lockSvg ?? svg}</span>
+                  {label}
+                </div>
+              </Tooltip>
+            )
+          }
+          return (
+            <NavLink
+              key={to}
+              to={to}
+              style={({ isActive }) => ({
+                display: 'flex', alignItems: 'center', gap: 4,
+                fontFamily: '"Rajdhani", sans-serif',
+                fontWeight: isActive ? 700 : 500,
+                fontSize: 13, letterSpacing: '0.06em',
+                color: isActive ? G3 : '#B8B8B8',
+                textDecoration: 'none',
+                padding: '0 12px', height: 34, borderRadius: 8,
+                background: isActive ? alpha(G2, 0.12) : 'transparent',
+                border: isActive
+                  ? `1px solid ${alpha(G2, 0.3)}`
+                  : '1px solid transparent',
+                transition: 'all 0.2s',
+                flexShrink: 0,
+              })}
+            >
+              {({ isActive }) => (
+                <>
+                  <span style={{ color: isActive ? G3 : '#B8B8B8', display: 'flex', alignItems: 'center' }}>{svg}</span>
+                  {label}
+                </>
+              )}
+            </NavLink>
+          )
+        })}
       </div>
 
       {/* Кнопка Админ — только для is_admin */}

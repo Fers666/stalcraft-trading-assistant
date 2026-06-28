@@ -8,8 +8,9 @@
 |--------|-----------|--------|----------|
 | `collect_all_active_lots` | каждые 20 сек | `app.tasks.collectors` | Динамический batch: ceil(due/3), min=5, max=50. Цель: полный цикл ≤60 сек при любом объёме watchlist |
 | `collect_all_history` | раз в час (мин. 0) | `app.tasks.collectors` | История для watchlist предметов |
-| `calculate_all_market_stats` | раз в час (мин. 5) | `app.tasks.analyzers` | Пересчёт market_statistics |
+| `calculate_all_market_stats` | раз в час (мин. 5) | `app.tasks.analyzers` | Пересчёт market_statistics (включая 24ч/48ч/7д/30д окна) |
 | `delete_old_data` | ежедневно 03:00 | `app.tasks.cleanup` | Данные старше 120 дней |
+| `sweep_expired_tiers` | ежедневно 03:30 | `app.tasks.tiers` | Понижение до `base` пользователей с истёкшим `tier_expires_at` + деактивация лишних карточек watchlist сверх нового лимита |
 
 ### Логика дедупликации watchlist
 
@@ -152,7 +153,7 @@ OAuth2 Client Credentials flow для Stalcraft API.
 - `collected_data` снэпшоты
 
 **Что рассчитывается:**
-- Ценовая статистика за 24ч и 7 дней
+- Ценовая статистика за 24ч, 48ч (Phase 0, под тарифы `advanced`+) и 7 дней
 - Волатильность цены (stdev / mean * 100)
 - Лучший час и день продажи (по объёму сделок)
 - Бонус выходного дня (средняя цена сб+вс vs будни)
@@ -292,6 +293,24 @@ OAuth2 Client Credentials flow для Stalcraft API.
 ```
 
 Данные берутся из `sales_history` без фильтра по `user_id` — рыночная история публична для всех пользователей.
+
+**Гейтинг по тарифу (Phase 0):** если запрошенный `hours` превышает максимум, разрешённый тарифом пользователя (`max_stats_hours()` в `app/core/tiers.py`), возвращается пустой результат (`sales: [], days: [], total_count: 0`), а не 403 — фронтенд (`SalesHistoryCharts.tsx`) различает «заблокировано тарифом» от «данных нет» через `user.stats_windows` (известно на фронте до запроса), не через содержимое ответа. Тот же гейт применён к `GET /monitoring/history/{item_id}` (используется не фронтендом напрямую, но публично доступен через API, дыра была идентичной).
+
+> Это была изначально незащищённая дыра, обнаруженная после первого прохода реализации тарифов: маскировка добавлялась только в `GET /monitoring/item/{item_id}`, а графики «История продаж» идут отдельным путём через этот эндпоинт.
+
+---
+
+## app/core/tiers.py + app/tasks/tiers.py — тарифы (Phase 0)
+
+`app/core/tiers.py` — центральная точка истины по лимитам тарифов (полная матрица — `docs/BUSINESS_LOGIC.md` §17). Ключевые функции:
+- `get_tier_limits(user)` — лимиты для пользователя; `is_admin=True` обходит лимиты целиком независимо от `user.tier`.
+- `max_stats_hours(limits)` — максимум часов истории по самому широкому разрешённому окну (`{"24h":24, "48h":48, "7d":168, "30d":720}`), используется в `monitoring.py` для гейтинга графиков.
+- `apply_tier_expiry(user, db)` — ленивое понижение до `base` при истёкшем `tier_expires_at`, вызывается из `get_current_user` (`app/core/dependencies.py`) на каждый авторизованный запрос.
+- `deactivate_excess_watchlist(user_id, new_limit, db)` — деактивирует (`is_active=False`) карточки watchlist сверх нового лимита, оставляя активными самые старые по `created_at`. Вызывается при ленивом понижении, в `sweep_expired_tiers` и при ручной смене тарифа админом (`POST /admin/users/{id}/tier`), если новый лимит меньше текущего.
+
+`app/tasks/tiers.py` — Celery task `sweep_expired_tiers` (beat `crontab(hour=3, minute=30)`): SQL-выборка пользователей с `tier != 'base' AND tier_expires_at < now()`, для каждого — `deactivate_excess_watchlist` + понижение до `base`. Дополняет ленивое понижение — гарантирует, что админка не показывает устаревший тариф у давно неактивных пользователей. Не обращается к Stalcraft API.
+
+`telegram_bot/bot.py::notify_profitable_lots` — третье условие в фильтре получателей: `user.is_admin or get_tier_limits(user).telegram_notifications` (помимо существующих `telegram_chat_id IS NOT NULL` и `user_settings.notify_telegram`). Гейтит только отправку уведомлений, не привязку аккаунта.
 
 ---
 

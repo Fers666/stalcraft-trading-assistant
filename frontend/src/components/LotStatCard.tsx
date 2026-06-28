@@ -9,6 +9,13 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import api from '../api/client'
 import { formatPrice, formatLastUpdate, qualityColor, iconUrl } from '../utils/i18n'
 import { tokens } from '../theme'
+import { useAuthStore } from '../store/authStore'
+
+const LockIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+    <rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+  </svg>
+)
 
 const COMMISSION = 0.05
 const MAX_PROFITABLE_LOTS = 10
@@ -147,6 +154,10 @@ export default function LotStatCard({
   const [lotMode, setLotMode]   = useState<'current' | 'median'>('current')
   const [sortState, setSortState] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'price', dir: 'asc' })
   const [selectedLotIdx, setSelectedLotIdx] = useState(0)
+
+  const statsWindows = useAuthStore(s => s.user?.stats_windows)
+  const sellOptionsLocked = !statsWindows?.includes('7d')
+  const risk30Locked = !statsWindows?.includes('30d')
 
   useEffect(() => {
     if (!itemId) return
@@ -290,7 +301,7 @@ export default function LotStatCard({
     : null
   const showQualityColumn = hasQuality && !singleQuality
   const lotGridCols = showQualityColumn ? '1fr auto 86px 86px 86px' : '1fr 86px 86px 86px'
-  const hasRight = !!((stats?.sell_options?.length ?? 0) > 0 || stats?.batch_stats)
+  const hasRight = !!((stats?.sell_options?.length ?? 0) > 0 || stats?.batch_stats || sellOptionsLocked)
 
   const cheapestBuy = lots
     .filter(l => !l.is_expiring && l.buyout_price > 0)
@@ -374,7 +385,17 @@ export default function LotStatCard({
                   </Box>
                 </Tooltip>
               )}
-              {risk30 && (
+              {risk30Locked ? (
+                <Tooltip title="Доступно на тарифе Продвинутая Макс">
+                  <Box sx={{
+                    display: 'inline-flex', alignItems: 'center', gap: 0.6, height: 20, px: 1, borderRadius: '8px',
+                    bgcolor: tokens.bg1, border: `1px solid ${tokens.border}`, color: tokens.text2, fontSize: '0.625rem', cursor: 'not-allowed',
+                  }}>
+                    <LockIcon />
+                    30д
+                  </Box>
+                </Tooltip>
+              ) : risk30 && (
                 <Tooltip title={`30д: ${stats?.price_volatility_30d?.toFixed(1)}%`}>
                   <Box sx={{
                     display: 'inline-flex', alignItems: 'center', gap: 0.6, height: 20, px: 1, borderRadius: '8px',
@@ -597,7 +618,23 @@ export default function LotStatCard({
                 <Box sx={fullWidth ? { borderLeft: '1px solid rgba(255,255,255,0.06)', pl: 2 } : {}}>
                   {!fullWidth && <Divider sx={{ mb: 1.5 }} />}
 
-                  {stats.sell_options && stats.sell_options.length > 0 && (
+                  {sellOptionsLocked ? (
+                    <Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+                        <TrendingUpIcon sx={{ fontSize: 13, color: 'primary.main' }} />
+                        <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>ВАРИАНТЫ ПРОДАЖИ</Typography>
+                      </Box>
+                      <Tooltip title="Доступно на тарифах Продвинутая Плюс и выше">
+                        <Box sx={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1,
+                          py: 2, color: tokens.text2, cursor: 'not-allowed',
+                        }}>
+                          <LockIcon />
+                          <Typography sx={{ fontSize: '0.7rem', color: tokens.text2 }}>Недоступно на тарифе</Typography>
+                        </Box>
+                      </Tooltip>
+                    </Box>
+                  ) : stats.sell_options && stats.sell_options.length > 0 && (
                     <Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
                         <TrendingUpIcon sx={{ fontSize: 13, color: 'primary.main' }} />

@@ -9,6 +9,50 @@
 
 ## Закрытые задачи
 
+- [x] **Система тарифов (подписок) — Phase 0 роадмапа ← 2026-06-28** — 5 уровней
+  доступа (`base`/`advanced`/`advanced_plus`/`advanced_max`/admin), источник
+  истины `backend/app/core/tiers.py`; полная матрица лимитов — `docs/BUSINESS_LOGIC.md`
+  §17. Миграции `0026`-`0028`: `users.tier/tier_expires_at/last_seen/has_market_radar_addon`,
+  `market_statistics.*_48h`, новая таблица-синглтон `registration_settings`.
+  - Гейтинг: лимит карточек watchlist, доступ к аукциону, окна статистики
+    (24ч/48ч/7д/30д), проактивные Telegram-уведомления (НЕ привязка аккаунта —
+    она осталась одинаковой для всех тарифов).
+  - Авто-понижение истёкшего тарифа до `base`: лениво (`get_current_user`) +
+    ежесуточный Celery sweep `sweep_expired_tiers` (`app/tasks/tiers.py`,
+    03:30). При понижении лишние карточки watchlist сверх нового лимита
+    автоматически деактивируются (не удаляются) — оставляются самые старые.
+  - Admin: `POST /admin/users/{id}/tier`, `POST /admin/users/{id}/tier/extend`,
+    `GET/PUT /admin/settings/registration` (авто-подтверждение регистрации с
+    выбором дефолтного тарифа/срока — выключено по умолчанию).
+  - Frontend: колонки тариф/срок/онлайн/карточек в `AdminPage.tsx` (раздельные
+    действия "Сменить тариф" / "Установить дату" / "Бессрочно" — не единая
+    кнопка, см. баг ниже), индикатор `X/Y` карточек в `MonitoringPage.tsx`,
+    блокировка пункта навигации «Лоты» в `Layout.tsx`, визуальные замки
+    (вместо пустых данных) в `SalesHistoryCharts.tsx`/`LotStatCard.tsx`.
+  - Попутно закрыт существующий баг: `get_current_user` не проверял
+    `is_approved`/учитывал только `is_active` — теперь 403 для неподтверждённых.
+  - **Баг №1 (найден после первого прохода реализации):** `GET
+    /monitoring/sales-chart/{id}` и `GET /monitoring/history/{id}` изначально
+    не были защищены гейтингом по тарифу вообще (только `/monitoring/item/{id}`
+    был замаскирован) — пользователь на `base` видел полную историю продаж за
+    все окна. Найдено через skill `systematic-debugging`, фикс — `max_stats_hours()`
+    в `tiers.py`, оба эндпоинта возвращают пустой результат при превышении.
+  - **Баг №2:** в админке кнопка «Применить» одновременно отправляла выбранный
+    тариф И дату из поля — пустое поле даты при нажатии тихо сбрасывало
+    существующий срок подписки на «бессрочно» (даже сразу после `+1 мес`).
+    Разделено на независимые действия + кнопка «Установить дату» теперь
+    неактивна без выбранной даты; явная отдельная кнопка «Бессрочно» для
+    намеренной очистки срока.
+  - **Баг №3 (UX):** колонка «До» показывала голый `—` для бессрочных
+    тарифов — неотличимо от «что-то не так». Заменено на текст «Бессрочно».
+  - **Отложено пользователем (не реализовано в этом заходе):** обязательная
+    привязка Telegram при регистрации + восстановление пароля через неё —
+    см. `docs/NOTES.md`. Остальные фазы роадмапа (статистика админки за
+    пределами сделанного, новости, форма обращений, «Радар рынка»,
+    FAQ-онбординг + копирайт лендинга под STALZONE) — также не реализованы,
+    в очереди.
+  - ТЗ — `docs/tasks/subscription-tiers.md`.
+
 - [x] **Установлены Claude Code skills из obra/superpowers ← 2026-06-23** — точечно (файлами в `.claude/skills/`, без плагин-маркетплейса) добавлены 8 скиллов: `test-driven-development`, `systematic-debugging`, `using-git-worktrees`, `verification-before-completion`, `finishing-a-development-branch`, `receiving-code-review`, `dispatching-parallel-agents`, `writing-skills`. `tools:` агентов `backend-dev`/`frontend-dev` дополнен `Skill`. Сознательно не устанавливались `brainstorming`/`writing-plans`/`executing-plans`/`subagent-driven-development` (конкурирующий пайплайн, конфликтует с Блоком 3 CLAUDE.md о подтверждениях) и `requesting-code-review`/`using-superpowers` (избыточны — есть нативные `/code-review`, `/review`, `/security-review`).
 
 - [x] **Security-инцидент: утечка секретов в публичном GitHub-репозитории, устранена ← 2026-06-23** — при подготовке к установке security-guidance плагина Claude Code обнаружено, что в репозитории `github.com/Fers666/stalcraft-trading-assistant` в открытом виде были закоммичены реальные креды: `STALCRAFT_CLIENT_SECRET` и `STALCRAFT_CLIENT_ID` (хардкод в `deploy.sh` и в нескольких permission-записях `.claude/settings.json`), `TELEGRAM_BOT_TOKEN` (хардкод в `deploy.sh`), несколько тестовых паролей пользователей (в `.claude/settings.json`, использовались в debug-командах).

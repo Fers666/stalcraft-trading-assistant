@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react'
 import {
   Box, Typography, alpha, Chip, Button, Table, TableBody,
   TableCell, TableHead, TableRow, CircularProgress, Alert,
-  ToggleButtonGroup, ToggleButton,
+  ToggleButtonGroup, ToggleButton, Select, MenuItem, TextField,
+  Switch, FormControlLabel,
 } from '@mui/material'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import BlockIcon from '@mui/icons-material/Block'
 import PendingActionsIcon from '@mui/icons-material/PendingActions'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import SyncIcon from '@mui/icons-material/Sync'
+import TuneIcon from '@mui/icons-material/Tune'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import api from '../api/client'
@@ -16,6 +18,7 @@ import api from '../api/client'
 const G1 = '#B78A2A'
 const G2 = '#D9AF37'
 const G3 = '#F2C94C'
+const G4 = '#FFB800'
 const BG1 = '#11151A'
 const BG2 = '#1A1F26'
 const T0 = '#F5F5F5'
@@ -24,6 +27,29 @@ const T2 = '#7C7C7C'
 const SUCCESS = '#3ED598'
 const DANGER = '#FF5A5A'
 const BORDER = 'rgba(255,255,255,0.08)'
+
+const TIER_OPTIONS = ['base', 'advanced', 'advanced_plus', 'advanced_max'] as const
+type Tier = typeof TIER_OPTIONS[number]
+
+const TIER_LABELS: Record<Tier, string> = {
+  base: 'Базовая',
+  advanced: 'Продвинутая',
+  advanced_plus: 'Продвинутая+',
+  advanced_max: 'Макс',
+}
+
+const TIER_COLORS: Record<Tier, string> = {
+  base: T2,
+  advanced: G1,
+  advanced_plus: G2,
+  advanced_max: G4,
+}
+
+const EXTEND_OPTIONS: { delta: '1d' | '1w' | '1m', label: string }[] = [
+  { delta: '1d', label: '+1д' },
+  { delta: '1w', label: '+1нед' },
+  { delta: '1m', label: '+1мес' },
+]
 
 interface AdminUser {
   id: number
@@ -34,6 +60,17 @@ interface AdminUser {
   is_approved: boolean
   is_active: boolean
   created_at: string | null
+  tier: Tier
+  tier_expires_at: string | null
+  last_seen: string | null
+  is_online: boolean
+  watchlist_count: number
+}
+
+interface RegistrationSettings {
+  auto_approve_enabled: boolean
+  default_tier: Tier
+  default_tier_duration_days: number | null
 }
 
 type FilterType = 'all' | 'pending' | 'approved'
@@ -49,6 +86,18 @@ export default function AdminPage() {
   const [refreshLoading, setRefreshLoading] = useState(false)
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null)
 
+  // Tier change UI state — per-row pending selections
+  const [tierSelect, setTierSelect] = useState<Record<number, Tier>>({})
+  const [tierDate, setTierDate] = useState<Record<number, string>>({})
+  const [tierActionLoading, setTierActionLoading] = useState<number | null>(null)
+
+  // Registration settings card
+  const [regSettings, setRegSettings] = useState<RegistrationSettings | null>(null)
+  const [regLoading, setRegLoading] = useState(false)
+  const [regSaving, setRegSaving] = useState(false)
+  const [regMsg, setRegMsg] = useState<string | null>(null)
+  const [regDaysInput, setRegDaysInput] = useState('')
+
   useEffect(() => {
     if (user && !user.is_admin) {
       navigate('/app/monitoring', { replace: true })
@@ -58,6 +107,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (!user?.is_admin) return
     loadUsers()
+    loadRegistrationSettings()
   }, [user])
 
   const loadUsers = async () => {
@@ -70,6 +120,41 @@ export default function AdminPage() {
       setError('Не удалось загрузить список пользователей')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadRegistrationSettings = async () => {
+    setRegLoading(true)
+    try {
+      const { data } = await api.get('/admin/settings/registration')
+      setRegSettings(data)
+      setRegDaysInput(data.default_tier_duration_days != null ? String(data.default_tier_duration_days) : '')
+    } catch {
+      // тихо игнорируем — карточка просто не покажет значения
+    } finally {
+      setRegLoading(false)
+    }
+  }
+
+  const saveRegistrationSettings = async () => {
+    if (!regSettings) return
+    setRegSaving(true)
+    setRegMsg(null)
+    try {
+      const days = regDaysInput.trim() === '' ? null : parseInt(regDaysInput, 10)
+      const payload = {
+        auto_approve_enabled: regSettings.auto_approve_enabled,
+        default_tier: regSettings.default_tier,
+        default_tier_duration_days: Number.isNaN(days) ? null : days,
+      }
+      const { data } = await api.put('/admin/settings/registration', payload)
+      setRegSettings(data)
+      setRegDaysInput(data.default_tier_duration_days != null ? String(data.default_tier_duration_days) : '')
+      setRegMsg('Сохранено')
+    } catch {
+      setRegMsg('Ошибка сохранения')
+    } finally {
+      setRegSaving(false)
     }
   }
 
@@ -90,6 +175,58 @@ export default function AdminPage() {
       setUsers(prev => prev.map(u => u.id === id ? { ...u, is_approved: false } : u))
     } finally {
       setActionLoading(null)
+    }
+  }
+
+  // Смена тарифа — не трогает текущую дату окончания подписки.
+  const applyTierChange = async (id: number, currentExpiresAt: string | null) => {
+    const tier = tierSelect[id]
+    if (!tier) return
+    setTierActionLoading(id)
+    try {
+      await api.post(`/admin/users/${id}/tier`, { tier, expires_at: currentExpiresAt })
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, tier } : u))
+    } finally {
+      setTierActionLoading(null)
+    }
+  }
+
+  // Установка даты окончания — не трогает текущий тариф. Требует выбранную
+  // дату (кнопка в UI неактивна без неё) — отдельное действие "Бессрочно"
+  // ниже для явной очистки срока, чтобы пустое поле не сбрасывало дату случайно.
+  const applyExpiryDate = async (id: number, currentTier: Tier) => {
+    const dateStr = tierDate[id]
+    if (!dateStr) return
+    const expiresAt = new Date(`${dateStr}T00:00:00Z`).toISOString()
+    setTierActionLoading(id)
+    try {
+      await api.post(`/admin/users/${id}/tier`, { tier: currentTier, expires_at: expiresAt })
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, tier_expires_at: expiresAt } : u))
+    } finally {
+      setTierActionLoading(null)
+    }
+  }
+
+  // Явная очистка срока (сделать тариф бессрочным) — отдельное действие,
+  // не связано с полем даты.
+  const clearExpiryDate = async (id: number, currentTier: Tier) => {
+    setTierActionLoading(id)
+    try {
+      await api.post(`/admin/users/${id}/tier`, { tier: currentTier, expires_at: null })
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, tier_expires_at: null } : u))
+      setTierDate(prev => ({ ...prev, [id]: '' }))
+    } finally {
+      setTierActionLoading(null)
+    }
+  }
+
+  const extendTier = async (id: number, delta: '1d' | '1w' | '1m') => {
+    setTierActionLoading(id)
+    try {
+      const { data } = await api.post(`/admin/users/${id}/tier/extend`, { delta })
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, tier_expires_at: data.tier_expires_at } : u))
+    } finally {
+      setTierActionLoading(null)
     }
   }
 
@@ -118,6 +255,18 @@ export default function AdminPage() {
   const fmtDate = (iso: string | null) => {
     if (!iso) return '—'
     return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  }
+
+  const fmtRelative = (iso: string | null) => {
+    if (!iso) return 'никогда'
+    const diffMs = Date.now() - new Date(iso).getTime()
+    const min = Math.floor(diffMs / 60000)
+    if (min < 1) return 'сейчас'
+    if (min < 60) return `${min} мин назад`
+    const hrs = Math.floor(min / 60)
+    if (hrs < 24) return `${hrs} ч назад`
+    const days = Math.floor(hrs / 24)
+    return `${days} дн назад`
   }
 
   if (!user?.is_admin) return null
@@ -193,6 +342,97 @@ export default function AdminPage() {
         )}
       </Box>
 
+      {/* Registration settings card */}
+      <Box sx={{
+        mb: 3, p: 2.5,
+        background: BG2,
+        border: `1px solid ${BORDER}`,
+        borderRadius: '12px',
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <TuneIcon sx={{ color: G2, fontSize: 18 }} />
+          <Typography sx={{
+            fontFamily: '"Rajdhani", sans-serif', fontWeight: 700,
+            fontSize: '0.95rem', color: T0, letterSpacing: '0.05em',
+          }}>
+            НАСТРОЙКИ АВТО-ПОДТВЕРЖДЕНИЯ РЕГИСТРАЦИИ
+          </Typography>
+        </Box>
+
+        {regLoading || !regSettings ? (
+          <CircularProgress size={20} sx={{ color: G2 }} />
+        ) : (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'wrap' }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={regSettings.auto_approve_enabled}
+                  onChange={(e) => setRegSettings({ ...regSettings, auto_approve_enabled: e.target.checked })}
+                />
+              }
+              label={
+                <Typography sx={{ fontSize: '0.8rem', color: T1 }}>
+                  Авто-подтверждение
+                </Typography>
+              }
+            />
+
+            <Box>
+              <Typography sx={{ fontSize: '0.65rem', color: T2, letterSpacing: '0.06em', mb: 0.5 }}>
+                ТАРИФ ПО УМОЛЧАНИЮ
+              </Typography>
+              <Select
+                size="small"
+                value={regSettings.default_tier}
+                onChange={(e) => setRegSettings({ ...regSettings, default_tier: e.target.value as Tier })}
+                sx={{ minWidth: 150, fontSize: '0.8rem', height: 34 }}
+              >
+                {TIER_OPTIONS.map(t => (
+                  <MenuItem key={t} value={t} sx={{ fontSize: '0.8rem' }}>{TIER_LABELS[t]}</MenuItem>
+                ))}
+              </Select>
+            </Box>
+
+            <Box>
+              <Typography sx={{ fontSize: '0.65rem', color: T2, letterSpacing: '0.06em', mb: 0.5 }}>
+                ДНЕЙ (ПУСТО = БЕССРОЧНО)
+              </Typography>
+              <TextField
+                size="small"
+                type="number"
+                value={regDaysInput}
+                onChange={(e) => setRegDaysInput(e.target.value)}
+                placeholder="бессрочно"
+                sx={{ width: 130 }}
+                slotProps={{ input: { sx: { fontSize: '0.8rem', height: 34 } } }}
+              />
+            </Box>
+
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={regSaving}
+              onClick={saveRegistrationSettings}
+              sx={{
+                fontSize: '0.72rem', fontFamily: '"Rajdhani", sans-serif',
+                fontWeight: 600, letterSpacing: '0.06em',
+                color: G2, border: `1px solid ${alpha(G2, 0.4)}`,
+                borderRadius: '8px', px: 2, height: 34,
+                '&:hover': { background: alpha(G2, 0.08), border: `1px solid ${alpha(G2, 0.6)}` },
+              }}
+            >
+              {regSaving ? 'Сохранение...' : 'Сохранить'}
+            </Button>
+
+            {regMsg && (
+              <Typography sx={{ fontSize: '0.72rem', color: regMsg === 'Сохранено' ? SUCCESS : DANGER }}>
+                {regMsg}
+              </Typography>
+            )}
+          </Box>
+        )}
+      </Box>
+
       {/* Filter */}
       <Box sx={{ mb: 2 }}>
         <ToggleButtonGroup
@@ -246,7 +486,7 @@ export default function AdminPage() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                {['Пользователь', 'Email', 'Статус', 'Зарегистрирован', 'Действие'].map(h => (
+                {['Пользователь', 'Email', 'Статус', 'Зарегистрирован', 'Тариф', 'До', 'Был онлайн', 'Карточек', 'Действие'].map(h => (
                   <TableCell key={h} sx={{
                     color: T2, fontSize: '0.68rem', fontWeight: 600,
                     letterSpacing: '0.1em', textTransform: 'uppercase',
@@ -305,6 +545,130 @@ export default function AdminPage() {
                   {/* Date */}
                   <TableCell>
                     <Typography sx={{ color: T2, fontSize: '0.78rem' }}>{fmtDate(u.created_at)}</Typography>
+                  </TableCell>
+
+                  {/* Tier */}
+                  <TableCell>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6 }}>
+                      <Chip
+                        label={TIER_LABELS[u.tier] ?? u.tier}
+                        size="small"
+                        sx={{
+                          height: 18, fontSize: '0.62rem', fontWeight: 700,
+                          letterSpacing: '0.04em', alignSelf: 'flex-start',
+                          background: alpha(TIER_COLORS[u.tier] ?? T2, 0.15),
+                          color: TIER_COLORS[u.tier] ?? T1,
+                          border: `1px solid ${alpha(TIER_COLORS[u.tier] ?? T2, 0.35)}`,
+                        }}
+                      />
+                      <Box sx={{ display: 'flex', gap: 0.4, alignItems: 'center' }}>
+                        <Select
+                          size="small"
+                          value={tierSelect[u.id] ?? u.tier}
+                          onChange={(e) => setTierSelect(prev => ({ ...prev, [u.id]: e.target.value as Tier }))}
+                          sx={{ fontSize: '0.72rem', height: 26, minWidth: 110 }}
+                        >
+                          {TIER_OPTIONS.map(t => (
+                            <MenuItem key={t} value={t} sx={{ fontSize: '0.75rem' }}>{TIER_LABELS[t]}</MenuItem>
+                          ))}
+                        </Select>
+                        <Button
+                          size="small"
+                          disabled={tierActionLoading === u.id || (tierSelect[u.id] ?? u.tier) === u.tier}
+                          onClick={() => applyTierChange(u.id, u.tier_expires_at)}
+                          sx={{
+                            minWidth: 0, fontSize: '0.62rem', fontFamily: '"Rajdhani", sans-serif',
+                            fontWeight: 600, color: G3, border: `1px solid ${alpha(G2, 0.4)}`,
+                            borderRadius: '5px', px: 0.8, py: 0.1, height: 26,
+                            '&:hover': { background: alpha(G2, 0.1) },
+                          }}
+                        >
+                          {tierActionLoading === u.id ? '...' : 'Сменить'}
+                        </Button>
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 0.4 }}>
+                        {EXTEND_OPTIONS.map(({ delta, label }) => (
+                          <Button
+                            key={delta}
+                            size="small"
+                            disabled={tierActionLoading === u.id}
+                            onClick={() => extendTier(u.id, delta)}
+                            sx={{
+                              minWidth: 0, fontSize: '0.62rem', fontFamily: '"Rajdhani", sans-serif',
+                              fontWeight: 600, color: G2, border: `1px solid ${alpha(G2, 0.3)}`,
+                              borderRadius: '5px', px: 0.8, py: 0.1, height: 20,
+                              '&:hover': { background: alpha(G2, 0.08) },
+                            }}
+                          >
+                            {label}
+                          </Button>
+                        ))}
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 0.4, alignItems: 'center' }}>
+                        <input
+                          type="date"
+                          value={tierDate[u.id] ?? ''}
+                          onChange={(e) => setTierDate(prev => ({ ...prev, [u.id]: e.target.value }))}
+                          style={{
+                            background: BG1, border: `1px solid ${BORDER}`, borderRadius: 5,
+                            color: T1, fontSize: '0.68rem', padding: '2px 4px', height: 20,
+                            colorScheme: 'dark',
+                          }}
+                        />
+                        <Button
+                          size="small"
+                          disabled={tierActionLoading === u.id || !tierDate[u.id]}
+                          onClick={() => applyExpiryDate(u.id, u.tier)}
+                          sx={{
+                            minWidth: 0, fontSize: '0.62rem', fontFamily: '"Rajdhani", sans-serif',
+                            fontWeight: 600, color: G3, border: `1px solid ${alpha(G2, 0.4)}`,
+                            borderRadius: '5px', px: 0.8, py: 0.1, height: 20,
+                            '&:hover': { background: alpha(G2, 0.1) },
+                          }}
+                        >
+                          {tierActionLoading === u.id ? '...' : 'Установить дату'}
+                        </Button>
+                        <Button
+                          size="small"
+                          disabled={tierActionLoading === u.id || !u.tier_expires_at}
+                          onClick={() => clearExpiryDate(u.id, u.tier)}
+                          sx={{
+                            minWidth: 0, fontSize: '0.62rem', fontFamily: '"Rajdhani", sans-serif',
+                            fontWeight: 600, color: T2, border: `1px solid ${BORDER}`,
+                            borderRadius: '5px', px: 0.8, py: 0.1, height: 20,
+                            '&:hover': { background: alpha(T2, 0.08) },
+                          }}
+                        >
+                          Бессрочно
+                        </Button>
+                      </Box>
+                    </Box>
+                  </TableCell>
+
+                  {/* Tier expires at */}
+                  <TableCell>
+                    <Typography sx={{ color: T2, fontSize: '0.78rem' }}>
+                      {u.tier_expires_at ? fmtDate(u.tier_expires_at) : 'Бессрочно'}
+                    </Typography>
+                  </TableCell>
+
+                  {/* Last seen / online */}
+                  <TableCell>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+                      <Box sx={{
+                        width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                        background: u.is_online ? SUCCESS : T2,
+                        boxShadow: u.is_online ? `0 0 6px ${alpha(SUCCESS, 0.7)}` : 'none',
+                      }} />
+                      <Typography sx={{ fontSize: '0.75rem', color: u.is_online ? SUCCESS : T2 }}>
+                        {u.is_online ? 'Онлайн' : fmtRelative(u.last_seen)}
+                      </Typography>
+                    </Box>
+                  </TableCell>
+
+                  {/* Watchlist count */}
+                  <TableCell>
+                    <Typography sx={{ color: T1, fontSize: '0.8rem' }}>{u.watchlist_count}</Typography>
                   </TableCell>
 
                   {/* Action */}

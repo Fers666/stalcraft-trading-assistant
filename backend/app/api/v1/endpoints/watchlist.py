@@ -4,7 +4,7 @@ Watchlist API — управление списком отслеживаемых
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
@@ -12,6 +12,7 @@ from datetime import datetime
 from app.db.session import get_db
 from app.models.models import User, UserWatchlist, MasterItem
 from app.core.dependencies import get_current_user
+from app.core.tiers import get_tier_limits
 
 router = APIRouter(prefix="/watchlist", tags=["Watchlist"])
 
@@ -111,6 +112,17 @@ async def add_to_watchlist(
     )).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="Already in watchlist")
+
+    limits = get_tier_limits(current_user)
+    if limits.watchlist_limit is not None:
+        count = (await db.execute(
+            select(func.count()).select_from(UserWatchlist).where(
+                UserWatchlist.user_id == current_user.id,
+                UserWatchlist.is_active == True,
+            )
+        )).scalar_one()
+        if count >= limits.watchlist_limit:
+            raise HTTPException(status_code=403, detail=f"Лимит карточек watchlist для вашего тарифа: {limits.watchlist_limit}")
 
     entry = UserWatchlist(
         user_id=current_user.id,

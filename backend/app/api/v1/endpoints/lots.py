@@ -13,6 +13,7 @@ from sqlalchemy import select, or_
 from pydantic import BaseModel
 
 from app.core.dependencies import get_current_user
+from app.core.tiers import get_tier_limits
 from app.db.session import get_db
 from app.models.models import User, MasterItem
 from app.services.cache.api_cache import api_cache
@@ -155,10 +156,13 @@ def _parse_lot(
 async def get_category_lots(
     category: str = Query(..., description="Категория предметов, напр. weapon/assault_rifle"),
     region: str = Query(default="RU", description="Регион: RU, EU, NA, SEA"),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Возвращает все активные лоты по всем предметам категории (из кэша или API)."""
+    if not get_tier_limits(current_user).auction_access:
+        raise HTTPException(status_code=403, detail="Доступ к поиску лотов недоступен на вашем тарифе")
+
     region = region.upper()
     if region not in ("RU", "EU", "NA", "SEA"):
         raise HTTPException(status_code=400, detail="Invalid region. Use: RU, EU, NA, SEA")
@@ -203,9 +207,12 @@ async def get_item_lots(
     item_id: str,
     region: str = Query(default="RU", description="Регион: RU, EU, NA, SEA"),
     force_refresh: bool = Query(default=False, description="Обойти кэш и получить свежие данные из API"),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    if not get_tier_limits(current_user).auction_access:
+        raise HTTPException(status_code=403, detail="Доступ к поиску лотов недоступен на вашем тарифе")
+
     region = region.upper()
     if region not in ("RU", "EU", "NA", "SEA"):
         raise HTTPException(status_code=400, detail="Invalid region. Use: RU, EU, NA, SEA")

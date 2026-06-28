@@ -10,6 +10,7 @@ import statistics as _statistics
 from app.db.session import get_db
 from app.models.models import User, MarketStatistics, CollectedData, SalesHistory
 from app.core.dependencies import get_current_user
+from app.core.tiers import get_tier_limits, max_stats_hours
 from app.services.profitable_lots import signals_key
 from app.services.analytics.pricing import make_sell_options, classify_risk, GLITCH_RATIO
 
@@ -19,6 +20,14 @@ router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
 class MonitoringItemResponse(BaseModel):
     item_id: str
     region: str
+    avg_price_24h: float | None = None
+    min_price_24h: int | None = None
+    max_price_24h: int | None = None
+    sales_volume_24h: int | None = None
+    avg_price_48h: float | None = None
+    min_price_48h: int | None = None
+    max_price_48h: int | None = None
+    sales_volume_48h: int | None = None
     avg_price_7d: float | None
     median_price_7d: float | None
     min_price_7d: int | None
@@ -75,6 +84,30 @@ def _make_sell_options(median: float, volume_7d: int) -> list[dict]:
     return make_sell_options(int(median), volume_7d)
 
 
+def _mask_stats_windows(response: "MonitoringItemResponse", allowed_windows: tuple[str, ...]) -> "MonitoringItemResponse":
+    """Обнуляет поля окон статистики, не разрешённых тарифом пользователя.
+    Маскировка на уровне Pydantic-ответа — статистика глобальная и общая для
+    всех, фильтрация по тарифу не дублирует логику расчёта на уровне SQL."""
+    if "48h" not in allowed_windows:
+        response.avg_price_48h = None
+        response.min_price_48h = None
+        response.max_price_48h = None
+        response.sales_volume_48h = None
+    if "7d" not in allowed_windows:
+        response.avg_price_7d = None
+        response.median_price_7d = None
+        response.min_price_7d = None
+        response.max_price_7d = None
+        response.sales_volume_7d = None
+        response.price_volatility_7d = None
+        response.sell_options = None
+        response.risk_level = None
+    if "30d" not in allowed_windows:
+        response.sales_volume_30d = None
+        response.price_volatility_30d = None
+    return response
+
+
 @router.get("/item/{item_id}", response_model=MonitoringItemResponse)
 async def get_item_stats(
     item_id: str,
@@ -84,6 +117,8 @@ async def get_item_stats(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    limits = get_tier_limits(current_user)
+
     # Глобальная статистика хранится с user_id=None — одна запись на пару (item_id, region)
     stats = (await db.execute(
         select(MarketStatistics).where(
@@ -112,7 +147,7 @@ async def get_item_stats(
         )
         fresh_sell_options = _make_sell_options(float(current_min), 0) if current_min else None
 
-        return MonitoringItemResponse(
+        response = MonitoringItemResponse(
             item_id=item_id,
             region=region.upper(),
             avg_price_7d=None,
@@ -137,6 +172,7 @@ async def get_item_stats(
             risk_level=None,
             calculated_at=latest_snap.collect_time,
         )
+        return _mask_stats_windows(response, limits.stats_windows)
 
     # Без фильтров — возвращаем статистику со свежими sell_options из последнего снапшота.
     # sell_options в MarketStatistics пересчитываются раз в час — при быстром падении рынка
@@ -163,9 +199,17 @@ async def get_item_stats(
             if ref:
                 fresh_sell_options = _make_sell_options(ref, stats.sales_volume_7d or 0)
 
-        return MonitoringItemResponse(
+        response = MonitoringItemResponse(
             item_id=stats.item_id,
             region=stats.region,
+            avg_price_24h=float(stats.avg_price_24h) if stats.avg_price_24h else None,
+            min_price_24h=int(stats.min_price_24h) if stats.min_price_24h else None,
+            max_price_24h=int(stats.max_price_24h) if stats.max_price_24h else None,
+            sales_volume_24h=stats.sales_volume_24h,
+            avg_price_48h=float(stats.avg_price_48h) if stats.avg_price_48h else None,
+            min_price_48h=int(stats.min_price_48h) if stats.min_price_48h else None,
+            max_price_48h=int(stats.max_price_48h) if stats.max_price_48h else None,
+            sales_volume_48h=stats.sales_volume_48h,
             avg_price_7d=float(stats.avg_price_7d) if stats.avg_price_7d else None,
             median_price_7d=float(stats.median_price_7d) if stats.median_price_7d else None,
             min_price_7d=int(stats.min_price_7d) if stats.min_price_7d else None,
@@ -188,6 +232,7 @@ async def get_item_stats(
             risk_level=classify_risk(float(stats.price_volatility_7d) if stats.price_volatility_7d else None),
             calculated_at=stats.calculated_at,
         )
+        return _mask_stats_windows(response, limits.stats_windows)
 
     # С фильтрами — пробуем SalesHistory (на случай если когда-нибудь API начнёт
     # возвращать qlt/ptn в истории), затем фолбэк на raw_lots снэпшотов.
@@ -241,9 +286,17 @@ async def get_item_stats(
         if avg7 > 0:
             filtered_volatility_7d = round(_statistics.stdev(prices_7d) / avg7 * 100, 2)
 
-    return MonitoringItemResponse(
+    response = MonitoringItemResponse(
         item_id=stats.item_id,
         region=stats.region,
+        avg_price_24h=float(stats.avg_price_24h) if stats.avg_price_24h else None,
+        min_price_24h=int(stats.min_price_24h) if stats.min_price_24h else None,
+        max_price_24h=int(stats.max_price_24h) if stats.max_price_24h else None,
+        sales_volume_24h=stats.sales_volume_24h,
+        avg_price_48h=float(stats.avg_price_48h) if stats.avg_price_48h else None,
+        min_price_48h=int(stats.min_price_48h) if stats.min_price_48h else None,
+        max_price_48h=int(stats.max_price_48h) if stats.max_price_48h else None,
+        sales_volume_48h=stats.sales_volume_48h,
         avg_price_7d=float(stats.avg_price_7d) if stats.avg_price_7d else None,
         median_price_7d=filtered_median,
         min_price_7d=int(stats.min_price_7d) if stats.min_price_7d else None,
@@ -266,6 +319,7 @@ async def get_item_stats(
         risk_level=classify_risk(filtered_volatility_7d),
         calculated_at=stats.calculated_at,
     )
+    return _mask_stats_windows(response, limits.stats_windows)
 
 
 class PricePoint(BaseModel):
@@ -283,10 +337,14 @@ async def get_price_history(
     region: str = Query(default="RU"),
     hours: int = Query(default=48, ge=1, le=720),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """История цен из снэпшотов за последние N часов (по умолчанию 48ч)."""
     from datetime import timezone, timedelta
+
+    if hours > max_stats_hours(get_tier_limits(current_user)):
+        return []
+
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
     rows = (await db.execute(
@@ -342,10 +400,13 @@ async def get_sales_chart(
     quality_filter: int | None = Query(default=None),
     enchant_filter: int | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """История продаж только из SalesHistory (реальные сделки).
     qlt/ptn попадает в additional_info при матчинге продажи с лотом из снэпшота."""
+    if hours > max_stats_hours(get_tier_limits(current_user)):
+        return SalesChartResponse(mode="scatter", sales=[], days=[], total_count=0)
+
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     extra_conds = _build_sales_filter(quality_filter, enchant_filter)
 

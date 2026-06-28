@@ -19,9 +19,27 @@ ORM: SQLAlchemy 2.0 async. Миграции: Alembic.
 | `telegram_chat_id` | bigint | ID чата Telegram (заполняется при /link) |
 | `is_active` | bool | Аккаунт активен; false = заблокирован |
 | `is_admin` | bool | Права администратора (refresh-catalog и др.) |
-| `is_approved` | bool | Доступ к порталу разрешён администратором. Новые регистрации = `false`, проверяется при логине; админ выдаёт через `POST /admin/users/{id}/approve` |
+| `is_approved` | bool | Доступ к порталу разрешён администратором. Новые регистрации = `false` (если не включено авто-подтверждение, см. `registration_settings`), проверяется при логине **и** теперь при каждом запросе в `get_current_user` (миграция 0026 — закрыт баг: раньше проверялся только при логине); админ выдаёт через `POST /admin/users/{id}/approve` |
+| `tier` | varchar(20) | Тариф пользователя: `base` / `advanced` / `advanced_plus` / `advanced_max`. Источник истины по лимитам — `backend/app/core/tiers.py`. У `is_admin=True` хранится `advanced_max` (косметика для отображения в админке — `is_admin` обходит лимиты тарифа независимо от значения этого поля) |
+| `tier_expires_at` | timestamptz, nullable | Дата окончания платного тарифа. `NULL` = бессрочно (всегда для `base`, опционально для платных тарифов). После истечения — автоматическое понижение до `base` (см. ниже) |
+| `last_seen` | timestamptz, nullable | Время последнего авторизованного запроса. Обновляется в `get_current_user` не чаще раза в 60 сек (Redis-throttle). «Онлайн» в админке = `last_seen >= now() - 5 минут` |
+| `has_market_radar_addon` | bool | Задел под будущую фазу «Радар рынка» (кросс-юзерная агрегация watchlist). Поле есть, логики и эндпоинтов пока нет |
 | `created_at` | timestamptz | Дата регистрации |
 | `updated_at` | timestamptz | Дата последнего изменения |
+
+**Тарифная матрица** (полная таблица лимитов — `backend/app/core/tiers.py`):
+
+| Тариф | Карточек watchlist | Telegram-уведомления | Окна статистики | Аукцион |
+|---|---|---|---|---|
+| `base` (дефолт после approve) | 6 | нет | 24ч | нет |
+| `advanced` | 10 | да | 24ч+48ч | нет |
+| `advanced_plus` | 20 | да | 24ч+48ч+7д | да |
+| `advanced_max` | 25 | да | 24ч+48ч+7д+30д | да |
+| `is_admin=True` | без лимита | да | все окна | да |
+
+`telegram_notifications` в этой таблице — только про проактивные уведомления о выгодных лотах (гейтится в `telegram_bot/bot.py::notify_profitable_lots`). Привязка самого Telegram-аккаунта (`/telegram/link-code`, вебхук `/link`) НЕ гейтится тарифом — одинаково доступна всем (канал восстановления, используется и для пароля в будущем — см. `docs/NOTES.md`, фаза отложена).
+
+**Авто-понижение тарифа:** при истечении `tier_expires_at` — лениво при следующем запросе пользователя (`apply_tier_expiry` в `tiers.py`) и ежесуточным Celery sweep `sweep_expired_tiers` (`backend/app/tasks/tiers.py`, beat `crontab(hour=3, minute=30)`). При понижении лишние карточки `user_watchlist` сверх нового лимита автоматически деактивируются (`is_active=False`, оставляя активными самые старые по `created_at`) — данные не удаляются.
 
 ---
 
@@ -180,6 +198,10 @@ UNIQUE по `(user_id, item_id, region)` — одна запись на пред
 | `min_price_24h` | bigint | Минимальная цена за 24ч |
 | `max_price_24h` | bigint | Максимальная цена за 24ч |
 | `sales_volume_24h` | integer | Количество продаж за 24ч |
+| `avg_price_48h` | numeric(12,2) | Средняя цена продажи за последние 48ч (миграция 0027, под тарифы `advanced`+) |
+| `min_price_48h` | bigint | Минимальная цена за 48ч |
+| `max_price_48h` | bigint | Максимальная цена за 48ч |
+| `sales_volume_48h` | integer | Количество продаж за 48ч |
 | `avg_price_7d` | numeric(12,2) | Средняя цена за 7 дней |
 | `median_price_7d` | numeric(12,2) | Медианная цена за 7 дней |
 | `min_price_7d` | bigint | Минимум за 7 дней |
@@ -353,6 +375,20 @@ watchlist по `(item_id, region)`, логируются текущие проф
 
 ---
 
+### `registration_settings` — настройки авто-подтверждения регистрации
+
+Синглтон (всегда одна строка, `id=1`). Управляется через `GET/PUT /admin/settings/registration`.
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `id` | integer PK | Всегда `1` |
+| `auto_approve_enabled` | bool | `false` (дефолт) — регистрация ждёт ручного approve, как раньше. `true` — `register()` сразу выставляет `is_approved=True` + тариф/срок по полям ниже |
+| `default_tier` | varchar(20) | Тариф, выдаваемый авто-подтверждённым пользователям (по умолчанию `base`) |
+| `default_tier_duration_days` | integer, nullable | Срок действия выданного тарифа в днях. `NULL` = бессрочно |
+| `updated_at` | timestamptz | Дата последнего изменения настроек |
+
+---
+
 ### Изменения в существующих таблицах (миграции 0005–0006)
 
 **`collected_data.user_id`** — становится nullable:
@@ -398,6 +434,9 @@ watchlist по `(item_id, region)`, логируются текущие проф
 | `0023_market_demand_signals.py` | Поле `demand_signals` (jsonb) в `market_statistics` — bulk_spike сигнал |
 | `0024_signal_outcomes.py` | Новая таблица `signal_outcomes` — лог предсказаний для будущей калибровки |
 | `0025_dedup_sales_history.py` | Чистка дублей в `sales_history` (69 924 → 54 256 строк) + уникальный индекс `uq_sales_history_sale (item_id, region, sale_time, total_price, amount)` |
+| `0026_user_tiers.py` | Поля `users.tier`, `tier_expires_at`, `last_seen`, `has_market_radar_addon`. Существующим `is_admin=True` выставляет `tier='advanced_max'` (косметика) |
+| `0027_market_stats_48h.py` | Поля `avg_price_48h`, `min_price_48h`, `max_price_48h`, `sales_volume_48h` в `market_statistics` |
+| `0028_registration_settings.py` | Новая таблица-синглтон `registration_settings`, сразу вставляет строку `id=1` с дефолтами |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 

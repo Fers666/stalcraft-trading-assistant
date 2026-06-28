@@ -11,6 +11,7 @@ import LotStatCard from '../components/LotStatCard'
 import SalesHistoryCharts from '../components/SalesHistoryCharts'
 import api from '../api/client'
 import { useFeedStore, type FeedWatchlistEntry } from '../store/feedStore'
+import { useAuthStore } from '../store/authStore'
 import { qualityColor } from '../utils/i18n'
 import { tokens } from '../theme'
 
@@ -27,6 +28,8 @@ export default function MonitoringPage() {
     watchlist, initialized, loadWatchlistAndStats, removeEntry,
     minProfitMarginPercent, profitableItemIds,
   } = useFeedStore()
+  const watchlistLimit = useAuthStore(s => s.user?.watchlist_limit ?? null)
+  const isAtWatchlistLimit = watchlistLimit !== null && watchlist.length >= watchlistLimit
 
   const [selectedId, setSelectedId]   = useState<number | null>(null)
   const [deleteEntry, setDeleteEntry] = useState<FeedWatchlistEntry | null>(null)
@@ -192,8 +195,12 @@ export default function MonitoringPage() {
         top: '156px',
       }}>
         <Box sx={{ p: 1.5, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em', mb: 1 }}>
-            ИЗБРАННОЕ · {watchlist.length}
+          <Typography sx={{
+            fontSize: '0.6rem',
+            color: isAtWatchlistLimit ? tokens.danger : (watchlistLimit !== null ? tokens.gold : 'text.disabled'),
+            fontWeight: 600, letterSpacing: '0.1em', mb: 1,
+          }}>
+            ИЗБРАННОЕ · {watchlist.length}{watchlistLimit !== null ? `/${watchlistLimit}` : ''}
           </Typography>
           <TextField
             size="small"

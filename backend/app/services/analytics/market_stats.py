@@ -65,6 +65,7 @@ async def calculate_market_stats(
     """
     now = datetime.now(timezone.utc)
     cutoff_24h = now - timedelta(hours=24)
+    cutoff_48h = now - timedelta(hours=48)
     cutoff_7d  = now - timedelta(days=7)
     cutoff_30d = now - timedelta(days=30)
 
@@ -81,6 +82,7 @@ async def calculate_market_stats(
         return None
 
     prices_24h = [s.price_per_unit for s in sales_30d if s.sale_time >= cutoff_24h]
+    prices_48h = [s.price_per_unit for s in sales_30d if s.sale_time >= cutoff_48h]
     prices_7d  = [s.price_per_unit for s in sales_30d if s.sale_time >= cutoff_7d]
 
     # ── 2. Ценовая статистика ─────────────────────────────────────────────────
@@ -96,6 +98,7 @@ async def calculate_market_stats(
         }
 
     s24 = safe_stats(prices_24h)
+    s48 = safe_stats(prices_48h)
     s7d = safe_stats(prices_7d)
 
     volatility_7d = None
@@ -286,6 +289,10 @@ async def calculate_market_stats(
     existing.min_price_24h       = s24.get("min")
     existing.max_price_24h       = s24.get("max")
     existing.sales_volume_24h    = s24.get("count", 0)
+    existing.avg_price_48h       = s48.get("avg")
+    existing.min_price_48h       = s48.get("min")
+    existing.max_price_48h       = s48.get("max")
+    existing.sales_volume_48h    = s48.get("count", 0)
     existing.avg_price_7d        = s7d.get("avg")
     existing.median_price_7d     = s7d.get("median")
     existing.min_price_7d        = s7d.get("min")

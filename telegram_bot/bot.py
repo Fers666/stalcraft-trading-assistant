@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 sys.path.insert(0, "/app")
 from app.models.models import User, UserWatchlist, UserSettings
 from app.services.profitable_lots import signals_key, NOTIF_DEDUP_TTL
+from app.core.tiers import get_tier_limits
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -165,7 +166,8 @@ async def notify_profitable_lots(app: Application) -> None:
 
         users_to_notify = [
             (user, us) for user, us in rows
-            if us is None or us.notify_telegram
+            if (us is None or us.notify_telegram)
+            and (user.is_admin or get_tier_limits(user).telegram_notifications)
         ]
         if not users_to_notify:
             return

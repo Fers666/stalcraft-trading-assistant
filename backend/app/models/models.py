@@ -23,6 +23,10 @@ class User(Base):
     is_active         = Column(Boolean, default=True)
     is_admin          = Column(Boolean, default=False)
     is_approved       = Column(Boolean, default=False)
+    tier                   = Column(String(20), nullable=False, server_default="base")
+    tier_expires_at        = Column(DateTime(timezone=True), nullable=True)
+    last_seen              = Column(DateTime(timezone=True), nullable=True)
+    has_market_radar_addon = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at        = Column(DateTime(timezone=True), server_default=func.now())
     updated_at        = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -43,6 +47,17 @@ class UserSettings(Base):
     updated_at                = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User", back_populates="settings")
+
+
+class RegistrationSettings(Base):
+    """Синглтон (id=1) — настройки авто-подтверждения регистрации новых пользователей."""
+    __tablename__ = "registration_settings"
+
+    id                         = Column(Integer, primary_key=True)
+    auto_approve_enabled       = Column(Boolean, default=False, server_default="false")
+    default_tier               = Column(String(20), default="base", server_default="base")
+    default_tier_duration_days = Column(Integer, nullable=True)
+    updated_at                 = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 # ─── Каталог товаров (из GitHub) ─────────────────────────────────────────────
@@ -174,6 +189,10 @@ class MarketStatistics(Base):
     min_price_24h       = Column(BigInteger)
     max_price_24h       = Column(BigInteger)
     sales_volume_24h    = Column(Integer)
+    avg_price_48h       = Column(Numeric(12, 2))
+    min_price_48h       = Column(BigInteger)
+    max_price_48h       = Column(BigInteger)
+    sales_volume_48h    = Column(Integer)
     avg_price_7d        = Column(Numeric(12, 2))
     median_price_7d     = Column(Numeric(12, 2))
     min_price_7d        = Column(BigInteger)
