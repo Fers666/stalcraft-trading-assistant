@@ -9,6 +9,38 @@
 
 ## Закрытые задачи
 
+- [x] **Повысить покрытие qlt/ptn в sales_history — баг парсинга, не ограничение
+  API ← 2026-06-29** — диагностировано живым запросом к Stalcraft API через
+  рабочий backend-контейнер (`stalcraft_client.get_auction_history(...)`,
+  read-only): каждая запись `/history` уже содержит `additional.qlt`/`ptn`
+  напрямую (запрос уже шёл с `additional=true`), но
+  `_collect_history_for_item()` (`backend/app/tasks/collectors.py`) никогда не
+  читал `record.get("additional")` — поле молча отбрасывалось при парсинге.
+  Старый комментарий в коде (`find_lot_info` docstring), утверждавший, что API
+  не возвращает это поле, был неверным предположением — первая версия ТЗ
+  изначально пошла по этому ложному следу (планировала новую таблицу
+  `lot_identity`/расширение окна снэпшотов), пока диагностика не опровергла
+  его прямой проверкой. Полная история — `docs/tasks/sales-history-qlt-ptn-coverage.md`.
+  - Фикс: `_collect_history_for_item()` теперь читает `record.get("additional")`
+    и использует его как первичный, authoritative источник `qlt`/`ptn` для
+    каждой записи (новой и существующей-но-неполной), независимо от возраста
+    продажи и видимости в снэпшотах. Снэпшот-матчинг (`find_lot_info`) сохранён,
+    но теперь нужен только для `lot_start` (время выставления лота, для
+    `time_on_market`) — API-данные приоритетнее при пересечении по qlt/ptn.
+    Комментарий в `find_lot_info` docstring исправлен.
+  - Новый файл `backend/app/scripts/backfill_sales_qlt.py` — разовый CLI
+    backfill для уже существующих записей `sales_history` без qlt (на момент
+    написания — 63 175 из 71 811 строк, 31 пара item_id/region). Запуск
+    вручную: `docker compose exec backend python -m
+    app.scripts.backfill_sales_qlt --days 30` (флаг `--days`, default=30).
+    Печатает смету стоимости (число API-запросов/токенов rate limit) и просит
+    подтверждения перед основным проходом; использует общий
+    `stalcraft_client`/Redis token bucket rate limiter, без отдельного
+    троттлинга. **Backfill пока не запускался.**
+  - Не затронуто: новых таблиц/миграций нет, `SNAPSHOT_MATCH_WINDOW_HOURS`
+    (200 снэпшотов, ~1.7ч) не менялся, Celery beat-расписание не менялось,
+    frontend не затронут (формат `additional_info`/API contract не меняется).
+
 - [x] **Инцидент: CPU-спайки на проде раз в час ← 2026-06-29** — диагностировано
   вживую через `docker stats` + worker-логи (2026-06-28): раз в час оба vCPU
   прода прыгали до ~70%. Причина — Celery-задача `collect_all_history`
@@ -384,7 +416,7 @@
 
 - [x] **JWT refresh token flow** — access_token протухал через 60 минут и пользователя выбрасывало на логин. Добавлен endpoint `POST /auth/refresh` (принимает refresh_token, возвращает новую пару). Фронт сохраняет `refresh_token` в localStorage при логине; axios interceptor при 401 сначала пробует обновить токен (с очередью параллельных запросов), и только при неудаче редиректит на `/login`. Access token = 60 мин, refresh token = 30 дней.
 
-- [x] **Статистика артефактов по quality+enchant (реальные продажи)** — Stalcraft API `/history` не возвращает `qlt`/`ptn` ни с каким параметром. Единственный источник quality/enchant для проданных лотов — матчинг `SalesHistory` с `CollectedData.raw_lots` через `lot.startTime == additional_info['lot_start']`. Функция `find_lot_info` расширена: при матче из лота извлекаются `qlt` и `ptn` и сохраняются в `additional_info` вместе с `lot_start`. Ретроактивный SQL-патч (UPDATE 143 записей) через JOIN по `startTime`. Окно матчинга расширено с 10 до 200 снэпшотов (~1.7 ч). Snapshot-fallback (цены выставленных лотов) убран из `/monitoring/item` и `/monitoring/sales-chart` — все расчёты и предложения строятся исключительно на реальных продажах; при недостатке данных показывается честный "Нет данных". Добавлена кнопка "Пересобрать историю" в AdminPage → `POST /admin/tasks/force-refresh-history`.
+- [x] **Статистика артефактов по quality+enchant (реальные продажи)** — Stalcraft API `/history` не возвращает `qlt`/`ptn` ни с каким параметром *(это утверждение позже опровергнуто и исправлено — см. запись «Повысить покрытие qlt/ptn в sales_history ← 2026-06-29» выше: API возвращает qlt/ptn в поле `additional`, код их просто не читал)*. Единственный источник quality/enchant для проданных лотов — матчинг `SalesHistory` с `CollectedData.raw_lots` через `lot.startTime == additional_info['lot_start']`. Функция `find_lot_info` расширена: при матче из лота извлекаются `qlt` и `ptn` и сохраняются в `additional_info` вместе с `lot_start`. Ретроактивный SQL-патч (UPDATE 143 записей) через JOIN по `startTime`. Окно матчинга расширено с 10 до 200 снэпшотов (~1.7 ч). Snapshot-fallback (цены выставленных лотов) убран из `/monitoring/item` и `/monitoring/sales-chart` — все расчёты и предложения строятся исключительно на реальных продажах; при недостатке данных показывается честный "Нет данных". Добавлена кнопка "Пересобрать историю" в AdminPage → `POST /admin/tasks/force-refresh-history`.
 
 - [x] **Баг: ложные "выгодные лоты" при падении рынка** — `sell_options` хранились в `market_statistics` (JSONB) и пересчитывались раз в час. При резком падении рынка (пример: m02wr) `normal_price` оставался старым (высоким), лоты по новой (низкой) цене показывались как выгодные, хотя продать дороже уже невозможно. Исправление: `GET /monitoring/item/{id}` теперь при каждом запросе берёт последний снапшот (`CollectedData`) и пересчитывает `sell_options` "на лету" через `_make_sell_options(current_min_liquid, sales_volume_7d)`. Задержка реакции сокращена с ~1 часа до ~5 минут (интервал коллектора снапшотов). Сохранённые в БД `sell_options` остаются как fallback если снапшота нет.
 

@@ -4,11 +4,22 @@
 
 ## Задачи в очереди
 
-- [ ] **Повысить покрытие qlt/ptn в sales_history** — текущее покрытие 2–6%.
-  Матчинг работает только пока лот виден в снэпшотах (200 снэпшотов ≈ 1.7 ч).
-  Для редких артефактов (продажи раз в неделю) матч почти невозможен. Возможный
-  путь: хранить снэпшоты дольше (сейчас без явного TTL, но DB растёт) или
-  отдельная таблица `lot_identity (startTime PK, item_id, qlt, ptn)`.
+- [x] **Повысить покрытие qlt/ptn в sales_history** — реальная причина оказалась
+  не ограничением API, а багом парсинга ← 2026-06-29. Stalcraft API `/history`
+  уже возвращает `additional.qlt`/`ptn` напрямую в каждой записи продажи
+  (подтверждено живым запросом к API), но `_collect_history_for_item()`
+  (`backend/app/tasks/collectors.py`) никогда не читал `record.get("additional")`
+  — поле молча отбрасывалось, хотя запрос уже шёл с `additional=true`. Старый
+  комментарий в коде, утверждавший обратное, был неверным предположением, не
+  фактом. Фикс: `record.get("additional")` теперь первичный, authoritative
+  источник qlt/ptn; снэпшот-матчинг (`find_lot_info`) сохранён только для
+  `lot_start` (время выставления лота, для `time_on_market`). Подробности и
+  диагностика — `docs/tasks/sales-history-qlt-ptn-coverage.md`.
+  Дополнительно: разовый CLI backfill-скрипт
+  `backend/app/scripts/backfill_sales_qlt.py` (`docker compose exec backend
+  python -m app.scripts.backfill_sales_qlt --days 30`) для существующих
+  записей без qlt — печатает смету по rate limit перед запуском, **пока не
+  запускался**.
 - [x] **Инцидент: CPU-спайки на проде раз в час** — устранён 2026-06-29
   (`HISTORY_CONCURRENCY=6`, параллельная обработка `collect_all_history`),
   внеплановый фикс, не из бэклога. Подробности — `docs/CHANGELOG.md`,

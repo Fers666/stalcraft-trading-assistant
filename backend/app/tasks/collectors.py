@@ -519,8 +519,11 @@ async def _collect_history_for_item(db, entry):
     """
     Собирает историю продаж из API /history и сохраняет в sales_history.
 
-    Дополнительно: для каждой новой продажи пытается найти соответствующий лот
-    в снэпшотах collected_data и восстановить lot_start — время выставления лота.
+    qlt/ptn (качество/заточка) приходят напрямую из ответа /history (поле
+    "additional", см. ниже api_additional) — это первичный источник, не
+    реконструкция. Снэпшот-матчинг описанный ниже нужен дополнительно только
+    для lot_start: для каждой новой продажи пытается найти соответствующий лот
+    в снэпшотах collected_data и восстановить время выставления лота.
     Это даёт точное время нахождения на рынке: time_on_market = sale_time - lot_start.
 
     Алгоритм матчинга лота с продажей:
@@ -611,8 +614,14 @@ async def _collect_history_for_item(db, entry):
         """
         Ищет лот в снэпшотах по (buyoutPrice, amount, endTime).
         Возвращает dict с lot_start, qlt, ptn — всё что удалось извлечь.
-        Это единственный способ узнать качество/заточку проданного артефакта,
-        так как Stalcraft API /history не возвращает additional с qlt/ptn.
+
+        Stalcraft API /history САМ возвращает qlt/ptn напрямую в каждой записи
+        (поле "additional", запрашивается с additional=true) — это первичный,
+        authoritative источник, см. начало цикла for record in prices. Матчинг
+        по снэпшотам здесь нужен только для lot_start (время выставления лота,
+        используется для time_on_market = sale_time - lot_start) — этого поля
+        в /history нет, и единственный способ его узнать — найти тот же лот в
+        снэпшоте /lots, сделанном до продажи.
         """
         snapshots = await get_snapshots()
 
@@ -673,29 +682,39 @@ async def _collect_history_for_item(db, entry):
         amount         = record.get("amount", 1)
         price_per_unit = total_price // amount if amount > 0 else total_price
 
+        # Источник qlt/ptn №1 (authoritative): сам Stalcraft API уже отдаёт их
+        # прямо в записи /history (поле "additional", запрашивается с
+        # additional=true). Для предметов без качества (оружие/броня) поле
+        # пустое — это корректный случай, не ошибка.
+        api_additional = record.get("additional") or {}
+
         existing = find_existing(sold_at, total_price, amount)
         if existing is not None:
             existing_id, _, existing_additional = existing
-            # Если у существующей записи ещё нет qlt — пробуем найти лот и добавить,
-            # но только пока продажа ещё может быть в окне снэпшотов.
             # existing_id=None → запись добавлена в этом же проходе и уже обогащена выше.
             needs_qlt = existing_additional is None or "qlt" not in (existing_additional or {})
-            if existing_id is not None and needs_qlt and sold_at >= snapshot_cutoff:
-                lot_info = await find_lot_info(total_price, amount, sold_at)
-                if lot_info.get("qlt") is not None:
-                    merged = dict(existing_additional or {})
-                    merged.update(lot_info)
+            if existing_id is not None and needs_qlt:
+                # api_additional не зависит от снэпшотов и доступен для записей
+                # любого возраста (в пределах того, что вообще вернул /history) —
+                # в отличие от find_lot_info, не ограничен snapshot_cutoff.
+                merged = dict(existing_additional or {})
+                if sold_at >= snapshot_cutoff:
+                    merged.update(await find_lot_info(total_price, amount, sold_at))
+                merged.update(api_additional)  # API приоритетнее при пересечении по qlt/ptn
+                if merged != (existing_additional or {}):
                     await db.execute(
                         update(SalesHistory)
                         .where(SalesHistory.id == existing_id)
-                        .values(additional_info=merged)
+                        .values(additional_info=merged or None)
                     )
             continue
 
-        # Новая запись: пробуем сматчить лот из снэпшотов → получаем lot_start + qlt + ptn
+        # Новая запись: lot_start берём из снэпшотов (если продажа ещё в окне),
+        # qlt/ptn — приоритетно из самого API (надёжнее любой реконструкции).
         lot_info = {}
         if sold_at >= snapshot_cutoff:
             lot_info = await find_lot_info(total_price, amount, sold_at)
+        lot_info = {**lot_info, **api_additional}
 
         stmt = pg_insert(SalesHistory).values(
             user_id=entry.user_id,
