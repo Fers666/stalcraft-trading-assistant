@@ -9,6 +9,48 @@
 
 ## Закрытые задачи
 
+- [x] **Ручной override лимита избранного (watchlist) вне тарифа ← 2026-06-28** —
+  следующая фаза роадмапа подписок (роадмап остаётся открытым пунктом, см.
+  `docs/NOTES.md`; новости, форма обращений, "Радар рынка", FAQ/STALZONE —
+  не реализованы).
+  - Поле `User.favorites_limit_override` (`Integer`, nullable, default `None`,
+    миграция `0029_favorites_limit_override.py`, down_revision `0028`). `NULL`
+    = нет override, лимит = тариф; не-`NULL` значение **заменяет** лимит
+    тарифа целиком (не складывается с ним).
+  - `backend/app/core/tiers.py`: новая функция `effective_watchlist_limit(user)
+    -> int | None` (`is_admin` → без лимита; иначе override если задан, иначе
+    лимит тарифа). `get_tier_limits()` теперь строит `watchlist_limit` через
+    эту функцию (`dataclasses.replace`) — единая точка истины, все читатели
+    лимита (`POST /watchlist/`, `UserResponse.watchlist_limit`) учитывают
+    override автоматически. `apply_tier_expiry()` и `set_user_tier`
+    (`admin.py`) используют `effective_watchlist_limit(user)` вместо жёсткого
+    лимита тарифа при деактивации лишних карточек — override переживает смену
+    или истечение тарифа.
+  - Новый эндпоинт `POST /admin/users/{user_id}/favorites-limit-override`
+    (`{"override": int | None}`, `Field(None, ge=0, le=100_000)` — верхняя
+    граница добавлена после security-ревью, чтобы исключить необработанный
+    `DataError` Postgres при значениях за пределами диапазона `Integer`) —
+    устанавливает/снимает
+    override; если новый эффективный лимит меньше текущего количества активных
+    карточек пользователя — деактивирует лишние (`deactivate_excess_watchlist`),
+    как при понижении тарифа. `UserAdminResponse` дополнен полями
+    `favorites_limit_override` (сырое значение) и `effective_watchlist_limit`
+    (готовое число для отображения). `UserResponse` (`GET /auth/me`) дополнен
+    `favorites_limit_override`.
+  - Frontend: `authStore.ts` — поле `favorites_limit_override` в `User`.
+    `MonitoringPage.tsx` — золотой `Chip` «Расширенный лимит» с тултипом рядом
+    с «ИЗБРАННОЕ · N/лимит», если у пользователя есть override. `AdminPage.tsx`
+    — колонка «Карточек» показывает `watchlist_count / effective_watchlist_limit`
+    (`∞` без лимита) + `TextField` с кнопкой «Применить» для установки/снятия
+    override конкретному пользователю (пустое поле = снять override).
+  - Архитектурное решение: override — числовая правка значения внутри
+    существующей тарифной матрицы (`TierLimits.watchlist_limit`), а не отдельная
+    фича вне тарифов, поэтому не использует булевый паттерн
+    `has_market_radar_addon` буквально — структура («отдельное поле на `User`,
+    отдельный admin-эндпоинт, без биллинга») та же. Подробности и альтернативы
+    (сложение vs замена лимита) — `docs/tasks/favorites-limit-override.md`.
+  - ТЗ — `docs/tasks/favorites-limit-override.md`.
+
 - [x] **Fix: `_publish_signals` падал с `'NoneType' object is not iterable` ← 2026-06-28** —
   регрессия от **Fix 8** (`docs/tasks/security-and-bugfix.md`, 2026-06-17, см. запись
   ниже): тот фикс корректно научил `profitable_lots.py` возвращать `sell_options=None`,

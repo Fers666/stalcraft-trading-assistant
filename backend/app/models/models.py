@@ -27,6 +27,7 @@ class User(Base):
     tier_expires_at        = Column(DateTime(timezone=True), nullable=True)
     last_seen              = Column(DateTime(timezone=True), nullable=True)
     has_market_radar_addon = Column(Boolean, nullable=False, default=False, server_default="false")
+    favorites_limit_override = Column(Integer, nullable=True, default=None)
     created_at        = Column(DateTime(timezone=True), server_default=func.now())
     updated_at        = Column(DateTime(timezone=True), onupdate=func.now())
 

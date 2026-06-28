@@ -12,6 +12,7 @@ interface User {
   tier: string
   tier_expires_at: string | null
   watchlist_limit: number | null
+  favorites_limit_override: number | null
   telegram_notifications: boolean
   stats_windows: string[]
   auction_access: boolean

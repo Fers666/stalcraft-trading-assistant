@@ -68,6 +68,8 @@ interface AdminUser {
   last_seen: string | null
   is_online: boolean
   watchlist_count: number
+  favorites_limit_override: number | null
+  effective_watchlist_limit: number | null
 }
 
 interface RegistrationSettings {
@@ -105,6 +107,10 @@ export default function AdminPage() {
   const [tierSelect, setTierSelect] = useState<Record<number, Tier>>({})
   const [tierDate, setTierDate] = useState<Record<number, string>>({})
   const [tierActionLoading, setTierActionLoading] = useState<number | null>(null)
+
+  // Favorites (watchlist) limit override — per-row pending input
+  const [favOverrideInput, setFavOverrideInput] = useState<Record<number, string>>({})
+  const [favOverrideLoading, setFavOverrideLoading] = useState<number | null>(null)
 
   // Registration settings card
   const [regSettings, setRegSettings] = useState<RegistrationSettings | null>(null)
@@ -259,6 +265,29 @@ export default function AdminPage() {
       setUsers(prev => prev.map(u => u.id === id ? { ...u, tier_expires_at: data.tier_expires_at } : u))
     } finally {
       setTierActionLoading(null)
+    }
+  }
+
+  // Пустая строка → снять override (null); иначе целое число >= 0.
+  // Невалидный ввод (не число / отрицательное) — кнопка просто неактивна (см. disabled ниже).
+  const parseFavOverride = (raw: string): { valid: true, value: number | null } | { valid: false } => {
+    if (raw.trim() === '') return { valid: true, value: null }
+    const n = parseInt(raw, 10)
+    if (Number.isNaN(n) || n < 0) return { valid: false }
+    return { valid: true, value: n }
+  }
+
+  const applyFavoritesOverride = async (id: number) => {
+    const parsed = parseFavOverride(favOverrideInput[id] ?? '')
+    if (!parsed.valid) return
+    setFavOverrideLoading(id)
+    try {
+      await api.post(`/admin/users/${id}/favorites-limit-override`, { override: parsed.value })
+      // effective_watchlist_limit (а при override=null — лимит тарифа) считается на
+      // backend (tiers.py) — перезагружаем список, чтобы не дублировать эту логику.
+      await loadUsers()
+    } finally {
+      setFavOverrideLoading(null)
     }
   }
 
@@ -830,9 +859,37 @@ export default function AdminPage() {
                     </Box>
                   </TableCell>
 
-                  {/* Watchlist count */}
+                  {/* Watchlist count + favorites limit override */}
                   <TableCell>
-                    <Typography sx={{ color: T1, fontSize: '0.8rem' }}>{u.watchlist_count}</Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6 }}>
+                      <Typography sx={{ color: T1, fontSize: '0.8rem' }}>
+                        {u.watchlist_count} / {u.effective_watchlist_limit ?? '∞'}
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 0.4, alignItems: 'center' }}>
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={favOverrideInput[u.id] ?? (u.favorites_limit_override != null ? String(u.favorites_limit_override) : '')}
+                          onChange={(e) => setFavOverrideInput(prev => ({ ...prev, [u.id]: e.target.value }))}
+                          placeholder="лимит тарифа"
+                          sx={{ width: 100 }}
+                          slotProps={{ input: { sx: { fontSize: '0.72rem', height: 26 } } }}
+                        />
+                        <Button
+                          size="small"
+                          disabled={favOverrideLoading === u.id || !parseFavOverride(favOverrideInput[u.id] ?? '').valid}
+                          onClick={() => applyFavoritesOverride(u.id)}
+                          sx={{
+                            minWidth: 0, fontSize: '0.62rem', fontFamily: '"Rajdhani", sans-serif',
+                            fontWeight: 600, color: G3, border: `1px solid ${alpha(G2, 0.4)}`,
+                            borderRadius: '5px', px: 0.8, py: 0.1, height: 26,
+                            '&:hover': { background: alpha(G2, 0.1) },
+                          }}
+                        >
+                          {favOverrideLoading === u.id ? '...' : 'Применить'}
+                        </Button>
+                      </Box>
+                    </Box>
                   </TableCell>
 
                   {/* Action */}

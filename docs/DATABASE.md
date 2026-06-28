@@ -24,6 +24,7 @@ ORM: SQLAlchemy 2.0 async. Миграции: Alembic.
 | `tier_expires_at` | timestamptz, nullable | Дата окончания платного тарифа. `NULL` = бессрочно (всегда для `base`, опционально для платных тарифов). После истечения — автоматическое понижение до `base` (см. ниже) |
 | `last_seen` | timestamptz, nullable | Время последнего авторизованного запроса. Обновляется в `get_current_user` не чаще раза в 60 сек (Redis-throttle). «Онлайн» в админке = `last_seen >= now() - 5 минут` |
 | `has_market_radar_addon` | bool | Задел под будущую фазу «Радар рынка» (кросс-юзерная агрегация watchlist). Поле есть, логики и эндпоинтов пока нет |
+| `favorites_limit_override` | integer, nullable | Ручной override лимита карточек watchlist вне тарифа. `NULL` (default) = лимит = тариф (через `TIERS[user.tier].watchlist_limit`); не-`NULL` значение **заменяет** лимит тарифа целиком (не складывается). Вычисляется в `effective_watchlist_limit(user)` (`backend/app/core/tiers.py`), используется `get_tier_limits()` и при деактивации лишних карточек на смене/истечении тарифа. Выдаётся/снимается вручную через `POST /admin/users/{id}/favorites-limit-override` (`{"override": int \| null}`). См. `docs/BUSINESS_LOGIC.md` §17 |
 | `created_at` | timestamptz | Дата регистрации |
 | `updated_at` | timestamptz | Дата последнего изменения |
 
@@ -437,6 +438,7 @@ watchlist по `(item_id, region)`, логируются текущие проф
 | `0026_user_tiers.py` | Поля `users.tier`, `tier_expires_at`, `last_seen`, `has_market_radar_addon`. Существующим `is_admin=True` выставляет `tier='advanced_max'` (косметика) |
 | `0027_market_stats_48h.py` | Поля `avg_price_48h`, `min_price_48h`, `max_price_48h`, `sales_volume_48h` в `market_statistics` |
 | `0028_registration_settings.py` | Новая таблица-синглтон `registration_settings`, сразу вставляет строку `id=1` с дефолтами |
+| `0029_favorites_limit_override.py` | Поле `users.favorites_limit_override` (integer, nullable) — ручной override лимита watchlist вне тарифа |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 

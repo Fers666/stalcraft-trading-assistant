@@ -5,7 +5,7 @@
 get_tier_limits(), а не читать user.tier напрямую — это гарантирует
 применение ленивого понижения при истёкшем tier_expires_at.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
 from sqlalchemy import select, update
@@ -37,11 +37,27 @@ ADMIN_LIMITS = TierLimits(
 )
 
 
+def effective_watchlist_limit(user: User) -> int | None:
+    """
+    Лимит watchlist пользователя с учётом ручного override (вне тарифа).
+    is_admin — без лимита; иначе override, если задан, иначе лимит тарифа.
+    None = без лимита.
+    """
+    if user.is_admin:
+        return ADMIN_LIMITS.watchlist_limit
+    if user.favorites_limit_override is not None:
+        return user.favorites_limit_override
+    return TIERS.get(user.tier, TIERS[DEFAULT_TIER]).watchlist_limit
+
+
 def get_tier_limits(user: User) -> TierLimits:
     """is_admin обходит все лимиты целиком, независимо от user.tier."""
     if user.is_admin:
         return ADMIN_LIMITS
-    return TIERS.get(user.tier, TIERS[DEFAULT_TIER])
+    base = TIERS.get(user.tier, TIERS[DEFAULT_TIER])
+    if user.favorites_limit_override is not None:
+        return replace(base, watchlist_limit=user.favorites_limit_override)
+    return base
 
 
 WINDOW_MAX_HOURS: dict[str, int] = {"24h": 24, "48h": 48, "7d": 168, "30d": 720}
@@ -83,7 +99,9 @@ async def apply_tier_expiry(user: User, db: AsyncSession) -> None:
             and user.tier_expires_at < datetime.now(timezone.utc)):
         user.tier = "base"
         user.tier_expires_at = None
-        await deactivate_excess_watchlist(user.id, TIERS["base"].watchlist_limit, db)
+        new_limit = effective_watchlist_limit(user)
+        if new_limit is not None:
+            await deactivate_excess_watchlist(user.id, new_limit, db)
         await db.commit()
 
 

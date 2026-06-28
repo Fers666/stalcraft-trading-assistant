@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, List, ListItemButton, ListItemText, ListItemAvatar,
   Avatar, Chip, CircularProgress, Divider, Button, TextField, InputAdornment, IconButton,
-  Dialog, DialogTitle, DialogContent, DialogActions,
+  Dialog, DialogTitle, DialogContent, DialogActions, Tooltip,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
@@ -29,6 +29,7 @@ export default function MonitoringPage() {
     minProfitMarginPercent, profitableItemIds,
   } = useFeedStore()
   const watchlistLimit = useAuthStore(s => s.user?.watchlist_limit ?? null)
+  const hasFavoritesOverride = useAuthStore(s => s.user?.favorites_limit_override != null)
   const isAtWatchlistLimit = watchlistLimit !== null && watchlist.length >= watchlistLimit
 
   const [selectedId, setSelectedId]   = useState<number | null>(null)
@@ -195,13 +196,30 @@ export default function MonitoringPage() {
         top: '156px',
       }}>
         <Box sx={{ p: 1.5, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <Typography sx={{
-            fontSize: '0.6rem',
-            color: isAtWatchlistLimit ? tokens.danger : (watchlistLimit !== null ? tokens.gold : 'text.disabled'),
-            fontWeight: 600, letterSpacing: '0.1em', mb: 1,
-          }}>
-            ИЗБРАННОЕ · {watchlist.length}{watchlistLimit !== null ? `/${watchlistLimit}` : ''}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, mb: 1 }}>
+            <Typography sx={{
+              fontSize: '0.6rem',
+              color: isAtWatchlistLimit ? tokens.danger : (watchlistLimit !== null ? tokens.gold : 'text.disabled'),
+              fontWeight: 600, letterSpacing: '0.1em',
+            }}>
+              ИЗБРАННОЕ · {watchlist.length}{watchlistLimit !== null ? `/${watchlistLimit}` : ''}
+            </Typography>
+            {hasFavoritesOverride && (
+              <Tooltip title="Администратор установил для вас индивидуальный лимит избранного">
+                <Chip
+                  label="Расширенный лимит"
+                  size="small"
+                  sx={{
+                    height: 16, fontSize: '0.55rem', fontWeight: 700,
+                    letterSpacing: '0.03em', color: tokens.gold,
+                    background: 'rgba(217,175,55,0.12)',
+                    border: `1px solid ${tokens.gold}`,
+                    '& .MuiChip-label': { px: 0.6 },
+                  }}
+                />
+              </Tooltip>
+            )}
+          </Box>
           <TextField
             size="small"
             fullWidth

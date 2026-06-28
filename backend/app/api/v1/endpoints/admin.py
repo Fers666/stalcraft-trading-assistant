@@ -2,13 +2,13 @@ from datetime import datetime, timezone, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_admin
 from app.core.rate_limiter import rate_limiter
-from app.core.tiers import TIERS, get_tier_limits, deactivate_excess_watchlist
+from app.core.tiers import TIERS, get_tier_limits, deactivate_excess_watchlist, effective_watchlist_limit
 from app.db.session import get_db
 from app.models.models import User, UserWatchlist, RegistrationSettings
 
@@ -29,6 +29,8 @@ class UserAdminResponse(BaseModel):
     last_seen: datetime | None
     is_online: bool
     watchlist_count: int
+    favorites_limit_override: int | None
+    effective_watchlist_limit: int | None
 
     class Config:
         from_attributes = True
@@ -70,6 +72,8 @@ async def list_users(
             last_seen=user.last_seen,
             is_online=bool(user.last_seen and user.last_seen >= online_threshold),
             watchlist_count=count,
+            favorites_limit_override=user.favorites_limit_override,
+            effective_watchlist_limit=effective_watchlist_limit(user),
         )
         for user, count in rows
     ]
@@ -200,11 +204,11 @@ async def set_user_tier(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    new_limit = TIERS[payload.tier].watchlist_limit
+    user.tier = payload.tier
+    new_limit = effective_watchlist_limit(user)
     if new_limit is not None:
         await deactivate_excess_watchlist(user_id, new_limit, db)
 
-    user.tier = payload.tier
     user.tier_expires_at = payload.expires_at
     await db.commit()
     return {"ok": True}
@@ -232,6 +236,34 @@ async def extend_user_tier(
     user.tier_expires_at = base_time + delta_map[payload.delta]
     await db.commit()
     return {"ok": True, "tier_expires_at": user.tier_expires_at}
+
+
+# ─── Override лимита избранного (вне тарифа) ──────────────────────────────────
+
+class FavoritesLimitOverrideRequest(BaseModel):
+    override: int | None = Field(None, ge=0, le=100_000)
+
+
+@router.post("/users/{user_id}/favorites-limit-override")
+async def set_favorites_limit_override(
+    user_id: int,
+    payload: FavoritesLimitOverrideRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    """Ручной override лимита избранного — заменяет лимит тарифа целиком, не зависит от tier."""
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.favorites_limit_override = payload.override
+
+    new_limit = effective_watchlist_limit(user)
+    if new_limit is not None:
+        await deactivate_excess_watchlist(user_id, new_limit, db)
+
+    await db.commit()
+    return {"ok": True}
 
 
 # ─── Настройки регистрации ────────────────────────────────────────────────────

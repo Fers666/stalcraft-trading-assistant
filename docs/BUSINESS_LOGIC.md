@@ -593,3 +593,23 @@ trend-guard на случай резкого падения рынка) позв
 - При понижении лишние карточки `user_watchlist` сверх нового лимита **автоматически деактивируются** (`is_active=False`), оставляя активными самые старые по `created_at` — это сознательное решение (не блокировка доступа целиком, но и не «бесплатно сохранить повышенный лимит навсегда»).
 
 **Авто-подтверждение регистрации** (`registration_settings`, синглтон): если включено админом — `register()` сразу выдаёт `is_approved=True` и тариф/срок по настройкам, минуя ручной approve. Выключено по умолчанию (поведение не меняется без явного действия админа).
+
+### Override лимита избранного (вне тарифа)
+
+Ручной индивидуальный override лимита карточек watchlist для конкретного пользователя — независимо от его `tier`. Поле `User.favorites_limit_override` (`int | None`, `NULL` = нет override, лимит = тариф).
+
+**Формула** (`effective_watchlist_limit(user)`, `backend/app/core/tiers.py`):
+```
+if user.is_admin:
+    effective_limit = None  # без лимита, обходит override целиком
+elif user.favorites_limit_override is not None:
+    effective_limit = user.favorites_limit_override
+else:
+    effective_limit = TIERS[user.tier].watchlist_limit
+```
+
+**Override заменяет лимит тарифа целиком, а не складывается с ним.** Пример: пользователь на тарифе `advanced` (лимит 10), админ выставляет `favorites_limit_override = 50` → эффективный лимит 50 (не 10+50=60). Если позже сменить тариф на `advanced_max` (лимит 25) — эффективный лимит останется 50, override переживает смену тарифа. Снять override — выставить `NULL` (эффективный лимит возвращается к лимиту текущего тарифа).
+
+`get_tier_limits(user)` использует `effective_watchlist_limit(user)` для поля `watchlist_limit` — единая точка истины, все читатели лимита (`POST /watchlist/`, `UserResponse.watchlist_limit`) автоматически учитывают override без отдельных правок. Понижение/снятие override ниже текущего количества активных карточек деактивирует лишние (как при понижении тарифа, см. `deactivate_excess_watchlist` ниже) — не блокирует сам запрос.
+
+Admin-эндпоинт: `POST /admin/users/{user_id}/favorites-limit-override` (`{"override": int | None}`, `Field(None, ge=0, le=100_000)`) — устанавливает или снимает (`null`) override. `UserAdminResponse` отдаёт `favorites_limit_override` (сырое значение) и `effective_watchlist_limit` (готовое к отображению число с учётом тарифа/override/admin). `UserResponse` (`GET /auth/me`) отдаёт `favorites_limit_override` — фронтенд показывает плашку «Расширенный лимит», если оно не `NULL`.

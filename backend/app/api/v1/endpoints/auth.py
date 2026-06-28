@@ -50,6 +50,7 @@ class UserResponse(BaseModel):
     telegram_notifications: bool
     stats_windows: tuple[str, ...]
     auction_access: bool
+    favorites_limit_override: int | None
 
     class Config:
         from_attributes = True
@@ -70,6 +71,7 @@ class UserResponse(BaseModel):
             telegram_notifications=limits.telegram_notifications,
             stats_windows=limits.stats_windows,
             auction_access=limits.auction_access,
+            favorites_limit_override=user.favorites_limit_override,
         )
 
 
