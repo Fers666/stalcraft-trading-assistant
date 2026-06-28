@@ -418,7 +418,7 @@ Token Bucket алгоритм для соблюдения лимита Stalcraft
 
 Гейтится `Depends(get_current_admin)`. Отдаёт агрегатные метрики для блока статистики в `AdminPage.tsx` одним round-trip:
 
-- `users_by_tier: dict[str, int]` — `GROUP BY User.tier`
+- `users_by_tier: dict[str, int]` — `GROUP BY User.tier`, с явным zero-fill: словарь инициализируется `{tier: 0 for tier in TIERS}` и затем дополняется реальными счётчиками — гарантирует все 4 тарифа в ответе (с `0`, если по тарифу пока нет пользователей), а не только встретившиеся в `GROUP BY`. Фикс 2026-06-28 (карточка «Тарифы» в `AdminPage.tsx` изначально показывала только тарифы, у которых есть хотя бы один пользователь).
 - `users_online_now: int` — `User.last_seen >= now() - ONLINE_THRESHOLD_MINUTES` (тот же порог, что в `GET /admin/users`)
 - `users_active_today: int` — количество пользователей с `last_seen` после начала **текущих суток по московскому времени** (`timezone(timedelta(hours=3))`, тот же паттерн, что в `market_stats.py`) — календарный день МСК, не скользящие 24ч.
 - `users_active_week: int` — количество пользователей с `last_seen` за последние 7×24 часа (скользящее окно от `datetime.now(timezone.utc)`, без привязки к календарной неделе — для скользящего окна MSK-сдвиг не имеет значения).
