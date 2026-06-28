@@ -7,7 +7,7 @@
 | Задача | Расписание | Модуль | Описание |
 |--------|-----------|--------|----------|
 | `collect_all_active_lots` | каждые 20 сек | `app.tasks.collectors` | Динамический batch: ceil(due/3), min=5, max=50. Цель: полный цикл ≤60 сек при любом объёме watchlist |
-| `collect_all_history` | раз в час (мин. 0) | `app.tasks.collectors` | История для watchlist предметов |
+| `collect_all_history` | раз в час (мин. 0) | `app.tasks.collectors` | История для watchlist предметов. Обрабатывает уникальные пары параллельно (`HISTORY_CONCURRENCY=6` чанков, см. ниже) — фикс CPU-спайков на проде 2026-06-29 |
 | `calculate_all_market_stats` | раз в час (мин. 5) | `app.tasks.analyzers` | Пересчёт market_statistics (включая 24ч/48ч/7д/30д окна) |
 | `delete_old_data` | ежедневно 03:00 | `app.tasks.cleanup` | Данные старше 120 дней |
 | `sweep_expired_tiers` | ежедневно 03:30 | `app.tasks.tiers` | Понижение до `base` пользователей с истёкшим `tier_expires_at` + деактивация лишних карточек watchlist сверх нового лимита |
@@ -207,6 +207,24 @@ OAuth2 Client Credentials flow для Stalcraft API.
 3. Рассчитывает цены только по ликвидным лотам (`best_liquid_price_per_unit`)
 4. Сохраняет снэпшот в `collected_data` с `user_id=None` (глобальный)
 5. Вызывает `_publish_signals` — записывает предвычисленные выгодные лоты в Redis
+
+### `collect_all_history` — параллельная обработка (фикс CPU-спайков 2026-06-29)
+
+Раньше обрабатывала все уникальные пары `(item_id, region)` watchlist строго
+последовательно (один `await` за раз) — прогон занимал 50+ секунд и
+пересекался по времени с `collect_all_active_lots` (каждые 20с) на втором
+forked worker-процессе, нагружая оба vCPU прода одновременно раз в час.
+
+Теперь `unique_entries` делится round-robin на `HISTORY_CONCURRENCY = 6`
+чанков (`unique_entries[i::HISTORY_CONCURRENCY]`), чанки обрабатываются
+параллельно через `asyncio.gather`, каждый — в своей корутине со своей
+`get_celery_db_session()` на весь чанк (одна `AsyncSession` нельзя
+использовать параллельно из нескольких корутин). Внутри чанка items
+обрабатываются последовательно с тем же per-item `try/except` +
+`logger.error`. Количество запросов к Stalcraft API не изменилось
+(`rate_limiter.py` централизован, не зависит от конкурентности вызовов) —
+изменилось только время выполнения (секунды вместо 50+).
+`force_refresh_all_history` и `_collect_history_for_item` не затронуты.
 
 ### `_publish_signals(db, item_id, region, snap)`
 
