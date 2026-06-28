@@ -145,7 +145,8 @@ async def get_admin_stats(
     tier_counts = (await db.execute(
         select(User.tier, func.count()).group_by(User.tier)
     )).all()
-    users_by_tier = {tier: count for tier, count in tier_counts}
+    users_by_tier = {tier: 0 for tier in TIERS}
+    users_by_tier.update({tier: count for tier, count in tier_counts})
 
     online_threshold = datetime.now(timezone.utc) - timedelta(minutes=ONLINE_THRESHOLD_MINUTES)
     users_online_now = (await db.execute(
