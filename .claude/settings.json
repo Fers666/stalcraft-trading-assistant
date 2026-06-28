@@ -371,7 +371,15 @@
       "Bash(python -m py_compile app/scripts/backfill_sales_qlt.py app/tasks/collectors.py)",
       "Read(//d/SC_AUC/**)",
       "Bash(powershell -Command \"\\(Get-Item 'backend/app/graphify-out/manifest.json'\\).LastWriteTime\")",
-      "Bash(xargs -I{} stat -c '%Y {}' {})"
+      "Bash(xargs -I{} stat -c '%Y {}' {})",
+      "Bash(python -m py_compile app/services/analytics/market_radar.py app/api/v1/endpoints/market_radar.py)",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Bash(where.exe npm *)",
+      "Bash(where.exe node *)",
+      "Bash(cmd.exe /c \"npm --version\")",
+      "Bash(cmd.exe /c \"node --version\")",
+      "Bash(cmd.exe /c npm --version)",
+      "Bash(cmd /c \"dir /b C:\\\\\\\\\")"
     ],
     "additionalDirectories": [
       "\\tmp",
