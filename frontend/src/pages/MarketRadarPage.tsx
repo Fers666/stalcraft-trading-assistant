@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  Box, Typography, Card, Chip, CircularProgress, Avatar, Tooltip, alpha,
+  Box, Typography, Card, Chip, CircularProgress, Avatar, Tooltip, alpha, TablePagination,
 } from '@mui/material'
 import api from '../api/client'
 import { formatPrice, iconUrl, qualityColor } from '../utils/i18n'
@@ -32,17 +32,23 @@ interface MarketRadarResponse {
   total_active_watchers: number
   unique_items_tracked: number
   calculated_at: string
+  total_count: number
+  page: number
+  page_size: number
 }
 
 export default function MarketRadarPage() {
-  const [data, setData]       = useState<MarketRadarResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [denied, setDenied]   = useState(false)
-  const [error, setError]     = useState(false)
+  const [data, setData]           = useState<MarketRadarResponse | null>(null)
+  const [loading, setLoading]     = useState(true)
+  const [listLoading, setListLoading] = useState(false)
+  const [denied, setDenied]       = useState(false)
+  const [error, setError]         = useState(false)
+  const [page, setPage]           = useState(0)
 
   useEffect(() => {
     let cancelled = false
-    api.get('/market-radar/')
+    setListLoading(true)
+    api.get('/market-radar/', { params: { page: page + 1, page_size: 20 } })
       .then(({ data }) => { if (!cancelled) setData(data) })
       .catch((err: unknown) => {
         if (cancelled) return
@@ -50,9 +56,9 @@ export default function MarketRadarPage() {
         if (status === 403) setDenied(true)
         else setError(true)
       })
-      .finally(() => { if (!cancelled) setLoading(false) })
+      .finally(() => { if (!cancelled) { setLoading(false); setListLoading(false) } })
     return () => { cancelled = true }
-  }, [])
+  }, [page])
 
   if (loading) {
     return (
@@ -118,6 +124,15 @@ export default function MarketRadarPage() {
           </Typography>
         </Box>
       ) : (
+        <Box sx={{ position: 'relative' }}>
+          {listLoading && (
+            <Box sx={{
+              position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center',
+              alignItems: 'center', bgcolor: alpha('#080808', 0.5), zIndex: 1, borderRadius: 1,
+            }}>
+              <CircularProgress size={32} />
+            </Box>
+          )}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {data.top_items.map((item, idx) => (
             <Card key={`${item.item_id}-${item.quality_filter ?? 'any'}-${item.enchant_filter ?? 'any'}`} sx={{ overflow: 'hidden' }}>
@@ -247,6 +262,19 @@ export default function MarketRadarPage() {
             </Card>
           ))}
         </Box>
+        </Box>
+      )}
+
+      {data.total_count > 0 && (
+        <TablePagination
+          component="div"
+          count={data.total_count}
+          page={page}
+          onPageChange={(_, p) => setPage(p)}
+          rowsPerPage={20}
+          labelRowsPerPage="Строк:"
+          labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`}
+        />
       )}
     </Box>
   )

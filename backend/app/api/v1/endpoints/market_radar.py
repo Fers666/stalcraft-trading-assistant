@@ -3,7 +3,7 @@
 User.has_market_radar_addon или is_admin (см. get_market_radar_access).
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
@@ -36,12 +36,17 @@ class MarketRadarResponse(BaseModel):
     total_active_watchers: int
     unique_items_tracked: int
     calculated_at: str
+    total_count: int
+    page: int
+    page_size: int
 
 
 @router.get("/", response_model=MarketRadarResponse)
 async def get_market_radar(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_market_radar_access),
 ):
-    aggregate = await get_market_radar_aggregate(db)
+    aggregate = await get_market_radar_aggregate(db, page=page, page_size=page_size)
     return MarketRadarResponse(**aggregate)

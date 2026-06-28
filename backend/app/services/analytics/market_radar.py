@@ -34,6 +34,16 @@ watcher'ы отслеживают его с разными фильтрами.
 
 Phase 1 не вводит порог анонимности — топ-20 показывает все строки
 независимо от числа watcher'ов (подтверждено пользователем).
+
+Ревизия 3 (пагинация + сортировка по выгодным лотам, см.
+docs/tasks/market-radar-sort-pagination.md): список бакетов больше не
+обрезается топ-20 по watchers_count на уровне SQL — считается
+profitable_offers_count для ВСЕХ активных бакетов (с safety-cap
+MAX_BUCKETS на исходном запросе, страховка от аномального роста watchlist,
+сейчас 18 бакетов), затем весь список сортируется по profitable_offers_count
+убыв. (None трактуется как 0). Кэшируется в Redis весь отсортированный
+список (TTL не изменился), пагинация (page/page_size, по 20) — срез уже
+закэшированного списка, без SQL LIMIT/OFFSET.
 """
 
 import json
@@ -57,7 +67,9 @@ logger = logging.getLogger(__name__)
 CACHE_KEY = "market_radar:aggregate"
 CACHE_TTL = 60  # секунд
 
-TOP_LIMIT = 20
+PAGE_SIZE = 20
+
+MAX_BUCKETS = 500  # safety-cap количества бакетов в исходном SQL-запросе
 
 SALES_WINDOW_DAYS = 7
 
@@ -140,33 +152,50 @@ async def _count_profitable_offers(
     return count
 
 
-async def get_market_radar_aggregate(db: AsyncSession) -> dict:
+async def get_market_radar_aggregate(db: AsyncSession, page: int = 1, page_size: int = PAGE_SIZE) -> dict:
     """
-    Возвращает агрегат «Радара рынка»: топ-20 строк (item_id, quality_filter,
-    enchant_filter) по числу watcher'ов + прирост за 24ч + контекст
-    цены/объёма. Кэшируется в Redis на CACHE_TTL секунд.
+    Возвращает агрегат «Радара рынка»: все бакеты (item_id, quality_filter,
+    enchant_filter), отсортированные по profitable_offers_count убыв.
+    (None как 0) + прирост за 24ч + контекст цены/объёма. Полный отсортированный
+    список кэшируется в Redis на CACHE_TTL секунд, пагинация — срез уже
+    закэшированного списка (page/page_size), без повторного пересчёта.
     """
     r = await _redis()
     try:
         cached = await r.get(CACHE_KEY)
         if cached is not None:
-            return json.loads(cached)
+            full = json.loads(cached)
+        else:
+            full = None
     except Exception as e:
         logger.warning(f"market_radar cache read error: {e}")
+        full = None
     finally:
         await r.aclose()
 
-    result = await _calculate_market_radar_aggregate(db)
+    if full is None:
+        full = await _calculate_market_radar_aggregate(db)
 
-    r = await _redis()
-    try:
-        await r.setex(CACHE_KEY, CACHE_TTL, json.dumps(result))
-    except Exception as e:
-        logger.warning(f"market_radar cache write error: {e}")
-    finally:
-        await r.aclose()
+        r = await _redis()
+        try:
+            await r.setex(CACHE_KEY, CACHE_TTL, json.dumps(full))
+        except Exception as e:
+            logger.warning(f"market_radar cache write error: {e}")
+        finally:
+            await r.aclose()
 
-    return result
+    total_count = len(full["top_items"])
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_items = full["top_items"][start:end]
+
+    return {
+        **full,
+        "top_items": page_items,
+        "total_count": total_count,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
@@ -174,8 +203,10 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
     cutoff_24h = now - timedelta(hours=24)
     cutoff_7d = now - timedelta(days=SALES_WINDOW_DAYS)
 
-    # ── 1. Топ строк (item_id, quality_filter, enchant_filter) по числу
-    #       уникальных активных watcher'ов ──────────────────────────────────
+    # ── 1. Все бакеты (item_id, quality_filter, enchant_filter) активного
+    #       watchlist, с safety-cap MAX_BUCKETS (страховка от аномального
+    #       роста — финальная сортировка по profitable_offers_count ниже,
+    #       не по watchers_count) ─────────────────────────────────────────
     rows = (await db.execute(
         select(
             UserWatchlist.item_id,
@@ -188,8 +219,7 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
         )
         .where(UserWatchlist.is_active == True)
         .group_by(UserWatchlist.item_id, UserWatchlist.quality_filter, UserWatchlist.enchant_filter)
-        .order_by(func.count(func.distinct(UserWatchlist.user_id)).desc())
-        .limit(TOP_LIMIT)
+        .limit(MAX_BUCKETS)
     )).all()
 
     item_ids = [row.item_id for row in rows]
@@ -263,6 +293,13 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
             "price_window": price_window,
             "profitable_offers_count": profitable_offers_count,
         })
+
+    # ── 3b. Финальная сортировка по profitable_offers_count убыв.
+    #        (None трактуется как 0, см. docs/tasks/market-radar-sort-pagination.md) ──
+    top_items.sort(
+        key=lambda x: (x["profitable_offers_count"] or 0),
+        reverse=True,
+    )
 
     # ── 4. Сводная метрика ──────────────────────────────────────────────────
     total_active_entries = (await db.execute(
