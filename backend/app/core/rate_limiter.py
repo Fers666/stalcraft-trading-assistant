@@ -43,13 +43,17 @@ class TokenCost(IntEnum):
 
 # Lua-скрипт: атомарно проверяет и списывает токены
 # KEYS[1] = bucket key
+# KEYS[2] = minute counter key (consumption stats, см. get_consumption_stats())
 # ARGV[1] = tokens_needed
 # ARGV[2] = capacity
 # ARGV[3] = current_time (unix seconds, float)
 # ARGV[4] = refill_rate (tokens per second = 400/60)
 # Возвращает: 1 если успешно, -N если нужно ждать N секунд
+# При успехе дополнительно атомарно инкрементирует минутный счётчик потреблённых
+# токенов (для админ-статистики) — без отдельного round-trip к Redis.
 _LUA_ACQUIRE = """
 local key         = KEYS[1]
+local minute_key  = KEYS[2]
 local needed      = tonumber(ARGV[1])
 local capacity    = tonumber(ARGV[2])
 local now         = tonumber(ARGV[3])
@@ -69,6 +73,8 @@ if tokens >= needed then
     tokens = tokens - needed
     redis.call('HMSET', key, 'tokens', tokens, 'last_refill', now)
     redis.call('EXPIRE', key, 120)
+    redis.call('INCRBY', minute_key, needed)
+    redis.call('EXPIRE', minute_key, 120)
     return 1
 else
     local wait = (needed - tokens) / rate
@@ -87,6 +93,7 @@ class TokenBucketRateLimiter:
     CAPACITY    = 400          # запросов в корзине (проверено экспериментально)
     REFILL_RATE = 400 / 60.0  # запросов в секунду
     BUCKET_KEY  = "stalcraft:rate_limit"
+    REQUESTS_MINUTE_KEY_PREFIX = "stalcraft:requests:minute:"  # + unix_minute, EXPIRE 120
 
     def __init__(self):
         self._fallback_lock         = asyncio.Lock()
@@ -100,11 +107,13 @@ class TokenBucketRateLimiter:
         """
         waited = 0.0
         while True:
+            now = time.time()
+            minute_key = f"{self.REQUESTS_MINUTE_KEY_PREFIX}{int(now // 60)}"
             r = aioredis.from_url(settings.redis_url, decode_responses=True)
             try:
                 result = int(await r.eval(
-                    _LUA_ACQUIRE, 1,
-                    self.BUCKET_KEY, int(cost), self.CAPACITY, time.time(), self.REFILL_RATE,
+                    _LUA_ACQUIRE, 2,
+                    self.BUCKET_KEY, minute_key, int(cost), self.CAPACITY, now, self.REFILL_RATE,
                 ))
             except (aioredis.RedisError, ConnectionError, OSError) as e:
                 logger.warning(f"Rate limiter Redis error, using in-memory fallback: {e}")
@@ -170,6 +179,32 @@ class TokenBucketRateLimiter:
                 "capacity":            self.CAPACITY,
                 "refill_rate_per_min": 400,
                 "source":              "fallback",
+            }
+        finally:
+            await r.aclose()
+
+    async def get_consumption_stats(self) -> dict:
+        """
+        Реально потреблённые токены за текущую минуту (для админ-статистики).
+        Минутный счётчик инкрементируется атомарно внутри _LUA_ACQUIRE — см.
+        REQUESTS_MINUTE_KEY_PREFIX. Не агрегирует историю по часам (см. ТЗ
+        docs/tasks/admin-stats.md, упрощённый Вариант B — только текущая минута).
+        """
+        minute_key = f"{self.REQUESTS_MINUTE_KEY_PREFIX}{int(time.time() // 60)}"
+        r = aioredis.from_url(settings.redis_url, decode_responses=True)
+        try:
+            value = await r.get(minute_key)
+            requests_current_minute = int(value) if value else 0
+            return {
+                "requests_current_minute": requests_current_minute,
+                "capacity_per_minute":     self.CAPACITY,
+                "source":                  "redis",
+            }
+        except Exception:
+            return {
+                "requests_current_minute": None,
+                "capacity_per_minute":     self.CAPACITY,
+                "source":                  "fallback",
             }
         finally:
             await r.aclose()

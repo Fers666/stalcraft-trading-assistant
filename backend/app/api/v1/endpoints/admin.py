@@ -7,6 +7,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_admin
+from app.core.rate_limiter import rate_limiter
 from app.core.tiers import TIERS, get_tier_limits, deactivate_excess_watchlist
 from app.db.session import get_db
 from app.models.models import User, UserWatchlist, RegistrationSettings
@@ -121,6 +122,59 @@ async def revoke_user(
     user.is_approved = False
     await db.commit()
     return {"ok": True}
+
+
+# ─── Статистика ───────────────────────────────────────────────────────────────
+
+class AdminStatsResponse(BaseModel):
+    users_by_tier: dict[str, int]
+    users_online_now: int
+    unique_watchlist_pairs: int
+    total_watchlist_entries: int
+    rate_limit: dict
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/stats", response_model=AdminStatsResponse)
+async def get_admin_stats(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    tier_counts = (await db.execute(
+        select(User.tier, func.count()).group_by(User.tier)
+    )).all()
+    users_by_tier = {tier: count for tier, count in tier_counts}
+
+    online_threshold = datetime.now(timezone.utc) - timedelta(minutes=ONLINE_THRESHOLD_MINUTES)
+    users_online_now = (await db.execute(
+        select(func.count()).select_from(User).where(User.last_seen >= online_threshold)
+    )).scalar_one()
+
+    unique_pairs_subq = (
+        select(UserWatchlist.item_id, UserWatchlist.region)
+        .where(UserWatchlist.is_active == True)
+        .distinct()
+        .subquery()
+    )
+    unique_watchlist_pairs = (await db.execute(
+        select(func.count()).select_from(unique_pairs_subq)
+    )).scalar_one()
+
+    total_watchlist_entries = (await db.execute(
+        select(func.count()).select_from(UserWatchlist).where(UserWatchlist.is_active == True)
+    )).scalar_one()
+
+    rate_limit = await rate_limiter.get_consumption_stats()
+
+    return AdminStatsResponse(
+        users_by_tier=users_by_tier,
+        users_online_now=users_online_now,
+        unique_watchlist_pairs=unique_watchlist_pairs,
+        total_watchlist_entries=total_watchlist_entries,
+        rate_limit=rate_limit,
+    )
 
 
 # ─── Тарифы ───────────────────────────────────────────────────────────────────

@@ -383,6 +383,27 @@ Token Bucket алгоритм для соблюдения лимита Stalcraft
 
 При недоступности Redis переключается на **in-memory fallback** (один процесс, без гарантий при нескольких воркерах).
 
+**Минутный счётчик потребления (для админ-статистики):**
+- Ключ: `stalcraft:requests:minute:{unix_minute}` (например `stalcraft:requests:minute:29234567`)
+- При каждом успешном `acquire()` тот же `_LUA_ACQUIRE` атомарно делает `INCRBY needed` + `EXPIRE 120` на этот ключ — без отдельного round-trip к Redis, в той же транзакции, что списание токенов из bucket
+- Метод `get_consumption_stats()` читает текущий минутный ключ, возвращает `{"requests_current_minute": int|None, "capacity_per_minute": 400, "source": "redis"|"fallback"}`
+- Показывает только текущую минуту, без часовой/исторической агрегации (осознанно упрощённый скоуп — см. `docs/tasks/admin-stats.md`)
+- Используется эндпоинтом `GET /admin/stats` (`backend/app/api/v1/endpoints/admin.py`) для карточки «Rate limit Stalcraft API» в `AdminPage.tsx`
+
+---
+
+## app/api/v1/endpoints/admin.py — GET /admin/stats
+
+Гейтится `Depends(get_current_admin)`. Отдаёт агрегатные метрики для блока статистики в `AdminPage.tsx` одним round-trip:
+
+- `users_by_tier: dict[str, int]` — `GROUP BY User.tier`
+- `users_online_now: int` — `User.last_seen >= now() - ONLINE_THRESHOLD_MINUTES` (тот же порог, что в `GET /admin/users`)
+- `unique_watchlist_pairs: int` — `DISTINCT (item_id, region) WHERE is_active=true`, та же семантика дедупликации, что в коллекторе (`collectors.py`)
+- `total_watchlist_entries: int` — общее число активных записей `user_watchlist` (для контраста с уникальными парами)
+- `rate_limit: dict` — результат `rate_limiter.get_consumption_stats()`
+
+Фронтенд (`AdminPage.tsx`) грузит этот эндпоинт один раз при монтировании страницы (`loadStats()`) — без поллинга, снэпшот на момент открытия.
+
 ---
 
 ---

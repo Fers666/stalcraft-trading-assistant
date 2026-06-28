@@ -452,3 +452,7 @@ watchlist по `(item_id, region)`, логируются текущие проф
 | Ёмкость корзины | 400 запросов / минута (verified 2026-06-07) |
 
 Реализован через Redis (Lua script, атомарный). Fallback — in-memory при недоступности Redis.
+
+**Redis-ключи:**
+- `stalcraft:rate_limit` — состояние bucket (`tokens`, `last_refill`), TTL 120с
+- `stalcraft:requests:minute:{unix_minute}` — счётчик фактически потреблённых токенов за текущую минуту (инкрементируется атомарно внутри того же Lua-скрипта при списании), TTL 120с. Питает `GET /admin/stats` (карточка «Rate limit» в админке) — см. `docs/SERVICES.md`.

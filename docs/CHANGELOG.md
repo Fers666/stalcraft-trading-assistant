@@ -9,6 +9,33 @@
 
 ## Закрытые задачи
 
+- [x] **Админ-статистика — следующая фаза роадмапа подписок ← 2026-06-28** —
+  новый блок метрик "здоровья системы" в админке (роадмап подписок остаётся
+  открытым пунктом, см. `docs/NOTES.md`; остальные части роадмапа — новости,
+  форма обращений, "Радар рынка", FAQ/STALZONE — не реализованы).
+  - Backend: новый эндпоинт `GET /admin/stats` (`backend/app/api/v1/endpoints/admin.py`,
+    `Depends(get_current_admin)`) — `AdminStatsResponse`: `users_by_tier`
+    (`GROUP BY User.tier`), `users_online_now` (порог `ONLINE_THRESHOLD_MINUTES`),
+    `unique_watchlist_pairs` (`DISTINCT (item_id, region) WHERE is_active=true`
+    — та же семантика дедупликации, что в `collectors.py`),
+    `total_watchlist_entries`, `rate_limit`.
+  - `TokenBucketRateLimiter` (`backend/app/core/rate_limiter.py`): Lua-скрипт
+    `_LUA_ACQUIRE` расширен — при успешном списании токенов атомарно
+    инкрементирует минутный Redis-счётчик `stalcraft:requests:minute:{unix_minute}`
+    (`INCRBY needed` + `EXPIRE 120`), без отдельного round-trip. Новый метод
+    `get_consumption_stats()` возвращает `{requests_current_minute, capacity_per_minute,
+    source}` с graceful fallback при ошибке Redis. Показывает только текущую
+    минуту — без часовой/исторической агрегации (осознанно упрощённый скоуп).
+  - Никаких новых миграций — Alembic head остаётся `0028_registration_settings.py`.
+  - Frontend (`AdminPage.tsx`): новый блок из 4 карточек между блоком Tasks и
+    карточкой настроек регистрации — «Уникальных товаров в отслеживании»,
+    «Онлайн сейчас», «Тарифы» (Chip-ряд по `TIER_LABELS`/`TIER_COLORS`), «Rate
+    limit Stalcraft API» (`LinearProgress`, пороги <50%/50-80%/>80%). Новая
+    функция `loadStats()` вызывается один раз при монтировании — без
+    поллинга, снэпшот на момент открытия страницы (сознательное решение
+    пользователя, Simplicity First).
+  - ТЗ — `docs/tasks/admin-stats.md`.
+
 - [x] **Система тарифов (подписок) — Phase 0 роадмапа ← 2026-06-28** — 5 уровней
   доступа (`base`/`advanced`/`advanced_plus`/`advanced_max`/admin), источник
   истины `backend/app/core/tiers.py`; полная матрица лимитов — `docs/BUSINESS_LOGIC.md`

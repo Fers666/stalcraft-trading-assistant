@@ -3,7 +3,7 @@ import {
   Box, Typography, alpha, Chip, Button, Table, TableBody,
   TableCell, TableHead, TableRow, CircularProgress, Alert,
   ToggleButtonGroup, ToggleButton, Select, MenuItem, TextField,
-  Switch, FormControlLabel,
+  Switch, FormControlLabel, LinearProgress,
 } from '@mui/material'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import BlockIcon from '@mui/icons-material/Block'
@@ -11,6 +11,9 @@ import PendingActionsIcon from '@mui/icons-material/PendingActions'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import SyncIcon from '@mui/icons-material/Sync'
 import TuneIcon from '@mui/icons-material/Tune'
+import InventoryIcon from '@mui/icons-material/Inventory'
+import WifiTetheringIcon from '@mui/icons-material/WifiTethering'
+import SpeedIcon from '@mui/icons-material/Speed'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import api from '../api/client'
@@ -73,6 +76,18 @@ interface RegistrationSettings {
   default_tier_duration_days: number | null
 }
 
+interface AdminStats {
+  users_by_tier: Record<string, number>
+  users_online_now: number
+  unique_watchlist_pairs: number
+  total_watchlist_entries: number
+  rate_limit: {
+    requests_current_minute: number | null
+    capacity_per_minute: number
+    source: 'redis' | 'fallback'
+  }
+}
+
 type FilterType = 'all' | 'pending' | 'approved'
 
 export default function AdminPage() {
@@ -98,6 +113,10 @@ export default function AdminPage() {
   const [regMsg, setRegMsg] = useState<string | null>(null)
   const [regDaysInput, setRegDaysInput] = useState('')
 
+  // Stats card (snapshot — без поллинга, обновляется при заходе на страницу)
+  const [stats, setStats] = useState<AdminStats | null>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
+
   useEffect(() => {
     if (user && !user.is_admin) {
       navigate('/app/monitoring', { replace: true })
@@ -108,6 +127,7 @@ export default function AdminPage() {
     if (!user?.is_admin) return
     loadUsers()
     loadRegistrationSettings()
+    loadStats()
   }, [user])
 
   const loadUsers = async () => {
@@ -133,6 +153,18 @@ export default function AdminPage() {
       // тихо игнорируем — карточка просто не покажет значения
     } finally {
       setRegLoading(false)
+    }
+  }
+
+  const loadStats = async () => {
+    setStatsLoading(true)
+    try {
+      const { data } = await api.get('/admin/stats')
+      setStats(data)
+    } catch {
+      // тихо игнорируем — блок статистики просто не покажет значения
+    } finally {
+      setStatsLoading(false)
     }
   }
 
@@ -340,6 +372,138 @@ export default function AdminPage() {
             {refreshMsg}
           </Typography>
         )}
+      </Box>
+
+      {/* System stats */}
+      <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+        {/* Уникальные товары в отслеживании */}
+        <Box sx={{
+          px: 2.5, py: 1.5,
+          background: BG2,
+          border: `1px solid ${BORDER}`,
+          borderRadius: '10px',
+          minWidth: 200,
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, mb: 0.4 }}>
+            <InventoryIcon sx={{ fontSize: 14, color: G2 }} />
+            <Typography sx={{ fontSize: '0.68rem', color: T2, letterSpacing: '0.06em' }}>
+              УНИКАЛЬНЫХ ТОВАРОВ В ОТСЛЕЖИВАНИИ
+            </Typography>
+          </Box>
+          {statsLoading || !stats ? (
+            <CircularProgress size={16} sx={{ color: G2 }} />
+          ) : (
+            <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: T0, lineHeight: 1 }}>
+              {stats.unique_watchlist_pairs}
+              <Typography component="span" sx={{ fontSize: '0.9rem', fontWeight: 500, color: T2 }}>
+                {' '}/ {stats.total_watchlist_entries}
+              </Typography>
+            </Typography>
+          )}
+        </Box>
+
+        {/* Онлайн сейчас */}
+        <Box sx={{
+          px: 2.5, py: 1.5,
+          background: BG2,
+          border: `1px solid ${BORDER}`,
+          borderRadius: '10px',
+          minWidth: 140,
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, mb: 0.4 }}>
+            <WifiTetheringIcon sx={{ fontSize: 14, color: G2 }} />
+            <Typography sx={{ fontSize: '0.68rem', color: T2, letterSpacing: '0.06em' }}>
+              ОНЛАЙН СЕЙЧАС
+            </Typography>
+          </Box>
+          {statsLoading || !stats ? (
+            <CircularProgress size={16} sx={{ color: G2 }} />
+          ) : (
+            <Typography sx={{ fontSize: '1.4rem', fontWeight: 700, color: SUCCESS, lineHeight: 1 }}>
+              {stats.users_online_now}
+            </Typography>
+          )}
+        </Box>
+
+        {/* Тарифы */}
+        <Box sx={{
+          px: 2.5, py: 1.5,
+          background: BG2,
+          border: `1px solid ${BORDER}`,
+          borderRadius: '10px',
+          minWidth: 200,
+        }}>
+          <Typography sx={{ fontSize: '0.68rem', color: T2, letterSpacing: '0.06em', mb: 0.6 }}>
+            ТАРИФЫ
+          </Typography>
+          {statsLoading || !stats ? (
+            <CircularProgress size={16} sx={{ color: G2 }} />
+          ) : (
+            <Box sx={{ display: 'flex', gap: 0.6, flexWrap: 'wrap' }}>
+              {Object.entries(stats.users_by_tier).map(([tier, count]) => {
+                const t = tier as Tier
+                const color = TIER_COLORS[t] ?? T2
+                return (
+                  <Chip
+                    key={tier}
+                    label={`${TIER_LABELS[t] ?? tier}: ${count}`}
+                    size="small"
+                    sx={{
+                      height: 22, fontSize: '0.68rem', fontWeight: 700,
+                      letterSpacing: '0.02em',
+                      background: alpha(color, 0.15),
+                      color,
+                      border: `1px solid ${alpha(color, 0.35)}`,
+                    }}
+                  />
+                )
+              })}
+            </Box>
+          )}
+        </Box>
+
+        {/* Rate limit Stalcraft API */}
+        <Box sx={{
+          px: 2.5, py: 1.5,
+          background: BG2,
+          border: `1px solid ${BORDER}`,
+          borderRadius: '10px',
+          minWidth: 220,
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, mb: 0.6 }}>
+            <SpeedIcon sx={{ fontSize: 14, color: G2 }} />
+            <Typography sx={{ fontSize: '0.68rem', color: T2, letterSpacing: '0.06em' }}>
+              RATE LIMIT STALCRAFT API
+            </Typography>
+          </Box>
+          {statsLoading || !stats ? (
+            <CircularProgress size={16} sx={{ color: G2 }} />
+          ) : (() => {
+            const { requests_current_minute, capacity_per_minute } = stats.rate_limit
+            const used = requests_current_minute ?? 0
+            const pct = capacity_per_minute > 0 ? (used / capacity_per_minute) * 100 : 0
+            const barColor = pct > 80 ? DANGER : pct > 50 ? '#F5B74F' : SUCCESS
+            return (
+              <Box sx={{ minWidth: 160 }}>
+                <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: T0, lineHeight: 1, mb: 0.6 }}>
+                  {requests_current_minute ?? '—'} / {capacity_per_minute}
+                  <Typography component="span" sx={{ fontSize: '0.7rem', fontWeight: 500, color: T2 }}>
+                    {' '}запросов/мин
+                  </Typography>
+                </Typography>
+                <LinearProgress
+                  variant="determinate"
+                  value={Math.min(pct, 100)}
+                  sx={{
+                    height: 5, borderRadius: 3,
+                    background: alpha(barColor, 0.15),
+                    '& .MuiLinearProgress-bar': { background: barColor, borderRadius: 3 },
+                  }}
+                />
+              </Box>
+            )
+          })()}
+        </Box>
       </Box>
 
       {/* Registration settings card */}
