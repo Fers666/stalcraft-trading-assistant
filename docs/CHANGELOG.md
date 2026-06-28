@@ -9,6 +9,27 @@
 
 ## Закрытые задачи
 
+- [x] **Fix: `_publish_signals` падал с `'NoneType' object is not iterable` ← 2026-06-28** —
+  регрессия от **Fix 8** (`docs/tasks/security-and-bugfix.md`, 2026-06-17, см. запись
+  ниже): тот фикс корректно научил `profitable_lots.py` возвращать `sell_options=None`,
+  когда под активный `quality_filter`/`enchant_filter` watchlist-записи нет совпадающих
+  продаж за 7д, но downstream `evaluate_lot_profit` (`backend/app/services/analytics/pricing.py`)
+  не был обновлён под этот легитимный случай и безусловно итерировал `sell_options` —
+  `TypeError` на каждом цикле сбора для затронутой записи, видимый в логах worker как
+  `_publish_signals: entry user=1 6goy/RU: 'NoneType' object is not iterable`.
+  - Подтверждено на реальных данных: watchlist `user_id=1, item_id=6goy, region=RU`
+    (`quality_filter=3, enchant_filter=15`) — 225 продаж за 7д, 0 совпадающих с
+    фильтром (`prices=[]` → `sell_options=None`), но 6 лотов с тем же качеством/заточкой
+    есть в текущем снэпшоте `raw_lots` → проходят фильтр → вызывают
+    `evaluate_lot_profit(..., sell_options=None, ...)`.
+  - Фикс: guard `if not sell_options: return None` в начале `evaluate_lot_profit`,
+    сигнатура параметра `sell_options: list[dict]` → `Optional[list[dict]]`. Один файл,
+    без миграций. Семантика не меняется — лот без данных для оценки и раньше не должен
+    был считаться выгодным, теперь это явный `return None` вместо исключения.
+  - Найден случайно `qa-tester` при верификации фазы «Админ-статистика» (не связан с
+    ней) — баг изолирован per-entry, не блокировал коллектор и остальные watchlist-записи.
+  - ТЗ — `docs/tasks/fix-publish-signals-nonetype.md`.
+
 - [x] **Админ-статистика — следующая фаза роадмапа подписок ← 2026-06-28** —
   новый блок метрик "здоровья системы" в админке (роадмап подписок остаётся
   открытым пунктом, см. `docs/NOTES.md`; остальные части роадмапа — новости,

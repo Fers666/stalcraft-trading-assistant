@@ -163,7 +163,7 @@ def batch_bucket_for_amount(amount: int) -> Optional[str]:
 def evaluate_lot_profit(
     buyout_per_unit: int,
     amount: int,
-    sell_options: list[dict],
+    sell_options: Optional[list[dict]],
     risk: str,
     min_margin_pct: float = 0.0,
     batch_stats: Optional[dict] = None,
@@ -181,6 +181,8 @@ def evaluate_lot_profit(
 
     Возвращает None если невыгодно, иначе словарь с метриками.
     """
+    if not sell_options:
+        return None
     fast   = next((o for o in sell_options if o["label"] == "fast"), None)
     normal = next((o for o in sell_options if o["label"] == "normal"), None)
     if not fast or not normal:
