@@ -442,7 +442,7 @@ Token Bucket алгоритм для соблюдения лимита Stalcraft
 **Входные данные:** только собственная БД — `user_watchlist`, `master_items`, `market_statistics`. Не делает новых обращений к Stalcraft API, не затрагивает rate limit.
 
 **SQL-агрегация** (без новой Celery-задачи и без новой таблицы):
-1. `SELECT item_id, quality_filter, enchant_filter, COUNT(DISTINCT user_id) AS watchers_count, COUNT(DISTINCT user_id) FILTER (WHERE created_at >= now() - interval '24 hours') AS new_watchers_24h FROM user_watchlist WHERE is_active=true GROUP BY item_id, quality_filter, enchant_filter ORDER BY watchers_count DESC LIMIT 20`. **Ревизия 2026-06-28:** `GROUP BY` дополнен `quality_filter, enchant_filter` (раньше — только `item_id`) — один `item_id` может занять несколько строк топа для разных комбинаций фильтров среди watcher'ов; `NULL`/`NULL` — отдельный бакет, PostgreSQL естественно разделяет его от заданных значений без доп. логики.
+1. `SELECT item_id, quality_filter, enchant_filter, COUNT(DISTINCT user_id) AS watchers_count, COUNT(DISTINCT user_id) FILTER (WHERE created_at >= now() - interval '24 hours') AS new_watchers_24h FROM user_watchlist WHERE is_active=true GROUP BY item_id, quality_filter, enchant_filter LIMIT 500`. **Ревизия 2026-06-28:** `GROUP BY` дополнен `quality_filter, enchant_filter` (раньше — только `item_id`) — один `item_id` может занять несколько строк топа для разных комбинаций фильтров среди watcher'ов; `NULL`/`NULL` — отдельный бакет, PostgreSQL естественно разделяет его от заданных значений без доп. логики. **Ревизия 2026-06-29:** убран `ORDER BY watchers_count DESC` и `LIMIT 20` на этом запросе — `LIMIT` заменён на safety-cap `MAX_BUCKETS=500` (страховка от деградации при росте watchlist, не финальная сортировка). Реальная сортировка и обрезка на страницу — отдельный шаг после п.6, по `profitable_offers_count`.
 2. JOIN `master_items` по `item_id` из топа — имя/иконка (`name_ru`, `name_en`, `icon_path`).
 3. **Источник цены/объёма ветвится по бакету:**
    - `quality_filter IS NULL AND enchant_filter IS NULL` — JOIN глобальной `market_statistics` (`user_id IS NULL`) по `item_id` — `avg_price_24h`, `sales_volume_24h`, `demand_signals.bulk_spike`, `price_window="24h"`; `null`, если записи нет.
@@ -455,7 +455,9 @@ Token Bucket алгоритм для соблюдения лимита Stalcraft
 
 Без минимального порога анонимности — в топ попадают предметы даже с 1 watcher'ом (Phase 1, осознанное решение).
 
-**Кэш:** Redis, ключ `market_radar:aggregate`, TTL 60 сек — защищает от пересчёта при частых одновременных заходах на страницу; при недоступности Redis читает/пишет с `logger.warning` и просто пересчитывает на каждый запрос (без хард-фейла).
+7. **Сортировка и пагинация (ревизия 2026-06-29):** после п.6 (`profitable_offers_count` для всех бакетов до `MAX_BUCKETS=500`) — финальная сортировка по `profitable_offers_count DESC` (`None` → `0`). `watchers_count` больше не влияет на порядок.
+
+**Сигнатура и кэш:** `get_market_radar_aggregate(db: AsyncSession, page: int = 1, page_size: int = 20) -> dict`. Redis, ключ `market_radar:aggregate`, TTL 60 сек (не изменился) — кэшируется **весь** отсортированный список бакетов (не срез страницы), пагинация — `top_items[start:end]` в Python после чтения из кэша, без отдельного ключа на страницу и без `COUNT(*) OVER()` (метрика сортировки вычисляется в Python над JSON `raw_lots`, не SQL-колонка — пагинация на уровне SQL для неё невозможна). При недоступности Redis читает/пишет с `logger.warning` и просто пересчитывает на каждый запрос (без хард-фейла). Ответ дополнен `total_count` (длина полного списка), `page`, `page_size`. **Важно:** стоимость cache-miss (полный пересчёт `profitable_offers_count`) больше не зафиксирована на топ-20 — растёт линейно с числом бакетов до потолка `MAX_BUCKETS=500`; при текущих ~18 бакетах не критично, при росте watchlist может потребовать пересмотра TTL/safety-cap.
 
 ---
 

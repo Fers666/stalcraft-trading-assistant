@@ -216,7 +216,24 @@
     Кэш/Celery не менялись — TTL остаётся 60с, без новой периодической задачи.
     Frontend (`MarketRadarPage.tsx`): новый блок «ВЫГОДНЫХ» в строке карточки
     — `null` → серое «нет данных», `0` → обычный текст, `>0` → зелёный акцент.
-  - ТЗ — `docs/tasks/market-radar.md` (включая обе ревизии).
+  - **Ревизия 3 ← 2026-06-29:** сортировка топа сменена с `watchers_count` на
+    `profitable_offers_count` (убыв., `None` трактуется как 0); убран
+    фиксированный срез `LIMIT 20` как финальный размер агрегата — теперь это
+    только default `page_size` серверной пагинации. Поскольку
+    `profitable_offers_count` вычисляется в Python после SQL-выборки (а не
+    колонка в БД), сортировка по нему требует full scan всех бакетов перед
+    пагинацией — SQL `LIMIT/OFFSET` и `COUNT(*) OVER()` здесь неприменимы.
+    SQL-запрос бакетов получил safety-cap `MAX_BUCKETS=500` вместо
+    `TOP_LIMIT=20`. `get_market_radar_aggregate(db, page=1, page_size=20)`
+    кэширует в Redis (TTL 60с, не изменён) весь отсортированный список,
+    пагинация — срез `start:end` после чтения из кэша. Эндпоинт
+    `GET /market-radar/` принимает `page`/`page_size`, `MarketRadarResponse`
+    дополнен `total_count`/`page`/`page_size`. Frontend (`MarketRadarPage.tsx`):
+    серверная пагинация через MUI `TablePagination` (фиксированный
+    `page_size=20`, без выбора пользователем), список рендерится в порядке от
+    backend без клиентской сортировки. ТЗ —
+    `docs/tasks/market-radar-sort-pagination.md`.
+  - ТЗ — `docs/tasks/market-radar.md` (включая первые две ревизии).
 
 - [x] **Fix: `_publish_signals` падал с `'NoneType' object is not iterable` ← 2026-06-28** —
   регрессия от **Fix 8** (`docs/tasks/security-and-bugfix.md`, 2026-06-17, см. запись

@@ -49,6 +49,12 @@
     в снэпшоте, дедуплицированное по лотам, не по watcher'ам) ← 2026-06-28,
     см. `docs/CHANGELOG.md`, `docs/BUSINESS_LOGIC.md` §17, `docs/SERVICES.md`
     (`GET /market-radar/`, `get_market_radar_aggregate()`).
+    - [x] Ревизия 2026-06-29 — сортировка по `profitable_offers_count` (убыв.,
+      `None`→0) вместо `watchers_count`, полная серверная пагинация
+      (`page`/`page_size`, default 20) вместо жёсткого SQL-лимита топ-20,
+      safety-cap `MAX_BUCKETS=500` на число бакетов. См.
+      `docs/tasks/market-radar-sort-pagination.md`, `docs/CHANGELOG.md`,
+      `docs/BUSINESS_LOGIC.md` §17, `docs/SERVICES.md`.
   - [ ] FAQ-онбординг + копирайт лендинга под переименование игры в STALZONE.
   - [x] Ручной override лимита избранного (watchlist) вне тарифа ← 2026-06-28,
     см. `docs/CHANGELOG.md`, `docs/BUSINESS_LOGIC.md` §17 (подраздел «Override
