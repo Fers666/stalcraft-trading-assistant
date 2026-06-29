@@ -379,7 +379,8 @@
       "Bash(cmd.exe /c \"npm --version\")",
       "Bash(cmd.exe /c \"node --version\")",
       "Bash(cmd.exe /c npm --version)",
-      "Bash(cmd /c \"dir /b C:\\\\\\\\\")"
+      "Bash(cmd /c \"dir /b C:\\\\\\\\\")",
+      "Bash(python -m py_compile backend/app/scripts/backfill_sales_qlt.py)"
     ],
     "additionalDirectories": [
       "\\tmp",

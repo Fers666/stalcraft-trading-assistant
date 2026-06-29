@@ -34,6 +34,9 @@ logger = logging.getLogger("backfill_sales_qlt")
 
 HISTORY_PAGE_LIMIT = 200  # максимум, который принимает /history за раз
 HISTORY_REQUEST_COST = 2  # см. app.core.rate_limiter.TokenCost.HISTORY
+BACKFILL_PAGE_DELAY = 1.0  # секунд между страницами одной пары — не бёрстить
+                            # резерв token bucket на полной сетевой скорости
+BACKFILL_MAX_PAGE_RETRIES = 5  # повторов одной страницы при 429, прежде чем сдаться
 
 
 async def _find_pairs(db, cutoff: datetime) -> list[tuple[str, str]]:
@@ -140,10 +143,23 @@ async def _backfill_pair(db, item_id: str, region: str, cutoff: datetime) -> tup
     updated = 0
     offset = 0
     while True:
-        data = await stalcraft_client.get_auction_history(
-            item_id, region=region, offset=offset, limit=HISTORY_PAGE_LIMIT,
-        )
+        for attempt in range(BACKFILL_MAX_PAGE_RETRIES):
+            try:
+                data = await stalcraft_client.get_auction_history(
+                    item_id, region=region, offset=offset, limit=HISTORY_PAGE_LIMIT,
+                )
+                break
+            except RuntimeError as e:
+                if "429" not in str(e) or attempt == BACKFILL_MAX_PAGE_RETRIES - 1:
+                    raise
+                logger.warning(
+                    f"{item_id}/{region}: 429 на странице offset={offset}, "
+                    f"повтор {attempt + 1}/{BACKFILL_MAX_PAGE_RETRIES} после паузы"
+                )
+                # client.py уже спит 60с внутри _request() перед рейзом — здесь
+                # дополнительной паузы не нужно, повторяем сразу после возврата.
         requests_spent += 1
+        await asyncio.sleep(BACKFILL_PAGE_DELAY)
         prices = data.get("prices", [])
         if not prices:
             break

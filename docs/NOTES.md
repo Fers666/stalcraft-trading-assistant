@@ -18,8 +18,16 @@
   Дополнительно: разовый CLI backfill-скрипт
   `backend/app/scripts/backfill_sales_qlt.py` (`docker compose exec backend
   python -m app.scripts.backfill_sales_qlt --days 30`) для существующих
-  записей без qlt — печатает смету по rate limit перед запуском, **пока не
-  запускался**.
+  записей без qlt — печатает смету по rate limit перед запуском.
+  **Инцидент 2026-06-29:** первый запуск на проде (`--days 30 --yes`) почти
+  сразу начал стабильно падать в `429` на каждой странице `/history` и не
+  продвигался — причина в самом скрипте, не в общем rate limiter'е: постраничные
+  запросы внутри `_backfill_pair()` шли без пауз (~5 запросов/сек) и при первом
+  же `429` ронялась вся пара `(item_id, region)` без retry. Пользователь
+  остановил скрипт вручную. Фикс — только в `backfill_sales_qlt.py`
+  (`BACKFILL_PAGE_DELAY=1.0`, `BACKFILL_MAX_PAGE_RETRIES=5`), разбор причины —
+  `docs/tasks/backfill-rate-limit-burst-fix.md`. **Повторный запуск на проде
+  после фикса ещё предстоит.**
 - [x] **Инцидент: CPU-спайки на проде раз в час** — устранён 2026-06-29
   (`HISTORY_CONCURRENCY=6`, параллельная обработка `collect_all_history`),
   внеплановый фикс, не из бэклога. Подробности — `docs/CHANGELOG.md`,
