@@ -76,6 +76,7 @@ async def _estimate(pairs: list[tuple[str, str]]) -> dict[tuple[str, str], int]:
             logger.warning(f"estimate failed for {item_id}/{region}: {e}")
             continue
         totals[(item_id, region)] = data.get("total", 0)
+        await asyncio.sleep(BACKFILL_PAGE_DELAY)
     return totals
 
 
