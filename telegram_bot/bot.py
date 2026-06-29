@@ -89,7 +89,6 @@ def build_lot_message(
     sell_options: list[dict],
     sales_volume_7d: Optional[int],
     volatility_7d: Optional[float],
-    profit_per_hour: Optional[float] = None,
     trend: Optional[str] = None,
     saturation_ratio: Optional[float] = None,
 ) -> str:
@@ -126,9 +125,6 @@ def build_lot_message(
             f" · получишь {fmt(net)} ₽"
             f" · <b>{sign}{fmt(profit)} ₽</b>"
         )
-
-    if profit_per_hour is not None:
-        lines.append(f"⏱ Доходность: <b>~{fmt(round(profit_per_hour))} ₽/час</b> (на тарифе «Быстро»)")
 
     footer: list[str] = []
     if sales_volume_7d is not None:
@@ -230,7 +226,6 @@ async def notify_profitable_lots(app: Application) -> None:
                         sell_options     = sell_options,
                         sales_volume_7d  = volume_7d,
                         volatility_7d    = volatility,
-                        profit_per_hour  = lot.get("profit_per_hour"),
                         trend            = trend,
                         saturation_ratio = saturation,
                     )
@@ -267,7 +262,7 @@ async def _notifier_loop(app: Application) -> None:
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
-        "👋 <b>Stalcraft Trading Assistant</b>\n\n"
+        "👋 <b>SZ Trading Assistant</b>\n\n"
         "Этот бот отправляет уведомления о выгодных лотах из вашего вотчлиста.\n\n"
         "📋 <b>Как привязать аккаунт:</b>\n"
         "1. Войдите в приложение SC Trading\n"
