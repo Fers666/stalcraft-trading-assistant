@@ -195,7 +195,7 @@ export default function MarketRadarPage() {
 
                 {/* Watchers */}
                 <Box sx={{ textAlign: 'right', flexShrink: 0, minWidth: 76 }}>
-                  <Typography sx={{ fontSize: '0.55rem', color: 'text.disabled', letterSpacing: '0.08em' }}>WATCHERS</Typography>
+                  <Typography sx={{ fontSize: '0.55rem', color: 'text.disabled', letterSpacing: '0.08em' }}>СЛЕДЯТ</Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5 }}>
                     <Typography sx={{ fontSize: '0.95rem', fontWeight: 700 }}>{item.watchers_count}</Typography>
                     {item.new_watchers_24h > 0 && (
@@ -221,7 +221,7 @@ export default function MarketRadarPage() {
 
                 {/* Объём */}
                 <Box sx={{ textAlign: 'right', flexShrink: 0, minWidth: 80 }}>
-                  <Typography sx={{ fontSize: '0.55rem', color: 'text.disabled', letterSpacing: '0.08em' }}>ОБЪЁМ</Typography>
+                  <Typography sx={{ fontSize: '0.55rem', color: 'text.disabled', letterSpacing: '0.08em' }}>ОБЪЁМ ПРОДАЖ</Typography>
                   <Typography sx={{ fontSize: '0.85rem', fontWeight: 700, color: item.sales_volume_24h == null ? 'text.disabled' : 'text.primary' }}>
                     {item.sales_volume_24h != null ? item.sales_volume_24h : 'нет данных'}
                   </Typography>
