@@ -1,6 +1,6 @@
 import { useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Box, Typography, Button, Stack, alpha } from '@mui/material'
+import { useNavigate, Link as RouterLink } from 'react-router-dom'
+import { Box, Typography, Button, Stack, Link, alpha } from '@mui/material'
 import { tokens } from '../theme'
 
 const {
@@ -223,8 +223,8 @@ export default function LandingPage() {
         <Typography color="text.secondary" sx={{
           textAlign: 'center', maxWidth: 480, mb: 6, lineHeight: 1.75, fontSize: '0.95rem',
         }}>
-          Аналитика цен, детектирование выкупов и прогноз времени продажи для аукциона Stalcraft X.
-          Доступ строго по приглашению.
+          Аналитика цен, детектирование выкупов и прогноз времени продажи для аукциона STALZONE.
+          Регистрация открыта для всех.
         </Typography>
 
         {/* CTA buttons */}
@@ -336,9 +336,14 @@ export default function LandingPage() {
         <Typography sx={{ fontSize: '0.65rem', color: T2, letterSpacing: '0.08em' }}>
           SC TRADING // ZONE MARKET TERMINAL
         </Typography>
-        <Typography sx={{ fontSize: '0.65rem', color: T2 }}>
-          не аффилирован с EXBO Studio
-        </Typography>
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Link component={RouterLink} to="/faq" sx={{ fontSize: '0.65rem', color: T2, '&:hover': { color: G3 } }}>
+            Частые вопросы
+          </Link>
+          <Typography sx={{ fontSize: '0.65rem', color: T2 }}>
+            не аффилирован с EXBO Studio
+          </Typography>
+        </Stack>
       </Box>
     </Box>
   )

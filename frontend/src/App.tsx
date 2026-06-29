@@ -5,6 +5,7 @@ import Layout from './components/Layout'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import FaqPage from './pages/FaqPage'
 import MonitoringPage from './pages/MonitoringPage'
 import CatalogPage from './pages/CatalogPage'
 import LotsPage from './pages/LotsPage'
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/login"    element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
         <Route path="/register" element={<PublicOnlyRoute><RegisterPage /></PublicOnlyRoute>} />
+        <Route path="/faq"      element={<FaqPage />} />
 
         <Route
           path="/app"

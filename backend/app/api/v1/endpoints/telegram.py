@@ -148,7 +148,7 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
     if text in ("/start", "/start@" + settings.telegram_bot_username):
         await _bot_send(
             chat_id,
-            "👋 <b>Stalcraft Trading Assistant</b>\n\n"
+            "👋 <b>SZ Trading Assistant</b>\n\n"
             "Для привязки аккаунта:\n"
             "1. Зайдите в приложение → Настройки\n"
             "2. Получите код и отправьте боту: <code>/link 123456</code>\n\n"

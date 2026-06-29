@@ -43,7 +43,7 @@ export default function LoginPage() {
         background: 'radial-gradient(ellipse 50% 40% at 50% -10%, rgba(217,175,55,0.06) 0%, transparent 70%)',
       }} />
 
-      <Card sx={{ width: 400, p: 1, position: 'relative', zIndex: 1 }}>
+      <Card sx={{ width: 440, p: 1, position: 'relative', zIndex: 1 }}>
         {/* Gold accent bar */}
         <Box sx={{
           height: 2,
@@ -97,8 +97,11 @@ export default function LoginPage() {
           }}>
             Вход в систему
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Аналитика аукциона Stalcraft X
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
+            SC Trading анализирует аукцион STALZONE: показывает реальную цену предмета по истории продаж,
+            прогнозирует время продажи и подсказывает лучшие часы для покупки и продажи. Результат — ты
+            быстрее находишь выгодные лоты и зарабатываешь больше. Зарегистрируйся — доступ на базовом
+            тарифе откроется сразу.
           </Typography>
 
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

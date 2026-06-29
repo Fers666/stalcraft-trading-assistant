@@ -109,6 +109,12 @@ export default function RegisterPage() {
               >
                 Перейти ко входу
               </Button>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                Пока ждёшь — почитай{' '}
+                <Link component={RouterLink} to="/faq" sx={{ color: 'primary.light', textDecorationColor: alpha('#F2C94C', 0.4) }}>
+                  частые вопросы
+                </Link>
+              </Typography>
             </Box>
           ) : (
             /* ── Форма регистрации ── */

@@ -18,11 +18,11 @@ import TelegramIcon from '@mui/icons-material/Telegram'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import api from '../api/client'
+import { TIER_OPTIONS, TIER_LABELS, TIER_COLORS, type Tier } from '../constants/tiers'
 
 const G1 = '#B78A2A'
 const G2 = '#D9AF37'
 const G3 = '#F2C94C'
-const G4 = '#FFB800'
 const BG1 = '#11151A'
 const BG2 = '#1A1F26'
 const T0 = '#F5F5F5'
@@ -31,23 +31,6 @@ const T2 = '#7C7C7C'
 const SUCCESS = '#3ED598'
 const DANGER = '#FF5A5A'
 const BORDER = 'rgba(255,255,255,0.08)'
-
-const TIER_OPTIONS = ['base', 'advanced', 'advanced_plus', 'advanced_max'] as const
-type Tier = typeof TIER_OPTIONS[number]
-
-const TIER_LABELS: Record<Tier, string> = {
-  base: 'Базовая',
-  advanced: 'Продвинутая',
-  advanced_plus: 'Продвинутая+',
-  advanced_max: 'Макс',
-}
-
-const TIER_COLORS: Record<Tier, string> = {
-  base: T2,
-  advanced: G1,
-  advanced_plus: G2,
-  advanced_max: G4,
-}
 
 const EXTEND_OPTIONS: { delta: '1d' | '1w' | '1m', label: string }[] = [
   { delta: '1d', label: '+1д' },

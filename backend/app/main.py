@@ -24,9 +24,9 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="Stalcraft Trading Assistant",
+    title="SZ Trading Assistant",
     version="0.1.0",
-    description="Анализ аукциона Stalcraft X — рекомендации по покупкам и продажам",
+    description="Анализ аукциона STALZONE — рекомендации по покупкам и продажам",
     docs_url=None,
     lifespan=lifespan,
 )
@@ -58,7 +58,7 @@ async def swagger_ui() -> HTMLResponse:
     html = """<!DOCTYPE html>
 <html>
 <head>
-  <title>Stalcraft Trading Assistant - Swagger UI</title>
+  <title>SZ Trading Assistant - Swagger UI</title>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" type="text/css" href="/static/swagger-ui.css">

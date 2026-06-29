@@ -2,9 +2,11 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { Box, IconButton, Tooltip, Typography, alpha } from '@mui/material'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import { useAuthStore } from '../store/authStore'
 import { useFeedStore } from '../store/feedStore'
 import { tokens } from '../theme'
+import { TIER_LABELS, TIER_COLORS, type Tier } from '../constants/tiers'
 import GlobalFeed, { FEED_HEIGHT } from './GlobalFeed'
 
 const { gold: G2, goldAccent: G3, text2: T2, border: BORDER } = tokens
@@ -187,6 +189,7 @@ function AppNav() {
       {user && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
           <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
             padding: '3px 10px',
             border: `1px solid ${BORDER}`,
             borderRadius: 8,
@@ -196,7 +199,24 @@ function AppNav() {
             <Typography sx={{ fontSize: '0.72rem', color: T2, letterSpacing: '0.05em' }}>
               {user.username}
             </Typography>
+            {!user.is_admin && TIER_LABELS[user.tier as Tier] && (
+              <Typography sx={{
+                fontSize: '0.62rem', fontWeight: 600, letterSpacing: '0.04em',
+                color: TIER_COLORS[user.tier as Tier],
+                padding: '1px 6px', borderRadius: 6,
+                background: alpha(TIER_COLORS[user.tier as Tier], 0.12),
+                border: `1px solid ${alpha(TIER_COLORS[user.tier as Tier], 0.3)}`,
+              }}>
+                {TIER_LABELS[user.tier as Tier]}
+              </Typography>
+            )}
           </div>
+          <Tooltip title="Помощь">
+            <IconButton size="small" onClick={() => navigate('/faq')}
+              sx={{ color: T2, borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.1) } }}>
+              <HelpOutlineIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
           <Tooltip title="Настройки">
             <IconButton size="small" onClick={() => navigate('/app/settings')}
               sx={{ color: T2, borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.1) } }}>

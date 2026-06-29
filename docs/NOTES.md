@@ -27,7 +27,8 @@
   остановил скрипт вручную. Фикс — только в `backfill_sales_qlt.py`
   (`BACKFILL_PAGE_DELAY=1.0`, `BACKFILL_MAX_PAGE_RETRIES=5`), разбор причины —
   `docs/tasks/backfill-rate-limit-burst-fix.md`. **Повторный запуск на проде
-  после фикса ещё предстоит.**
+  после фикса выполнен (запущен 2026-06-29) — дождаться завершения и
+  зафиксировать результат.**
 - [x] **Инцидент: CPU-спайки на проде раз в час** — устранён 2026-06-29
   (`HISTORY_CONCURRENCY=6`, параллельная обработка `collect_all_history`),
   внеплановый фикс, не из бэклога. Подробности — `docs/CHANGELOG.md`,
@@ -63,19 +64,25 @@
       safety-cap `MAX_BUCKETS=500` на число бакетов. См.
       `docs/tasks/market-radar-sort-pagination.md`, `docs/CHANGELOG.md`,
       `docs/BUSINESS_LOGIC.md` §17, `docs/SERVICES.md`.
-  - [ ] FAQ-онбординг + копирайт лендинга под переименование игры в STALZONE.
+  - [x] FAQ-онбординг + копирайт лендинга под переименование игры в STALZONE
+    ← 2026-06-29, см. `docs/tasks/faq-onboarding-stalzone-rebrand.md`,
+    `docs/CHANGELOG.md`:
+    - (a) ребрендинг видимого пользователю копирайта Stalcraft X → STALZONE
+      (лендинг, логин, Swagger, приветствие Telegram-бота); технические
+      идентификаторы внешнего API (`stalcraft.net`, `StalcraftClient`,
+      Redis-ключи, Celery app name) сознательно не тронуты.
+    - (b) новая страница `/faq` (MVP, без welcome-модалки/guided tour) — 12
+      вопросов в 5 группах, MUI Accordion, ссылки из навбара/лендинга/экрана
+      регистрации.
+    - (c) внеплановое дополнение по ходу задачи — чип тарифа рядом с ником в
+      навбаре (`Layout.tsx`), `TIER_LABELS`/`TIER_COLORS` вынесены в общий
+      `frontend/src/constants/tiers.ts` (рефактор дублирования с
+      `AdminPage.tsx`).
   - [x] Ручной override лимита избранного (watchlist) вне тарифа ← 2026-06-28,
     см. `docs/CHANGELOG.md`, `docs/BUSINESS_LOGIC.md` §17 (подраздел «Override
     лимита избранного»), `docs/DATABASE.md` (`users.favorites_limit_override`).
   Черновой план остальных пунктов — в истории чата/архиве планов, при
   возврате к теме — заново зафиксировать через `researcher`.
-- [ ] **Обязательная привязка Telegram при регистрации + восстановление
-  пароля через неё** — ОТЛОЖЕНО решением пользователя (2026-06-28). Была
-  частью роадмапа подписок (фаза "Telegram-регистрация"), реализация
-  поставлена на паузу намеренно, не забыта. При возврате — учесть наработки:
-  `register()` не возвращает токен, `/telegram/link-code` требует авторизации
-  → нужен отдельный неавторизованный flow для привязки до approve.
-
 ---
 
 ## Идеи на будущее

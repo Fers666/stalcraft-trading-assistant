@@ -9,6 +9,43 @@
 
 ## Закрытые задачи
 
+- [x] **FAQ-онбординг + ребрендинг копирайта Stalcraft X → STALZONE ← 2026-06-29** —
+  закрывает пункт роадмапа подписок (`docs/NOTES.md`). Три под-этапа, ТЗ —
+  `docs/tasks/faq-onboarding-stalzone-rebrand.md`.
+  - **(a) Ребрендинг.** Видимый пользователю копирайт игры Stalcraft X
+    переименован в STALZONE; название продукта/бота в текстах приветствия —
+    "SZ Trading Assistant" (осознанно отличается от бренда "SC Trading" на
+    лендинге/логине). Затронуто: `frontend/index.html` (title),
+    `frontend/src/pages/LandingPage.tsx` (hero-описание),
+    `frontend/src/pages/LoginPage.tsx` (подзаголовок), `backend/app/main.py`
+    (FastAPI `title`/`description`, Swagger UI `<title>`), `telegram_bot/bot.py`
+    и `backend/app/api/v1/endpoints/telegram.py` (текст приветствия `/start`,
+    правлено синхронно в обоих местах — два независимых обработчика одной
+    команды, polling и webhook). Технические идентификаторы внешнего
+    API-провайдера (`*.stalcraft.net`, `StalcraftClient`,
+    `stalcraft_client_id/secret`, Redis-ключи `stalcraft:*`, имя Celery-app
+    `"stalcraft"`, репозиторий `EXBO-Studio/stalcraft-database`) — сознательно
+    не тронуты, это инфраструктура API, не название игры в продукте.
+  - **(b) FAQ-страница (MVP).** Новая `frontend/src/pages/FaqPage.tsx` —
+    12 вопросов в 5 группах (Общее, Радар рынка и Избранное, Тарифы и лимиты,
+    Telegram, Графики и метрики), MUI `Accordion`, золотая тема; язык
+    упрощён под аудиторию портала 14–25 лет. Публичный роут `/faq` в
+    `App.tsx` (без авторизации, доступен и гостю, и авторизованному
+    пользователю). Ссылки на `/faq` добавлены в трёх местах: иконка «Помощь»
+    в навбаре (`Layout.tsx`), footer лендинга (`LandingPage.tsx`), экран
+    «Заявка отправлена» на `RegisterPage.tsx`. Без welcome-модалки/guided
+    tour — сознательно урезанный scope MVP, отдельная задача в будущем при
+    необходимости.
+  - **(c) Чип тарифа в навбаре** (внеплановое дополнение по ходу задачи —
+    прямое следствие пробела, вскрытого в FAQ-вопросе 8 «как узнать свой
+    тариф», который раньше не был виден пользователю нигде кроме Settings).
+    `Layout.tsx` показывает чип тарифа рядом с `user.username` (по
+    `user.tier` из `authStore`, без изменений backend), не показывается для
+    `is_admin`. Рефактор по пути: `TIER_LABELS`/`TIER_COLORS`/`TIER_OPTIONS`/
+    тип `Tier`, ранее дублировавшиеся только в `AdminPage.tsx`, вынесены в
+    новый общий `frontend/src/constants/tiers.ts`; `AdminPage.tsx` импортирует
+    из него вместо локальных констант.
+
 - [x] **Повысить покрытие qlt/ptn в sales_history — баг парсинга, не ограничение
   API ← 2026-06-29** — диагностировано живым запросом к Stalcraft API через
   рабочий backend-контейнер (`stalcraft_client.get_auction_history(...)`,
