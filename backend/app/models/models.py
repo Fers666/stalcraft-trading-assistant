@@ -350,3 +350,25 @@ class NotificationQueue(Base):
     status            = Column(String(20), default="pending")  # pending | sent | failed
     created_at        = Column(DateTime(timezone=True), server_default=func.now())
 
+
+# ─── Новости / Анонсы ────────────────────────────────────────────────────────
+
+class News(Base):
+    __tablename__ = "news"
+
+    id           = Column(Integer, primary_key=True)
+    author_id    = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    title        = Column(String(300), nullable=False)
+    content      = Column(Text, nullable=False)
+    tags         = Column(ARRAY(String), nullable=False, default=list, server_default="{}")
+    is_pinned    = Column(Boolean, nullable=False, default=False, server_default="false")
+    is_published = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at   = Column(DateTime(timezone=True), nullable=True, onupdate=func.now())
+
+    author = relationship("User", foreign_keys=[author_id])
+
+    __table_args__ = (
+        Index("ix_news_published_pinned", "is_published", "is_pinned", "created_at"),
+    )
+

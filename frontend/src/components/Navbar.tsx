@@ -6,6 +6,7 @@ import InventoryIcon from '@mui/icons-material/Inventory'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import LocalOfferIcon from '@mui/icons-material/LocalOffer'
 import BarChartIcon from '@mui/icons-material/BarChart'
+import CampaignIcon from '@mui/icons-material/Campaign'
 import SettingsIcon from '@mui/icons-material/Settings'
 import LogoutIcon from '@mui/icons-material/Logout'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
@@ -21,6 +22,7 @@ const navItems = [
   { label: 'Лоты',             path: '/app/lots',          icon: <SearchIcon       sx={{ fontSize: 14 }} /> },
   { label: 'Лента',            path: '/app/feed',          icon: <LocalOfferIcon   sx={{ fontSize: 14 }} /> },
   { label: 'Склад',            path: '/app/inventory',     icon: <InventoryIcon    sx={{ fontSize: 14 }} /> },
+  { label: 'Новости',          path: '/app/news',          icon: <CampaignIcon     sx={{ fontSize: 14 }} /> },
 ]
 
 function DiamondLogo() {

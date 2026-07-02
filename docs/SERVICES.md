@@ -435,6 +435,27 @@ Token Bucket алгоритм для соблюдения лимита Stalcraft
 
 ---
 
+## app/api/v1/endpoints/news.py — новости и анонсы
+
+Файл: `backend/app/api/v1/endpoints/news.py`. Prefix `/news`, tags=["News"]. Подключён в `main.py` после `telegram_router`.
+
+**Допустимые теги:** `обновление`, `тарифы`, `техработы`, `важно` (константа `ALLOWED_TAGS`, валидируется через `@validator` на входе). Поле `author_id` = `current_admin.id` при создании; SET NULL при удалении пользователя.
+
+| Метод | URL | Auth | Описание |
+|-------|-----|------|----------|
+| GET | `/api/v1/news/` | user | Список опубликованных (`is_published=True`), `skip/limit=20`, ORDER BY `is_pinned DESC, created_at DESC` |
+| GET | `/api/v1/news/{id}` | user | Одна новость (только published), 404 если нет |
+| GET | `/api/v1/news/admin/all` | admin | Все новости включая черновики, `skip/limit=20` |
+| POST | `/api/v1/news/` | admin | Создать, `author_id = current_admin.id` |
+| PUT | `/api/v1/news/{id}` | admin | Частичное обновление (только переданные не-None поля) |
+| DELETE | `/api/v1/news/{id}` | admin | Удалить, 404 если нет |
+
+> `/api/v1/news/admin/all` объявлен до `/{id}` — FastAPI не трактует строку `"admin"` как `news_id`.
+
+**Ответ (`NewsResponse`):** `id`, `author_id`, `author_username` (из `selectinload(News.author)`, `null` если автор удалён), `title`, `content`, `tags`, `is_pinned`, `is_published`, `created_at`, `updated_at`.
+
+---
+
 ## app/services/analytics/market_radar.py — get_market_radar_aggregate
 
 «Радар рынка» — кросс-юзерная агрегация `user_watchlist` (аддон `User.has_market_radar_addon`, не тариф, см. `docs/BUSINESS_LOGIC.md` §17). Эндпоинт `GET /market-radar/` (`backend/app/api/v1/endpoints/market_radar.py`), гейтится `Depends(get_market_radar_access)`.

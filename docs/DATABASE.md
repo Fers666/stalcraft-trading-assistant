@@ -390,6 +390,25 @@ watchlist по `(item_id, region)`, логируются текущие проф
 
 ---
 
+### `news` — новости и анонсы платформы
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `id` | integer PK | |
+| `author_id` | integer FK→users (SET NULL) | `NULL` если автор удалён |
+| `title` | String(300) | Заголовок |
+| `content` | Text | Текст (plain, `white-space: pre-wrap` на фронте) |
+| `tags` | ARRAY(String) | Метки: `обновление` / `тарифы` / `техработы` / `важно` |
+| `is_pinned` | Boolean | Закреплённая новость (показывается первой) |
+| `is_published` | Boolean | `false` = черновик (виден только admin) |
+| `created_at` | DateTime(tz) | UTC |
+| `updated_at` | DateTime(tz) | Заполняется при PUT |
+
+**Индекс:** `ix_news_published_pinned` по `(is_published, is_pinned, created_at)` — покрывает основную выборку.  
+**Миграция:** `0030_news_table.py`
+
+---
+
 ### Изменения в существующих таблицах (миграции 0005–0006)
 
 **`collected_data.user_id`** — становится nullable:
@@ -439,6 +458,7 @@ watchlist по `(item_id, region)`, логируются текущие проф
 | `0027_market_stats_48h.py` | Поля `avg_price_48h`, `min_price_48h`, `max_price_48h`, `sales_volume_48h` в `market_statistics` |
 | `0028_registration_settings.py` | Новая таблица-синглтон `registration_settings`, сразу вставляет строку `id=1` с дефолтами |
 | `0029_favorites_limit_override.py` | Поле `users.favorites_limit_override` (integer, nullable) — ручной override лимита watchlist вне тарифа |
+| `0030_news_table.py` | Новая таблица `news` (новости и анонсы, 6 эндпоинтов `/api/v1/news/*`) |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 

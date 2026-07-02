@@ -15,6 +15,7 @@ from app.api.v1.endpoints.inventory import router as inventory_router
 from app.api.v1.endpoints.admin import router as admin_router
 from app.api.v1.endpoints.market_radar import router as market_radar_router
 from app.api.v1.endpoints.telegram import router as telegram_router, register_webhook
+from app.api.v1.endpoints.news import router as news_router
 
 
 @asynccontextmanager
@@ -51,6 +52,7 @@ app.include_router(inventory_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(market_radar_router, prefix="/api/v1")
 app.include_router(telegram_router, prefix="/api/v1")
+app.include_router(news_router, prefix="/api/v1")
 
 
 @app.get("/docs", include_in_schema=False)

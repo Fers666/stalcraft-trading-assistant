@@ -34,6 +34,13 @@ const NAV_ITEMS = [
     svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="3" y="7" width="18" height="13" rx="1"/><path d="M3 7l2-3h14l2 3"/></svg>,
   },
   {
+    label: 'Новости', to: '/app/news',
+    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              style={{ width: 14, height: 14 }}>
+      <path d="M4 4h16v12H4z"/><path d="M4 8h16M8 12h4"/>
+    </svg>,
+  },
+  {
     label: 'Радар рынка', to: '/app/market-radar', gated: true, gateKey: 'market_radar' as const,
     svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><circle cx="12" cy="12" r="2"/><path d="M12 12 L12 4 M12 12 L18 17"/><circle cx="12" cy="12" r="9"/></svg>,
     lockSvg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>,
