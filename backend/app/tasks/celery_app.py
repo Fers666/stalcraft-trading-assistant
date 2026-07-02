@@ -40,11 +40,9 @@ celery_app.conf.update(
             "task": "app.tasks.cleanup.delete_old_data",
             "schedule": crontab(hour=3, minute=0),
         },
-        # Пересчёт рыночной статистики через 5 минут после сбора истории
-        "calculate-market-stats": {
-            "task": "app.tasks.analyzers.calculate_all_market_stats",
-            "schedule": crontab(minute="5"),
-        },
+        # calculate-market-stats удалён из расписания — теперь запускается цепочкой
+        # из collect_all_history после успешного завершения сбора, чтобы исключить
+        # параллельную нагрузку на оба воркера (history на Worker-1, stats на Worker-2).
         # Сверка предсказаний signal_outcomes с фактическими продажами — раз в сутки
         "evaluate-signal-outcomes": {
             "task": "app.tasks.analyzers.evaluate_signal_outcomes",

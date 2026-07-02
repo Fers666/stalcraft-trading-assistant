@@ -12,7 +12,9 @@ def run_async(coro):
     import asyncio
     loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(coro)
+        result = loop.run_until_complete(coro)
+        loop.run_until_complete(asyncio.sleep(0))
+        return result
     finally:
         loop.close()
 

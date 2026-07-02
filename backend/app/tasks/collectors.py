@@ -23,7 +23,11 @@ HISTORY_CONCURRENCY = 6  # параллельных воркеров в collect_
 def run_async(coro):
     loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(coro)
+        result = loop.run_until_complete(coro)
+        # Drain pending transport-close callbacks so redis.asyncio connections
+        # clean up while the loop is still running (prevents __del__ warnings).
+        loop.run_until_complete(asyncio.sleep(0))
+        return result
     finally:
         loop.close()
 
@@ -171,6 +175,8 @@ def collect_all_history(self):
 
     try:
         run_async(_run())
+        from app.tasks.analyzers import calculate_all_market_stats
+        calculate_all_market_stats.delay()
     except Exception as exc:
         raise self.retry(exc=exc, countdown=120)
 
