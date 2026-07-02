@@ -287,6 +287,35 @@ export default function LandingPage() {
         </Stack>
       </Box>
 
+      {/* ── Value Proposition ──────────────────────────────────────────────── */}
+      <Box sx={{ px: 5, py: 7, textAlign: 'center', position: 'relative', zIndex: 1 }}>
+        <Typography sx={{
+          fontSize: '0.62rem', color: G3, letterSpacing: '0.18em',
+          fontWeight: 700, textTransform: 'uppercase', mb: 2,
+        }}>
+          ЧТО ТЫ ПОЛУЧАЕШЬ
+        </Typography>
+        <Typography sx={{
+          fontFamily: '"Rajdhani", sans-serif',
+          fontWeight: 700,
+          fontSize: { xs: '1.6rem', md: '2.2rem' },
+          letterSpacing: '0.04em',
+          color: '#F5F5F5',
+          mb: 2,
+          maxWidth: 620,
+          mx: 'auto',
+          lineHeight: 1.15,
+        }}>
+          Зарабатывай на реальных данных,<br />а не на догадках
+        </Typography>
+        <Typography color="text.secondary" sx={{
+          maxWidth: 520, mx: 'auto', lineHeight: 1.75, fontSize: '0.95rem',
+        }}>
+          Реальные цены по истории продаж вместо рыночных слухов, прогноз времени продажи
+          и подсказки, когда выгоднее покупать и продавать. Находишь хорошие лоты быстрее других.
+        </Typography>
+      </Box>
+
       {/* ── Features ───────────────────────────────────────────────────────── */}
       <Box ref={featuresRef} sx={{ px: 5, pb: 8, position: 'relative', zIndex: 1 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
