@@ -9,6 +9,12 @@
 
 ## Закрытые задачи
 
+- [x] **Emission-трекер ← 2026-07-06** — полный цикл от API до фронта. ТЗ — `docs/tasks/emission-tracker.md`.
+  - **Backend:** новая таблица `emission_events` (миграция `0031`): `id, region, started_at, ended_at, detected_at, notified`; индексы `ix_emission_region_started (region, started_at)` и `ix_emission_active (region, ended_at)`. Celery-задача `collect_emission` в `collectors.py` — beat-расписание `timedelta(seconds=120)`, опрашивает `GET /RU/emission`, Redis-дедупликация через `emission:current_fingerprint`, детектирует старт и конец выброса. Эндпоинты `GET /api/v1/emission/current` и `GET /api/v1/emission/history`.
+  - **Frontend:** `EmissionWidget` в сайдбаре `Layout.tsx` — красный при активном выбросе, золотой со счётчиком времени ожидания. Zustand стор `emissionStore` с polling 15с (активный выброс) / 30с (ожидание).
+  - **Telegram:** broadcast всем пользователям с `is_active AND is_approved AND telegram_chat_id IS NOT NULL`, без гейтинга тарифом.
+  - **Fix:** `STALCRAFT_REGION` исправлен с `"EU"` на `"RU"` в `backend/app/core/config.py` и обоих `docker-compose*.yml`.
+
 - [x] **Раздел новостей ← 2026-07-02** — новая таблица `news` (миграция `0030`), 6 эндпоинтов `/api/v1/news/*` (публичное чтение + admin CRUD), страница `/app/news` с картой карточек, inline-формой создания/редактирования для admin, inline-подтверждением удаления и кнопкой «Загрузить ещё». Теги фиксированные: обновление/тарифы/техработы/важно. ТЗ — `docs/tasks/news-section.md`.
 
 - [x] **FAQ-онбординг + ребрендинг копирайта Stalcraft X → STALZONE ← 2026-06-29** —

@@ -409,6 +409,27 @@ watchlist по `(item_id, region)`, логируются текущие проф
 
 ---
 
+### `emission_events` — события радиационного выброса
+
+Заполняется Celery-задачей `collect_emission` (каждые 2 мин). Каждая строка — один задетектированный выброс (start/end пара). Дедупликация на уровне Redis-fingerprint (`emission:current_fingerprint`): задача сравнивает `currentStart` из API с сохранённым значением и пишет в БД только при изменении.
+
+| Поле | Тип | Nullable | Описание |
+|------|-----|----------|----------|
+| `id` | integer PK | нет | |
+| `region` | varchar(10) | нет | Регион выброса (например `RU`) |
+| `started_at` | timestamptz | нет | Время начала выброса (`currentStart` из API) |
+| `ended_at` | timestamptz | да | Время окончания (заполняется когда выброс завершился; `NULL` = выброс активен) |
+| `detected_at` | timestamptz | нет | Время когда задача впервые зафиксировала событие |
+| `notified` | boolean | нет | `true` = Telegram broadcast уже отправлен для этого выброса |
+
+**Индексы:**
+- `ix_emission_region_started (region, started_at)` — поиск событий по региону и времени
+- `ix_emission_active (region, ended_at)` — быстрый поиск активных выбросов (`ended_at IS NULL`)
+
+**Миграция:** `0031_emission_events.py`
+
+---
+
 ### Изменения в существующих таблицах (миграции 0005–0006)
 
 **`collected_data.user_id`** — становится nullable:
@@ -459,6 +480,7 @@ watchlist по `(item_id, region)`, логируются текущие проф
 | `0028_registration_settings.py` | Новая таблица-синглтон `registration_settings`, сразу вставляет строку `id=1` с дефолтами |
 | `0029_favorites_limit_override.py` | Поле `users.favorites_limit_override` (integer, nullable) — ручной override лимита watchlist вне тарифа |
 | `0030_news_table.py` | Новая таблица `news` (новости и анонсы, 6 эндпоинтов `/api/v1/news/*`) |
+| `0031_emission_events.py` | Новая таблица `emission_events` (трекер радиационных выбросов; индексы `ix_emission_region_started`, `ix_emission_active`) |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 

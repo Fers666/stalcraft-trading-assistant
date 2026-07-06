@@ -11,6 +11,7 @@
 | `calculate_all_market_stats` | раз в час (мин. 5) | `app.tasks.analyzers` | Пересчёт market_statistics (включая 24ч/48ч/7д/30д окна) |
 | `delete_old_data` | ежедневно 03:00 | `app.tasks.cleanup` | Данные старше 120 дней |
 | `sweep_expired_tiers` | ежедневно 03:30 | `app.tasks.tiers` | Понижение до `base` пользователей с истёкшим `tier_expires_at` + деактивация лишних карточек watchlist сверх нового лимита |
+| `collect_emission` | каждые 2 мин | `app.tasks.collectors` | Опрос `GET /RU/emission`, детект start/end выброса, Redis-дедупликация (`emission:current_fingerprint`), Telegram broadcast всем `is_active AND is_approved AND telegram_chat_id IS NOT NULL` (без гейтинга тарифом) |
 
 ### Логика дедупликации watchlist
 
