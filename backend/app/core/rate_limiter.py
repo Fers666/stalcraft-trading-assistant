@@ -100,16 +100,25 @@ class TokenBucketRateLimiter:
         self._fallback_tokens       = float(self.CAPACITY)
         self._fallback_last_refill  = time.monotonic()
 
-    async def acquire(self, cost: int = TokenCost.LOTS, max_wait: float = 60.0):
+    async def acquire(
+        self, cost: int = TokenCost.LOTS, max_wait: float = 60.0,
+        redis_client: "aioredis.Redis | None" = None,
+    ):
         """
         Запрашивает `cost` токенов. Ждёт если недостаточно (но не дольше max_wait).
+        redis_client: опциональное переиспользуемое Redis-соединение (например, общий
+        клиент на весь батч collect_all_active_lots). Если не передано (по умолчанию) —
+        поведение не меняется: создаётся и закрывается новое соединение на каждый вызов.
+        Если передано — жизненным циклом соединения владеет вызывающий код, здесь оно
+        не закрывается.
         Raises: TimeoutError если ждать дольше max_wait секунд.
         """
         waited = 0.0
         while True:
             now = time.time()
             minute_key = f"{self.REQUESTS_MINUTE_KEY_PREFIX}{int(now // 60)}"
-            r = aioredis.from_url(settings.redis_url, decode_responses=True)
+            owns_client = redis_client is None
+            r = redis_client if redis_client is not None else aioredis.from_url(settings.redis_url, decode_responses=True)
             try:
                 result = int(await r.eval(
                     _LUA_ACQUIRE, 2,
@@ -117,11 +126,13 @@ class TokenBucketRateLimiter:
                 ))
             except (aioredis.RedisError, ConnectionError, OSError) as e:
                 logger.warning(f"Rate limiter Redis error, using in-memory fallback: {e}")
-                await r.aclose()
+                if owns_client:
+                    await r.aclose()
                 await self._acquire_fallback(cost, max_wait)
                 return
             finally:
-                await r.aclose()
+                if owns_client:
+                    await r.aclose()
 
             if result == 1:
                 logger.debug(f"Token acquired (cost={cost})")

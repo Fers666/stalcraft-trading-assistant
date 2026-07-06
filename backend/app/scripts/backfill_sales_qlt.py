@@ -157,8 +157,9 @@ async def _backfill_pair(db, item_id: str, region: str, cutoff: datetime) -> tup
                     f"{item_id}/{region}: 429 на странице offset={offset}, "
                     f"повтор {attempt + 1}/{BACKFILL_MAX_PAGE_RETRIES} после паузы"
                 )
-                # client.py уже спит 60с внутри _request() перед рейзом — здесь
-                # дополнительной паузы не нужно, повторяем сразу после возврата.
+                # client.py больше не спит на 429 (см. docs/tasks/telegram-notification-bug.md,
+                # причина A) — пауза перед ретраем нужна здесь явно.
+                await asyncio.sleep(60)
         requests_spent += 1
         await asyncio.sleep(BACKFILL_PAGE_DELAY)
         prices = data.get("prices", [])

@@ -178,73 +178,84 @@ async def notify_profitable_lots(app: Application) -> None:
             )).scalars().all()
 
             for entry in watchlist:
-                key = signals_key(
-                    user.id, entry.item_id, entry.region,
-                    entry.quality_filter, entry.enchant_filter,
-                )
-                raw = await r.get(key)
-                if not raw:
-                    continue
-
                 try:
-                    signals = json.loads(raw)
-                except Exception:
-                    continue
-
-                lots        = signals.get("lots", [])
-                sell_options = signals.get("sell_options", [])
-                volume_7d   = signals.get("volume_7d")
-                volatility  = signals.get("volatility_7d")
-                trend       = signals.get("trend")
-                saturation  = signals.get("saturation_ratio")
-
-                for lot in lots:
-                    start_time = lot.get("start_time", "")
-                    dedup = (
-                        f"tg_sent:{user.id}:{entry.item_id}:{entry.region}"
-                        f":{entry.quality_filter}:{entry.enchant_filter}"
-                        f":{start_time}"
+                    key = signals_key(
+                        user.id, entry.item_id, entry.region,
+                        entry.quality_filter, entry.enchant_filter,
                     )
-                    if await r.exists(dedup):
+                    raw = await r.get(key)
+                    if not raw:
                         continue
 
-                    # Получаем имя предмета из БД (можно закэшировать, но watchlist небольшой)
-                    from app.models.models import MasterItem
-                    master = (await db.execute(
-                        select(MasterItem).where(MasterItem.item_id == entry.item_id)
-                    )).scalar_one_or_none()
-                    item_name = (
-                        (master.name_ru or master.name_en or entry.item_id)
-                        if master else entry.item_id
-                    )
-
-                    msg = build_lot_message(
-                        item_name        = item_name,
-                        quality_name     = lot.get("quality_name"),
-                        enchant          = lot.get("enchant"),
-                        buyout_per_unit  = lot["buyout_per_unit"],
-                        sell_options     = sell_options,
-                        sales_volume_7d  = volume_7d,
-                        volatility_7d    = volatility,
-                        trend            = trend,
-                        saturation_ratio = saturation,
-                    )
-
                     try:
-                        await app.bot.send_message(
-                            chat_id=user.telegram_chat_id,
-                            text=msg,
-                            parse_mode="HTML",
+                        signals = json.loads(raw)
+                    except Exception:
+                        continue
+
+                    lots        = signals.get("lots", [])
+                    sell_options = signals.get("sell_options", [])
+                    volume_7d   = signals.get("volume_7d")
+                    volatility  = signals.get("volatility_7d")
+                    trend       = signals.get("trend")
+                    saturation  = signals.get("saturation_ratio")
+
+                    for lot in lots:
+                        start_time = lot.get("start_time", "")
+                        dedup = (
+                            f"tg_sent:{user.id}:{entry.item_id}:{entry.region}"
+                            f":{entry.quality_filter}:{entry.enchant_filter}"
+                            f":{start_time}"
                         )
-                        await r.setex(dedup, NOTIF_DEDUP_TTL, "1")
-                        logger.info(
-                            f"Notified user={user.id} item={entry.item_id} "
-                            f"price={lot['buyout_per_unit']}"
+                        if await r.exists(dedup):
+                            continue
+
+                        # Получаем имя предмета из БД (можно закэшировать, но watchlist небольшой)
+                        from app.models.models import MasterItem
+                        master = (await db.execute(
+                            select(MasterItem).where(MasterItem.item_id == entry.item_id)
+                        )).scalar_one_or_none()
+                        item_name = (
+                            (master.name_ru or master.name_en or entry.item_id)
+                            if master else entry.item_id
                         )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to send message to chat_id={user.telegram_chat_id}: {e}"
+
+                        msg = build_lot_message(
+                            item_name        = item_name,
+                            quality_name     = lot.get("quality_name"),
+                            enchant          = lot.get("enchant"),
+                            buyout_per_unit  = lot["buyout_per_unit"],
+                            sell_options     = sell_options,
+                            sales_volume_7d  = volume_7d,
+                            volatility_7d    = volatility,
+                            trend            = trend,
+                            saturation_ratio = saturation,
                         )
+
+                        try:
+                            await app.bot.send_message(
+                                chat_id=user.telegram_chat_id,
+                                text=msg,
+                                parse_mode="HTML",
+                            )
+                            await r.setex(dedup, NOTIF_DEDUP_TTL, "1")
+                            logger.info(
+                                f"Notified user={user.id} item={entry.item_id} "
+                                f"price={lot['buyout_per_unit']}"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to send message to chat_id={user.telegram_chat_id}: {e}"
+                            )
+                except Exception as e:
+                    # Причина F (docs/tasks/telegram-notification-bug.md): не даём
+                    # сбою на одной watchlist-записи (например, транзиентная ошибка
+                    # запроса MasterItem) прервать обработку остальных пользователей
+                    # и записей в этом же проходе notify_profitable_lots().
+                    logger.error(
+                        f"notify_profitable_lots: entry failed user={user.id} "
+                        f"item={entry.item_id}/{entry.region}: {e}"
+                    )
+                    continue
 
 
 async def _notifier_loop(app: Application) -> None:

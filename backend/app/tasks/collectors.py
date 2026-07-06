@@ -51,64 +51,74 @@ def collect_all_active_lots(self):
         from app.db.session import get_celery_db_session as get_db_session
         from app.models.models import UserWatchlist
         from sqlalchemy import select, or_
+        import redis.asyncio as aioredis
+        from app.core.config import settings
 
         now = datetime.now(timezone.utc)
         refresh_threshold = now - timedelta(seconds=LOTS_REFRESH_INTERVAL)
 
-        async with get_db_session() as db:
-            from sqlalchemy import asc, nullsfirst
-            watchlist = (await db.execute(
-                select(UserWatchlist)
-                .where(UserWatchlist.is_active == True)
-                .order_by(nullsfirst(asc(UserWatchlist.last_successful_check)))
-            )).scalars().all()
+        # Один Redis-клиент на весь запуск батча (до 50 предметов × 2+ redis-вызова) —
+        # вместо нового TCP-соединения на каждый вызов rate_limiter.acquire()/
+        # _publish_signals(). Закрывается в finally ниже. Между разными Celery-тасками
+        # клиент НЕ переиспользуется — только внутри одного прохода _run().
+        redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+        try:
+            async with get_db_session() as db:
+                from sqlalchemy import asc, nullsfirst
+                watchlist = (await db.execute(
+                    select(UserWatchlist)
+                    .where(UserWatchlist.is_active == True)
+                    .order_by(nullsfirst(asc(UserWatchlist.last_successful_check)))
+                )).scalars().all()
 
-            # Берём уникальные пары (item_id, region), которым пора обновиться
-            due_pairs = {}
-            for entry in watchlist:
-                key = (entry.item_id, entry.region)
-                if key not in due_pairs:
-                    is_due = (
-                        entry.last_successful_check is None
-                        or entry.last_successful_check < refresh_threshold
-                    )
-                    if is_due:
-                        due_pairs[key] = entry
+                # Берём уникальные пары (item_id, region), которым пора обновиться
+                due_pairs = {}
+                for entry in watchlist:
+                    key = (entry.item_id, entry.region)
+                    if key not in due_pairs:
+                        is_due = (
+                            entry.last_successful_check is None
+                            or entry.last_successful_check < refresh_threshold
+                        )
+                        if is_due:
+                            due_pairs[key] = entry
 
-            # Динамический batch: берём столько предметов, чтобы полный цикл уложился
-            # в TARGET_CYCLE_SEC — при росте watchlist автоматически увеличиваем батч.
-            runs_per_cycle = TARGET_CYCLE_SEC / LOTS_REFRESH_INTERVAL
-            dynamic_batch = max(
-                MIN_LOTS_PER_RUN,
-                min(math.ceil(len(due_pairs) / runs_per_cycle), MAX_LOTS_PER_RUN),
-            )
-            pairs_to_collect = dict(list(due_pairs.items())[:dynamic_batch])
+                # Динамический batch: берём столько предметов, чтобы полный цикл уложился
+                # в TARGET_CYCLE_SEC — при росте watchlist автоматически увеличиваем батч.
+                runs_per_cycle = TARGET_CYCLE_SEC / LOTS_REFRESH_INTERVAL
+                dynamic_batch = max(
+                    MIN_LOTS_PER_RUN,
+                    min(math.ceil(len(due_pairs) / runs_per_cycle), MAX_LOTS_PER_RUN),
+                )
+                pairs_to_collect = dict(list(due_pairs.items())[:dynamic_batch])
 
-            if not pairs_to_collect:
-                return
+                if not pairs_to_collect:
+                    return
 
-            logger.info(
-                f"Collecting lots: batch={dynamic_batch} due={len(due_pairs)} "
-                f"total={len(watchlist)} (target cycle {TARGET_CYCLE_SEC}s)"
-            )
+                logger.info(
+                    f"Collecting lots: batch={dynamic_batch} due={len(due_pairs)} "
+                    f"total={len(watchlist)} (target cycle {TARGET_CYCLE_SEC}s)"
+                )
 
-            collected_keys = set()
-            for i, (key, entry) in enumerate(pairs_to_collect.items()):
-                try:
-                    await _collect_lots_for_item(db, entry)
-                    collected_keys.add(key)
-                except Exception as e:
-                    logger.error(f"Failed to collect lots for {entry.item_id}/{entry.region}: {e}")
-                    entry.error_status = str(e)
-                    await db.commit()
-                if i < len(pairs_to_collect) - 1:
-                    await asyncio.sleep(LOTS_REQUEST_DELAY)
+                collected_keys = set()
+                for i, (key, entry) in enumerate(pairs_to_collect.items()):
+                    try:
+                        await _collect_lots_for_item(db, entry, redis_client=redis_client)
+                        collected_keys.add(key)
+                    except Exception as e:
+                        logger.error(f"Failed to collect lots for {entry.item_id}/{entry.region}: {e}")
+                        entry.error_status = str(e)
+                        await db.commit()
+                    if i < len(pairs_to_collect) - 1:
+                        await asyncio.sleep(LOTS_REQUEST_DELAY)
 
-            # Обновляем last_successful_check для ВСЕХ записей собранных пар
-            for entry in watchlist:
-                if (entry.item_id, entry.region) in collected_keys and entry.error_status is None:
-                    entry.last_successful_check = now
-            await db.commit()
+                # Обновляем last_successful_check для ВСЕХ записей собранных пар
+                for entry in watchlist:
+                    if (entry.item_id, entry.region) in collected_keys and entry.error_status is None:
+                        entry.last_successful_check = now
+                await db.commit()
+        finally:
+            await redis_client.aclose()
 
     try:
         run_async(_run())
@@ -284,7 +294,7 @@ def collect_history_single(user_id: int, item_id: str, region: str):
     run_async(_run())
 
 
-async def _collect_lots_for_item(db, entry):
+async def _collect_lots_for_item(db, entry, redis_client=None):
     """
     Собирает снэпшот активных лотов и разделяет их на ликвидные/истекающие.
 
@@ -293,6 +303,10 @@ async def _collect_lots_for_item(db, entry):
 
     Buyout detection удалён: Stalcraft API /history предоставляет 100% достоверные
     данные о реальных сделках, косвенное определение продаж не нужно.
+
+    redis_client: опциональный общий Redis-клиент на весь батч (см.
+    collect_all_active_lots._run()) — переиспользуется в rate_limiter.acquire()
+    и _publish_signals() вместо создания нового соединения на каждый вызов.
     """
     from app.services.collector.client import stalcraft_client
     from app.services.cache.api_cache import api_cache
@@ -302,7 +316,8 @@ async def _collect_lots_for_item(db, entry):
     EXPIRY_THRESHOLD_HOURS = 2  # лот считается неликвидным если < 2ч до конца
 
     now = datetime.now(timezone.utc)
-    data = await stalcraft_client.get_auction_lots(entry.item_id, region=entry.region)
+    prev_check = entry.last_successful_check
+    data = await stalcraft_client.get_auction_lots(entry.item_id, region=entry.region, redis_client=redis_client)
     lots = data.get("lots", [])
 
     # Обновляем Redis-кэш сразу — GET /lots/{id} отдаст свежие данные
@@ -365,18 +380,33 @@ async def _collect_lots_for_item(db, entry):
         f"liquid={len(liquid_lots)} expiring={len(expiring_lots)}"
     )
 
+    # Наблюдаемость для причины B (docs/tasks/telegram-notification-bug.md):
+    # фактическая длина полного цикла обновления этой пары (item_id, region) —
+    # чтобы при жалобе на задержку уведомлений сразу видеть число в логах,
+    # без ручного SQL по проду. Сравнивать с SIGNALS_TTL (profitable_lots.py).
+    if prev_check is not None:
+        cycle_sec = (now - prev_check).total_seconds()
+        logger.info(
+            f"Watchlist cycle for {entry.item_id}/{entry.region}: {cycle_sec:.1f}s "
+            f"since previous successful check"
+        )
+
     # После коммита — публикуем предвычисленные сигналы в Redis.
     # Бот и API читают из одного ключа → рассинхрон исключён.
-    await _publish_signals(db, entry.item_id, entry.region, snapshot)
+    await _publish_signals(db, entry.item_id, entry.region, snapshot, redis_client=redis_client)
 
 
-async def _publish_signals(db, item_id: str, region: str, snap) -> None:
+async def _publish_signals(db, item_id: str, region: str, snap, redis_client=None) -> None:
     """
     Вычисляет выгодные лоты для каждой watchlist-записи (item_id, region)
     и записывает результат в Redis.
 
     Вызывается сразу после успешного сбора снапшота — пока данные максимально свежие.
     Использует shared-логику из profitable_lots.py, чтобы бот и API видели одно и то же.
+
+    redis_client: опциональный общий Redis-клиент на весь батч (см.
+    collect_all_active_lots._run()) — если передан, используется вместо создания
+    нового соединения и не закрывается здесь (жизненным циклом владеет вызывающий код).
     """
     import json
     import redis.asyncio as aioredis
@@ -422,9 +452,11 @@ async def _publish_signals(db, item_id: str, region: str, snap) -> None:
             for s in rows
         }
 
-    r = None
+    owns_client = redis_client is None
+    r = redis_client
     try:
-        r = aioredis.from_url(settings.redis_url, decode_responses=True)
+        if owns_client:
+            r = aioredis.from_url(settings.redis_url, decode_responses=True)
         for entry in entries:
             try:
                 margin_pct, exclude_less_than = user_settings_map.get(entry.user_id, (0.0, 1))
@@ -444,7 +476,7 @@ async def _publish_signals(db, item_id: str, region: str, snap) -> None:
                     f"_publish_signals: entry user={entry.user_id} {item_id}/{region}: {e}"
                 )
     finally:
-        if r is not None:
+        if owns_client and r is not None:
             await r.aclose()
 
     # Лог для будущей калибровки — раз за цикл на каждую уникальную комбинацию

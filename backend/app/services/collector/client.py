@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 import httpx
@@ -17,8 +16,8 @@ class StalcraftClient:
         self.base_url = settings.stalcraft_base_url
         self.region = settings.stalcraft_region
 
-    async def _request(self, method: str, path: str, cost: int, **kwargs) -> dict:
-        await rate_limiter.acquire(cost=cost)
+    async def _request(self, method: str, path: str, cost: int, redis_client=None, **kwargs) -> dict:
+        await rate_limiter.acquire(cost=cost, redis_client=redis_client)
 
         token = await token_manager.get_token()
         headers = {"Authorization": f"Bearer {token}"}
@@ -43,17 +42,18 @@ class StalcraftClient:
                 )
 
         if response.status_code == 429:
-            logger.error("429 received despite token bucket — backing off 60s")
-            await asyncio.sleep(60)
+            logger.error("429 received despite token bucket")
             raise RuntimeError("Rate limit exceeded (429)")
 
         response.raise_for_status()
         return response.json() if response.content else {}
 
-    async def get_auction_lots(self, item_id: str, region: str, offset: int = 0, limit: int = 200) -> dict:
+    async def get_auction_lots(
+        self, item_id: str, region: str, offset: int = 0, limit: int = 200, redis_client=None,
+    ) -> dict:
         return await self._request(
             "GET", f"/{region}/auction/{item_id}/lots",
-            cost=TokenCost.LOTS,
+            cost=TokenCost.LOTS, redis_client=redis_client,
             params={"offset": offset, "limit": min(limit, 200), "additional": "true"},
         )
 
