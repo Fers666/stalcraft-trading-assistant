@@ -17,7 +17,7 @@ cd D:\SC_AUC\backend\app; graphify query "как работает X?"
 cd D:\SC_AUC\frontend\src; graphify query "что такое компонент Y?"
 cd D:\SC_AUC\backend\app; graphify path "NodeA" "NodeB"
 ```
-Графы: `backend/app/graphify-out/` (328 nodes) · `frontend/src/graphify-out/` (140 nodes)
+Графы: `backend/app/graphify-out/` (456 nodes) · `frontend/src/graphify-out/` (140 nodes)
 После значимых изменений кода: `graphify update .` из нужной папки.
 
 | Задача | Читать |

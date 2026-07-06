@@ -482,7 +482,17 @@
       "Bash(git commit -m 'docs: документация emission-трекера — CHANGELOG, DATABASE \\(таблица emission_events, миграция 0031\\), SERVICES \\(задача collect_emission\\), NOTES *)",
       "Bash(git commit -m 'fix: задержки Telegram-уведомлений — убран sleep\\(60\\) на 429, общий Redis-клиент на батч, per-entry try/except в боте *)",
       "Bash(git commit -m 'perf: оптимизация calculate_market_stats без изменения формул — CPU-спайки на проде *)",
-      "Bash(git commit -m 'chore: обновление permissions в .claude/settings.json \\(накопленные разрешения сессий\\) *)"
+      "Bash(git commit -m 'chore: обновление permissions в .claude/settings.json \\(накопленные разрешения сессий\\) *)",
+      "Bash(/d/python3.14/python.exe -c ' *)",
+      "Bash(/c/tools/node-v22.16.0-win-x64/node.exe shot3.cjs)",
+      "Bash(ls \"/c/Users/Евген/AppData/Local/Temp/claude/d--SC-AUC/1263962e-c646-45d4-a945-820fc89945b5/scratchpad/\" | grep -i emission)",
+      "Read(//c/Users/Евген/AppData/Local/Temp/claude/d--SC-AUC/1263962e-c646-45d4-a945-820fc89945b5/scratchpad//**)",
+      "Bash(/c/tools/node-v22.16.0-win-x64/node.exe shot4.cjs)",
+      "Bash(/d/python3.14/python.exe)",
+      "Bash(git -C d:/SC_AUC add backend/app/tasks/collectors.py)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/auth/login -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"evg.ser.egorov@gmail.com\\\\\",\\\\\"password\\\\\":\\\\\"admin\\\\\"}\")",
+      "Bash(git commit -m 'docs: CHANGELOG/NOTES/SERVICES после Telegram-фикса и perf market_stats; QA-находка — регрессия причины G \\(утечка Redis-соединений\\) *)"
     ],
     "additionalDirectories": [
       "\\tmp",
