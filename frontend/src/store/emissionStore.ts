@@ -20,7 +20,7 @@ export const useEmissionStore = create<EmissionState>((set) => ({
   fetch: async () => {
     set({ loading: true })
     try {
-      const { data } = await api.get('/api/v1/emission/current')
+      const { data } = await api.get('/emission/current')
       set({
         isActive: data.is_active,
         startedAt: data.started_at,
