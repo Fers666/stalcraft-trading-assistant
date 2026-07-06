@@ -842,6 +842,27 @@ async def _collect_emission_async():
                 await r.set(EMISSION_REDIS_KEY, current_start_raw, ex=7200)
                 logger.info(f"Emission started: {current_start_raw} region={region}")
 
+            elif not current_start_raw and not prev_fingerprint:
+                # Первый запуск (пустой Redis) — засеять таблицу из previousStart/previousEnd
+                previous_start_raw = data.get("previousStart")
+                previous_end_raw = data.get("previousEnd")
+                if previous_start_raw and previous_end_raw:
+                    existing = (await db.execute(
+                        select(EmissionEvent)
+                        .where(EmissionEvent.region == region)
+                        .limit(1)
+                    )).scalar_one_or_none()
+                    if existing is None:
+                        seed = EmissionEvent(
+                            region=region,
+                            started_at=datetime.fromisoformat(previous_start_raw.replace("Z", "+00:00")),
+                            ended_at=datetime.fromisoformat(previous_end_raw.replace("Z", "+00:00")),
+                            notified=True,
+                        )
+                        db.add(seed)
+                        await db.commit()
+                        logger.info(f"Emission seeded from previousStart={previous_start_raw} region={region}")
+
             elif not current_start_raw and prev_fingerprint:
                 # Конец выброса — закрываем открытое событие
                 result = await db.execute(
