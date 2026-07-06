@@ -51,6 +51,16 @@ def _clamp_pct(value: float | None) -> float | None:
     return max(-PCT_LIMIT, min(PCT_LIMIT, value))
 
 
+def _fast_mean(values: list) -> float:
+    """
+    Быстрое среднее для списков целых чисел (price_per_unit — BigInteger в БД).
+    Математически идентично statistics.mean() для int-входа, но без накладных
+    расходов на точные Fraction-вычисления — используется в горячих циклах
+    (группировка по часам/дням, вызывается десятки раз на предмет).
+    """
+    return sum(values) / len(values)
+
+
 async def calculate_market_stats(
     db: AsyncSession,
     item_id: str,
@@ -148,13 +158,13 @@ async def calculate_market_stats(
             """
             if not groups:
                 return None
-            max_avg = max(statistics.mean(ps) for ps in groups.values())
+            max_avg = max(_fast_mean(ps) for ps in groups.values())
             max_vol = max(len(ps) for ps in groups.values())
             if max_avg == 0 or max_vol == 0:
                 return max(groups, key=lambda k: len(groups[k]))
 
             def score(key):
-                avg_price = statistics.mean(groups[key])
+                avg_price = _fast_mean(groups[key])
                 volume    = len(groups[key])
                 return (avg_price / max_avg) * WEIGHT_PRICE + (volume / max_vol) * WEIGHT_VOLUME
 
@@ -226,9 +236,9 @@ async def calculate_market_stats(
 
         # Час/день где средняя минимальная цена наименьшая
         if buy_by_hour:
-            best_buy_hour = min(buy_by_hour, key=lambda h: statistics.mean(buy_by_hour[h]))
+            best_buy_hour = min(buy_by_hour, key=lambda h: _fast_mean(buy_by_hour[h]))
         if buy_by_day:
-            best_buy_day = min(buy_by_day, key=lambda d: statistics.mean(buy_by_day[d]))
+            best_buy_day = min(buy_by_day, key=lambda d: _fast_mean(buy_by_day[d]))
 
         # Лучший час покупки для каждого дня отдельно
         buy_by_day_hour: dict[str, dict[int, list]] = {}
@@ -241,7 +251,7 @@ async def calculate_market_stats(
             )
 
         buy_hours_by_day = {
-            day: min(hours_map, key=lambda h: statistics.mean(hours_map[h]))
+            day: min(hours_map, key=lambda h: _fast_mean(hours_map[h]))
             for day, hours_map in buy_by_day_hour.items()
             if len(hours_map) >= 1
         }
@@ -341,9 +351,19 @@ def _calculate_batch_stats(sales: list) -> dict | None:
         ("x51_plus", "51+ шт",  51,  10_000),
     ]
 
+    # Один проход по sales вместо N проходов (по одному на бакет): диапазоны
+    # бакетов не пересекаются и покрывают весь диапазон 1..10000, поэтому
+    # каждую продажу можно сразу отнести к её бакету.
+    groups_by_key: dict[str, list] = {}
+    for s in sales:
+        for key, _label, lo, hi in BUCKETS:
+            if lo <= s.amount <= hi:
+                groups_by_key.setdefault(key, []).append(s)
+                break
+
     by_size: dict = {}
     for key, label, lo, hi in BUCKETS:
-        group = [s for s in sales if lo <= s.amount <= hi]
+        group = groups_by_key.get(key)
         if not group:
             continue
         prices = [s.price_per_unit for s in group]
@@ -569,8 +589,6 @@ def _estimate_hours(
     if len(time_price_pairs) >= MIN_BUYOUTS_FOR_TIME_MODEL:
         # Сортируем по цене
         pairs = sorted(time_price_pairs, key=lambda x: x[1])
-        prices = [p[1] for p in pairs]
-        times  = [p[0] for p in pairs]
 
         # Находим ближайшие по цене
         nearest = sorted(pairs, key=lambda x: abs(x[1] - price))[:5]
