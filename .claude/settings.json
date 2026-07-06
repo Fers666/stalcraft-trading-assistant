@@ -492,7 +492,15 @@
       "Bash(git -C d:/SC_AUC add backend/app/tasks/collectors.py)",
       "Bash(python3 -m json.tool)",
       "Bash(curl -s -X POST http://localhost:8000/api/v1/auth/login -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"evg.ser.egorov@gmail.com\\\\\",\\\\\"password\\\\\":\\\\\"admin\\\\\"}\")",
-      "Bash(git commit -m 'docs: CHANGELOG/NOTES/SERVICES после Telegram-фикса и perf market_stats; QA-находка — регрессия причины G \\(утечка Redis-соединений\\) *)"
+      "Bash(git commit -m 'docs: CHANGELOG/NOTES/SERVICES после Telegram-фикса и perf market_stats; QA-находка — регрессия причины G \\(утечка Redis-соединений\\) *)",
+      "Bash(git -C d:/SC_AUC add frontend/src/store/emissionStore.ts backend/app/tasks/collectors.py)",
+      "Bash(python -m py_compile backend/app/tasks/collectors.py backend/app/tasks/analyzers.py backend/app/tasks/tiers.py backend/app/tasks/cleanup.py backend/app/services/cache/api_cache.py)",
+      "Bash(awk '{split\\($2,a,\"=\"\\); split\\(a[2],b,\":\"\\); ips[b[1]]++} END {for \\(ip in ips\\) print ip, ips[ip]}')",
+      "Bash(awk '{for\\(i=1;i<=NF;i++\\) if \\($i ~ /^\\(age|idle|cmd|db\\)=/\\) printf \"%s \", $i; print \"\"}')",
+      "Bash(python -m py_compile backend/app/services/auth/token_manager.py)",
+      "Bash(git commit -m 'feat: дизайн-скилы для designer — impeccable, taste-skill \\(13\\), emilkowalski \\(3\\) *)",
+      "Bash(awk '{for\\(i=1;i<=NF;i++\\) if \\($i ~ /^\\(age|idle|cmd\\)=/\\) printf \"%s \", $i; print \"\"}')",
+      "Bash(awk '{print $4, $5, $6}')"
     ],
     "additionalDirectories": [
       "\\tmp",

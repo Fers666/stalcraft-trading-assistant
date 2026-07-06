@@ -56,16 +56,27 @@ class ApiCache:
             await r.aclose()
         return None
 
-    async def set_lots(self, region: str, item_id: str, data: dict) -> None:
-        """Сохраняет лоты в кэш на 5 минут."""
-        r = self._redis()
+    async def set_lots(
+        self, region: str, item_id: str, data: dict, redis_client=None,
+    ) -> None:
+        """
+        Сохраняет лоты в кэш на 5 минут.
+
+        redis_client: опциональный общий Redis-клиент на весь батч (см.
+        collect_all_active_lots._run()) — если передан, используется вместо
+        создания нового соединения и не закрывается здесь (жизненным циклом
+        владеет вызывающий код).
+        """
+        owns_client = redis_client is None
+        r = redis_client if redis_client is not None else self._redis()
         try:
             await r.setex(self._lots_key(region, item_id), TTL_LOTS, json.dumps(data))
             logger.debug(f"Cache SET: lots {region}/{item_id}")
         except Exception as e:
             logger.warning(f"Cache write error: {e}")
         finally:
-            await r.aclose()
+            if owns_client:
+                await r.aclose()
 
     async def get_history(self, region: str, item_id: str) -> dict | None:
         """Возвращает закэшированную историю или None."""

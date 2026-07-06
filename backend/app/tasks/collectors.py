@@ -26,9 +26,16 @@ def run_async(coro):
     loop = asyncio.new_event_loop()
     try:
         result = loop.run_until_complete(coro)
-        # Drain pending transport-close callbacks so redis.asyncio connections
-        # clean up while the loop is still running (prevents __del__ warnings).
-        loop.run_until_complete(asyncio.sleep(0))
+        # Drain pending transport-close callbacks so redis.asyncio/aiohttp
+        # connections finish closing while the loop is still running.
+        # Real non-zero sleeps (not sleep(0)): asyncio transport teardown
+        # (_call_connection_lost → sock.close()) may be deferred to writer
+        # callbacks that only fire when selector.select() performs an actual
+        # I/O poll with a non-zero timeout — a single sleep(0) gives exactly
+        # one _run_once() tick without a real poll, leaving sockets open
+        # (leaked connections in Redis) after loop.close().
+        for _ in range(3):
+            loop.run_until_complete(asyncio.sleep(0.01))
         return result
     finally:
         loop.close()
@@ -118,7 +125,31 @@ def collect_all_active_lots(self):
                         entry.last_successful_check = now
                 await db.commit()
         finally:
+            # TEMP DEBUG (2026-07-06, telegram-notification-bug.md, причина G):
+            # INFO намеренно — чтобы видеть в прод-логах без смены log level.
+            # Через 1-2 дня после деплоя понизить до debug / убрать.
+            # try/except: приватные поля пула могут исчезнуть при смене
+            # версии redis-py — не должно ломать finally.
+            try:
+                pool = redis_client.connection_pool
+                logger.info(
+                    f"Redis pool before aclose: available={len(pool._available_connections)} "
+                    f"in_use={len(pool._in_use_connections)}"
+                )
+            except AttributeError:
+                pass
             await redis_client.aclose()
+            # Страховка: идемпотентно, no-op если пул уже пуст после aclose()
+            # (защита от сценария auto_close_connection_pool=False).
+            await redis_client.connection_pool.disconnect(inuse_connections=True)
+            try:
+                pool = redis_client.connection_pool
+                logger.info(
+                    f"Redis pool after disconnect: available={len(pool._available_connections)} "
+                    f"in_use={len(pool._in_use_connections)}"
+                )
+            except AttributeError:
+                pass
 
     try:
         run_async(_run())
@@ -320,8 +351,10 @@ async def _collect_lots_for_item(db, entry, redis_client=None):
     data = await stalcraft_client.get_auction_lots(entry.item_id, region=entry.region, redis_client=redis_client)
     lots = data.get("lots", [])
 
-    # Обновляем Redis-кэш сразу — GET /lots/{id} отдаст свежие данные
-    await api_cache.set_lots(entry.region, entry.item_id, data)
+    # Обновляем Redis-кэш сразу — GET /lots/{id} отдаст свежие данные.
+    # redis_client прокидывается, чтобы api_cache не создавал эфемерное
+    # соединение на каждый предмет внутри батча (до 50 раз за запуск).
+    await api_cache.set_lots(entry.region, entry.item_id, data, redis_client=redis_client)
 
     if not lots:
         return

@@ -13,7 +13,13 @@ def run_async(coro):
     loop = asyncio.new_event_loop()
     try:
         result = loop.run_until_complete(coro)
-        loop.run_until_complete(asyncio.sleep(0))
+        # Drain pending transport-close callbacks: real non-zero sleeps (not
+        # sleep(0)) — asyncio transport teardown may be deferred to writer
+        # callbacks that only fire on an actual select() poll with non-zero
+        # timeout; a single sleep(0) is one tick without a real poll and
+        # leaves sockets open after loop.close() (см. collectors.run_async).
+        for _ in range(3):
+            loop.run_until_complete(asyncio.sleep(0.01))
         return result
     finally:
         loop.close()

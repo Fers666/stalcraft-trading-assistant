@@ -12,7 +12,12 @@ def run_async(coro):
     import asyncio
     loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(coro)
+        result = loop.run_until_complete(coro)
+        # Drain отложенных transport-close callbacks перед loop.close() —
+        # реальные ненулевые sleep, см. подробный комментарий в collectors.run_async.
+        for _ in range(3):
+            loop.run_until_complete(asyncio.sleep(0.01))
+        return result
     finally:
         loop.close()
 
