@@ -372,3 +372,23 @@ class News(Base):
         Index("ix_news_published_pinned", "is_published", "is_pinned", "created_at"),
     )
 
+
+# ─── Выбросы (emission events) ───────────────────────────────────────────────
+
+class EmissionEvent(Base):
+    """Зафиксированный выброс (emission). Одна строка на событие."""
+    __tablename__ = "emission_events"
+
+    id          = Column(Integer, primary_key=True)
+    region      = Column(String(10), nullable=False)                        # "RU", "EU" и т.д.
+    started_at  = Column(DateTime(timezone=True), nullable=False)           # currentStart из API
+    ended_at    = Column(DateTime(timezone=True), nullable=True)            # NULL пока идёт
+    detected_at = Column(DateTime(timezone=True), nullable=False,           # момент обнаружения
+                         server_default=func.now())
+    notified    = Column(Boolean, nullable=False, default=False)            # Telegram отправлен
+
+    __table_args__ = (
+        Index("ix_emission_region_started", "region", "started_at"),
+        Index("ix_emission_active", "region", "ended_at"),
+    )
+

@@ -8,6 +8,7 @@ import { useFeedStore } from '../store/feedStore'
 import { tokens } from '../theme'
 import { TIER_LABELS, TIER_COLORS, type Tier } from '../constants/tiers'
 import GlobalFeed, { FEED_HEIGHT } from './GlobalFeed'
+import { EmissionWidget } from './EmissionWidget'
 
 const { gold: G2, goldAccent: G3, text2: T2, border: BORDER } = tokens
 
@@ -169,6 +170,9 @@ function AppNav() {
           )
         })}
       </div>
+
+      {/* Виджет выброса */}
+      <EmissionWidget />
 
       {/* Кнопка Админ — только для is_admin */}
       {user?.is_admin && (

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     stalcraft_client_id: str = ""
     stalcraft_client_secret: str = ""
     stalcraft_api_mode: Literal["demo", "production"] = "production"
-    stalcraft_region: str = "EU"
+    stalcraft_region: str = "RU"
 
     # Database
     database_url: str

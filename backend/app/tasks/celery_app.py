@@ -56,5 +56,10 @@ celery_app.conf.update(
         },
         # Telegram-уведомления — обрабатываются telegram_bot сервисом (polling),
         # scan_and_notify отключён во избежание дублирования.
+        # Трекинг радиационных выбросов — каждые 2 минуты, 1 токен/запрос.
+        "collect-emission": {
+            "task": "app.tasks.collectors.collect_emission",
+            "schedule": timedelta(seconds=120),
+        },
     },
 )

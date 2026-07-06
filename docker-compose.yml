@@ -37,6 +37,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD:-stalcraft_dev}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
+      STALCRAFT_REGION: RU
     ports:
       - "8000:8000"
     volumes:
@@ -54,6 +55,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD:-stalcraft_dev}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
+      STALCRAFT_REGION: RU
     volumes:
       - ./backend:/app
     depends_on:
@@ -69,6 +71,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD:-stalcraft_dev}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
+      STALCRAFT_REGION: RU
     volumes:
       - ./backend:/app
     depends_on:

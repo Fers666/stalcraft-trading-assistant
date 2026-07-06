@@ -36,6 +36,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
+      STALCRAFT_REGION: RU
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,6 +51,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
+      STALCRAFT_REGION: RU
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,6 +66,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
+      STALCRAFT_REGION: RU
     depends_on:
       postgres:
         condition: service_healthy
