@@ -40,16 +40,23 @@ celery_app.conf.update(
             "task": "app.tasks.cleanup.delete_old_data",
             "schedule": crontab(hour=3, minute=0),
         },
-        # calculate-market-stats удалён из расписания — теперь запускается цепочкой
-        # из collect_all_history после успешного завершения сбора, чтобы исключить
-        # параллельную нагрузку на оба воркера (history на Worker-1, stats на Worker-2).
+        # Порционный пересчёт статистики: 10 слотов в час (:12..:57), каждая пара —
+        # ровно один слот (crc32 % 10). Окно :00–:11 оставлено collect_all_history
+        # (сдвиг фаз вместо цепочки — мотивация 9f8086e сохранена). Дифф-пропуск пар
+        # без новых продаж; в 04:xx МСК — принудительный полный круг.
+        # timezone="Europe/Moscow" → crontab-минуты и вычисление слота в задаче
+        # согласованы по МСК.
+        "calculate-market-stats-batch": {
+            "task": "app.tasks.analyzers.calculate_market_stats_batch",
+            "schedule": crontab(minute="12-59/5"),
+        },
         # Сверка предсказаний signal_outcomes с фактическими продажами — раз в сутки
         "evaluate-signal-outcomes": {
             "task": "app.tasks.analyzers.evaluate_signal_outcomes",
             "schedule": crontab(hour=4, minute=30),
         },
-        # Понижение тарифов с истёкшим tier_expires_at — между cleanup (3:00) и
-        # часовым пересчётом статистики (минута 5). Не обращается к Stalcraft API.
+        # Понижение тарифов с истёкшим tier_expires_at — после cleanup (3:00),
+        # до ночного force-круга статистики (04:12+). Не обращается к Stalcraft API.
         "sweep-expired-tiers": {
             "task": "app.tasks.tiers.sweep_expired_tiers",
             "schedule": crontab(hour=3, minute=30),

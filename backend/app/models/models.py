@@ -173,6 +173,9 @@ class SalesHistory(Base):
     __table_args__ = (
         Index("ix_sales_item_time", "user_id", "item_id", "sale_time"),
         Index("ix_sales_cleanup", "will_be_deleted_at"),
+        # Дифф-пропуск в calculate_market_stats_batch: поиск продаж,
+        # собранных за последние 26ч после последнего расчёта статистики.
+        Index("ix_sales_collected_at", "collected_at"),
     )
 
 

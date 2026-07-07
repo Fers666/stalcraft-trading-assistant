@@ -1,11 +1,25 @@
 """
 Celery задачи аналитики: пересчёт рыночной статистики.
-Запускается раз в час после сбора истории.
+Порционный пересчёт (calculate_market_stats_batch) — 10 слотов в час по beat.
 """
 import logging
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+# Порционный пересчёт market_statistics: каждая пара (item_id, region)
+# детерминированно закреплена за слотом crc32 % NUM_SLOTS; beat запускает
+# слоты в :12, :17, ..., :57 (см. celery_app.py). В час FULL_RECALC_HOUR_MSK
+# дифф-фильтр отключается — принудительный полный круг раз в сутки.
+NUM_SLOTS = 10
+SLOT_FIRST_MINUTE = 12
+SLOT_STEP_MINUTES = 5
+FULL_RECALC_HOUR_MSK = 4
+# Окно поиска новых продаж для дифф-пропуска: ночной force-проход обновляет
+# calculated_at всех пар раз в сутки, значит строка sales_history старше 26ч
+# не может быть новее чьего-либо calculated_at. Граница нужна планировщику,
+# чтобы работать по индексу ix_sales_collected_at, а не сканом всей таблицы.
+DIRTY_LOOKBACK_HOURS = 26
 
 
 def run_async(coro):
@@ -41,9 +55,130 @@ def calculate_stats_single(item_id: str, region: str):
     run_async(_run())
 
 
+@celery_app.task(name="app.tasks.analyzers.calculate_market_stats_batch", bind=True, max_retries=3)
+def calculate_market_stats_batch(self):
+    """
+    Порционный пересчёт market_statistics: 1/NUM_SLOTS активных пар за запуск,
+    полный круг за час (beat: :12, :17, ..., :57 МСК).
+
+    Слот запуска вычисляется из минуты по МСК, принадлежность пары слоту —
+    crc32(f"{item_id}|{region}") % NUM_SLOTS (stateless, устойчиво к изменению
+    watchlist). Пары без новых продаж с момента последнего расчёта пропускаются
+    (дифф по sales_history.collected_at > market_statistics.calculated_at);
+    в час FULL_RECALC_HOUR_MSK — force-пересчёт всех пар слота без диффа.
+    """
+
+    async def _run():
+        import time
+        import zlib
+        from datetime import datetime, timedelta, timezone
+        from app.db.session import get_celery_db_session
+        from app.models.models import MarketStatistics, SalesHistory, UserWatchlist
+        from app.services.analytics.market_stats import calculate_market_stats
+        from sqlalchemy import and_, select
+
+        now_msk = datetime.now(timezone(timedelta(hours=3)))
+        slot = ((now_msk.minute - SLOT_FIRST_MINUTE) // SLOT_STEP_MINUTES) % NUM_SLOTS
+        force = now_msk.hour == FULL_RECALC_HOUR_MSK
+
+        async with get_celery_db_session() as db:
+            watchlist = (await db.execute(
+                select(UserWatchlist).where(UserWatchlist.is_active == True)
+            )).scalars().all()
+
+            # Дедупликация: считаем статистику один раз на пару (item_id, region)
+            unique_pairs = {(e.item_id, e.region) for e in watchlist}
+            slot_pairs = [
+                p for p in unique_pairs
+                if zlib.crc32(f"{p[0]}|{p[1]}".encode()) % NUM_SLOTS == slot
+            ]
+
+            if force:
+                to_process = slot_pairs
+            else:
+                # «Грязные» пары: есть продажи, собранные после последнего расчёта.
+                # Сравниваем по collected_at (момент вставки строки), а НЕ по
+                # sale_time — игровое время сделки отстаёт от вставки и при
+                # часовом сборе истории продажи терялись бы из диффа.
+                dirty_rows = (await db.execute(
+                    select(SalesHistory.item_id, SalesHistory.region)
+                    .join(MarketStatistics, and_(
+                        MarketStatistics.item_id == SalesHistory.item_id,
+                        MarketStatistics.region == SalesHistory.region,
+                    ))
+                    .where(
+                        SalesHistory.collected_at > MarketStatistics.calculated_at,
+                        SalesHistory.collected_at
+                        >= datetime.now(timezone.utc) - timedelta(hours=DIRTY_LOOKBACK_HOURS),
+                    )
+                    .distinct()
+                )).all()
+                dirty_pairs = {(r.item_id, r.region) for r in dirty_rows}
+
+                # Пары без строки MarketStatistics — всегда пересчитываем
+                # (защитная сетка на случай сбоя цепочки calculate_stats_single
+                # при добавлении в watchlist).
+                stats_rows = (await db.execute(
+                    select(MarketStatistics.item_id, MarketStatistics.region).distinct()
+                )).all()
+                pairs_with_stats = {(r.item_id, r.region) for r in stats_rows}
+
+                to_process = [
+                    p for p in slot_pairs
+                    if p in dirty_pairs or p not in pairs_with_stats
+                ]
+
+            skipped = len(slot_pairs) - len(to_process)
+            logger.info(
+                f"market_stats batch: slot={slot}/{NUM_SLOTS} force={force} "
+                f"pairs_in_slot={len(slot_pairs)} dirty={len(to_process)} skipped={skipped}"
+            )
+
+            started = time.monotonic()
+            calculated = 0
+            errors = 0
+            for item_id, region in to_process:
+                try:
+                    result = await calculate_market_stats(
+                        db=db,
+                        item_id=item_id,
+                        region=region,
+                    )
+                    calculated += 1
+                    if result:
+                        opts = result.sell_options or []
+                        logger.info(
+                            f"Stats calculated for {item_id}/{region} | "
+                            f"sell_options={len(opts)} variants"
+                        )
+                    else:
+                        logger.info(f"No sales data for {item_id}/{region} — stats skipped")
+                except Exception as e:
+                    errors += 1
+                    await db.rollback()
+                    logger.error(f"Failed to calculate stats for {item_id}/{region}: {e}")
+
+            duration = time.monotonic() - started
+            logger.info(
+                f"market_stats batch: slot={slot}/{NUM_SLOTS} done in {duration:.1f}s "
+                f"(calculated={calculated}, skipped={skipped}, errors={errors})"
+            )
+
+    try:
+        run_async(_run())
+    except Exception as exc:
+        raise self.retry(exc=exc, countdown=120)
+
+
 @celery_app.task(name="app.tasks.analyzers.calculate_all_market_stats", bind=True, max_retries=3)
 def calculate_all_market_stats(self):
-    """Пересчитывает market_statistics для всех активных watchlist записей."""
+    """
+    Пересчитывает market_statistics для ВСЕХ активных watchlist записей.
+
+    Ручной инструмент (docker exec ... celery call ...): из beat-расписания
+    и из цепочки collect_all_history задача убрана — регулярный пересчёт
+    делает порционная calculate_market_stats_batch.
+    """
 
     async def _run():
         from app.db.session import get_celery_db_session

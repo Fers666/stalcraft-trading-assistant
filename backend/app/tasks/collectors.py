@@ -217,9 +217,10 @@ def collect_all_history(self):
                 logger.error(f"History chunk crashed: {result}")
 
     try:
+        # Статистика пересчитывается независимыми порциями
+        # (calculate_market_stats_batch, beat :12..:57 — см. celery_app.py),
+        # цепочка calculate_all_market_stats.delay() убрана.
         run_async(_run())
-        from app.tasks.analyzers import calculate_all_market_stats
-        calculate_all_market_stats.delay()
     except Exception as exc:
         raise self.retry(exc=exc, countdown=120)
 
