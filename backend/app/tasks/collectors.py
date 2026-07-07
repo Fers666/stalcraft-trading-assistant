@@ -125,14 +125,14 @@ def collect_all_active_lots(self):
                         entry.last_successful_check = now
                 await db.commit()
         finally:
-            # TEMP DEBUG (2026-07-06, telegram-notification-bug.md, причина G):
-            # INFO намеренно — чтобы видеть в прод-логах без смены log level.
-            # Через 1-2 дня после деплоя понизить до debug / убрать.
+            # Диагностика утечки Redis-соединений (2026-07-06,
+            # telegram-notification-bug.md, причина G). Понижено до debug
+            # 2026-07-07 после подтверждения фикса утечки на проде (895aee6).
             # try/except: приватные поля пула могут исчезнуть при смене
             # версии redis-py — не должно ломать finally.
             try:
                 pool = redis_client.connection_pool
-                logger.info(
+                logger.debug(
                     f"Redis pool before aclose: available={len(pool._available_connections)} "
                     f"in_use={len(pool._in_use_connections)}"
                 )
@@ -144,7 +144,7 @@ def collect_all_active_lots(self):
             await redis_client.connection_pool.disconnect(inuse_connections=True)
             try:
                 pool = redis_client.connection_pool
-                logger.info(
+                logger.debug(
                     f"Redis pool after disconnect: available={len(pool._available_connections)} "
                     f"in_use={len(pool._in_use_connections)}"
                 )
