@@ -44,6 +44,10 @@ COVERAGE_MEDIUM = 0.10  # 10–30% продаж с lot_start + минимум 3 
 # взвинтить волатильность/weekend-бонус на порядки → переполнение поля.
 PCT_LIMIT = 999.99
 
+# Игровое ограничение аукциона: лот живёт максимум 48 часов.
+# Вычисленное время на рынке больше этого — мусор матчинга снэпшот→история.
+MAX_LOT_LIFETIME_HOURS = 48
+
 
 def _clamp_pct(value: float | None) -> float | None:
     if value is None:
@@ -463,7 +467,10 @@ def _avg_sell_time_from_buyouts(sales: list) -> float | None:
         try:
             lot_start = datetime.fromisoformat(lot_start_str.replace("Z", "+00:00"))
             hours = (s.sale_time - lot_start).total_seconds() / 3600
-            if 0 < hours < 48 * 7:
+            # Лот живёт на аукционе максимум 48ч (игровое ограничение) —
+            # time_on_market > 48ч физически невозможно, это ошибка матчинга
+            # снэпшот→история, а не медленная продажа.
+            if 0 < hours <= MAX_LOT_LIFETIME_HOURS:
                 times.append(hours)
         except Exception:
             continue
@@ -498,7 +505,8 @@ async def _calculate_sell_options(
         try:
             lot_start = datetime.fromisoformat(lot_start_str.replace("Z", "+00:00"))
             hours = (s.sale_time - lot_start).total_seconds() / 3600
-            if 0 < hours < 48 * 7:  # исключаем аномалии
+            # > MAX_LOT_LIFETIME_HOURS — ошибка матчинга, см. _avg_sell_time_from_buyouts
+            if 0 < hours <= MAX_LOT_LIFETIME_HOURS:
                 time_price_pairs.append((hours, s.price_per_unit))
         except Exception:
             continue
