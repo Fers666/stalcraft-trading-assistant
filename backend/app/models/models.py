@@ -388,7 +388,8 @@ class EmissionEvent(Base):
     ended_at    = Column(DateTime(timezone=True), nullable=True)            # NULL пока идёт
     detected_at = Column(DateTime(timezone=True), nullable=False,           # момент обнаружения
                          server_default=func.now())
-    notified    = Column(Boolean, nullable=False, default=False)            # Telegram отправлен
+    notified     = Column(Boolean, nullable=False, default=False)           # Telegram о старте отправлен
+    end_notified = Column(Boolean, nullable=False, default=False)           # Telegram о завершении отправлен
 
     __table_args__ = (
         Index("ix_emission_region_started", "region", "started_at"),

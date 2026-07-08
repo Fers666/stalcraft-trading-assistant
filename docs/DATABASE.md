@@ -412,7 +412,7 @@ watchlist по `(item_id, region)`, логируются текущие проф
 
 ### `emission_events` — события радиационного выброса
 
-Заполняется Celery-задачей `collect_emission` (каждые 2 мин). Каждая строка — один задетектированный выброс (start/end пара). Дедупликация на уровне Redis-fingerprint (`emission:current_fingerprint`): задача сравнивает `currentStart` из API с сохранённым значением и пишет в БД только при изменении.
+Заполняется Celery-задачей `collect_emission` (каждые 2 мин). Каждая строка — один задетектированный выброс (start/end пара). Дедупликация на уровне Redis-fingerprint (`emission:current_fingerprint`): задача сравнивает `currentStart` из API с сохранённым значением и пишет в БД только при изменении. Worker только фиксирует события; Telegram-рассылку по флагам `notified`/`end_notified` делает `telegram_bot::notify_emission_events` (polling каждые 15 сек, с 2026-07-08 — см. `docs/SERVICES.md`).
 
 | Поле | Тип | Nullable | Описание |
 |------|-----|----------|----------|
@@ -421,13 +421,14 @@ watchlist по `(item_id, region)`, логируются текущие проф
 | `started_at` | timestamptz | нет | Время начала выброса (`currentStart` из API) |
 | `ended_at` | timestamptz | да | Время окончания (заполняется когда выброс завершился; `NULL` = выброс активен) |
 | `detected_at` | timestamptz | нет | Время когда задача впервые зафиксировала событие |
-| `notified` | boolean | нет | `true` = Telegram broadcast уже отправлен для этого выброса |
+| `notified` | boolean | нет | `true` = Telegram-уведомление о СТАРТЕ отправлено (ставит бот только после ≥1 успешной отправки; seed-событие первого запуска — сразу `true`) |
+| `end_notified` | boolean | нет | `true` = Telegram-уведомление о ЗАВЕРШЕНИИ отправлено (default `false`; миграция 0033 backfill'ом выставила `true` всей истории, чтобы бот не разослал её после деплоя) |
 
 **Индексы:**
 - `ix_emission_region_started (region, started_at)` — поиск событий по региону и времени
 - `ix_emission_active (region, ended_at)` — быстрый поиск активных выбросов (`ended_at IS NULL`)
 
-**Миграция:** `0031_emission_events.py`
+**Миграции:** `0031_emission_events.py`, `0033_emission_end_notified.py`
 
 ---
 
@@ -483,6 +484,7 @@ watchlist по `(item_id, region)`, логируются текущие проф
 | `0030_news_table.py` | Новая таблица `news` (новости и анонсы, 6 эндпоинтов `/api/v1/news/*`) |
 | `0031_emission_events.py` | Новая таблица `emission_events` (трекер радиационных выбросов; индексы `ix_emission_region_started`, `ix_emission_active`) |
 | `0032_sales_collected_at_idx.py` | Индекс `ix_sales_collected_at (collected_at)` на `sales_history` — под дифф-пропуск в `calculate_market_stats_batch` (пары с новыми продажами после `calculated_at`) |
+| `0033_emission_end_notified.py` | Поле `emission_events.end_notified` (boolean NOT NULL, server_default false) + backfill `end_notified = TRUE` всей истории — рассылка о завершении выброса перенесена в `telegram_bot` |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 

@@ -12,7 +12,7 @@
 | `calculate_all_market_stats` | — (ручной инструмент, из расписания и цепочки убрана 2026-07-07) | `app.tasks.analyzers` | Полный пересчёт market_statistics всех активных пар (включая 24ч/48ч/7д/30д окна) — запуск вручную через `celery call`, например после миграций |
 | `delete_old_data` | ежедневно 03:00 | `app.tasks.cleanup` | Данные старше 120 дней |
 | `sweep_expired_tiers` | ежедневно 03:30 | `app.tasks.tiers` | Понижение до `base` пользователей с истёкшим `tier_expires_at` + деактивация лишних карточек watchlist сверх нового лимита |
-| `collect_emission` | каждые 2 мин | `app.tasks.collectors` | Опрос `GET /RU/emission`, детект start/end выброса, Redis-дедупликация (`emission:current_fingerprint`), Telegram broadcast всем `is_active AND is_approved AND telegram_chat_id IS NOT NULL` (без гейтинга тарифом) |
+| `collect_emission` | каждые 2 мин | `app.tasks.collectors` | Опрос `GET /RU/emission`, детект start/end выброса, Redis-дедупликация (`emission:current_fingerprint`), запись событий в `emission_events` (старт → `notified=False`; конец → `ended_at`; seed первого запуска → `notified=True, end_notified=True`). С 2026-07-08 worker сам НЕ рассылает Telegram — рассылку делает `telegram_bot::notify_emission_events` (см. раздел Telegram) |
 
 ### Логика дедупликации watchlist
 
@@ -505,7 +505,7 @@ backend (FastAPI)          → /api/v1/telegram/* (link-code, status, unlink)
 ```
 
 **Сервис:** `telegram_bot` в `docker-compose.prod.yml` → `python /tg_bot/bot.py`  
-**Код:** `telegram_bot/bot.py` — команды `/start /link /status /stop` + цикл уведомлений (каждые 30 сек)  
+**Код:** `telegram_bot/bot.py` — команды `/start /link /status /stop` + цикл уведомлений `_notifier_loop` (каждые 15 сек: `notify_profitable_lots` → `notify_emission_events`)  
 **Celery `scan_and_notify`:** **отключён** (дубль с polling-циклом бота)
 
 ### Поток привязки аккаунта
@@ -523,6 +523,16 @@ backend (FastAPI)          → /api/v1/telegram/* (link-code, status, unlink)
 | Dedup TTL | 48 ч (Redis ключ `tg_sent:{user_id}:{item_id}:{region}:{qlt}:{enchant}:{startTime}`) |
 | Порог прибыли | `normal_net_price > buy_price` |
 | Формат сообщения | все 3 опции с ✅/❌, явно "выставить X → получишь Y → прибыль Z" |
+
+### Уведомления о выбросе (`notify_emission_events`, bot.py)
+
+С 2026-07-08 рассылку о старте/завершении выброса выполняет `telegram_bot`, а не Celery worker (worker через одноразовый `Bot(token)` терял отправки — Timed out / ConnectError — при безусловном `notified=True`). Вызывается в `_notifier_loop` каждые 15 сек, после `notify_profitable_lots`, в том же try.
+
+- **Выборка из `emission_events`:** старты — `notified = false`; концы — `ended_at IS NOT NULL AND end_notified = false`. Оба списка пусты (обычный случай) → быстрый выход.
+- **Отсечка свежести:** `EMISSION_MAX_AGE_MIN = 15` мин — устаревшие события помечаются флагом без рассылки (защита от спама историей после простоя бота).
+- **Получатели:** `telegram_chat_id IS NOT NULL` + `is_active` + `is_approved` + `UserSettings.notify_telegram` (нет строки настроек → считается True). Tier-гейт НЕ применяется — выброс глобальное событие, в отличие от премиум-сигналов по лотам. Пустой список получателей → событие помечается (иначе вечный retry).
+- **Дедупликация через БД:** флаг (`notified` / `end_notified`) ставится ТОЛЬКО после ≥1 успешной отправки; при полном провале — ретрай каждые 15 сек в пределах отсечки 15 мин.
+- **Отправка:** живой `app.bot.send_message`, `parse_mode=HTML`, per-chat try/except; префикс `[STAGE]` при `IS_STAGE`.
 
 ---
 

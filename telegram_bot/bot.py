@@ -13,6 +13,8 @@ Telegram Bot — Stalcraft Trading Assistant.
   - Сигналы публикуются коллектором сразу после сбора свежего снапшота
   - Дедуплицирует по startTime лота (одно уведомление на лот за 48ч)
   - Отправляет отдельное сообщение на каждый выгодный лот
+  - Рассылает уведомления о старте/завершении выброса (emission_events,
+    флаги notified / end_notified ставятся после успешной отправки)
 """
 
 import asyncio
@@ -20,7 +22,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from telegram import Update
@@ -31,7 +33,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 sys.path.insert(0, "/app")
-from app.models.models import User, UserWatchlist, UserSettings
+from app.models.models import EmissionEvent, User, UserWatchlist, UserSettings
 from app.services.profitable_lots import signals_key, NOTIF_DEDUP_TTL
 from app.core.tiers import get_tier_limits
 
@@ -51,6 +53,7 @@ APP_ENV      = os.environ.get("APP_ENV", "production").lower()
 IS_STAGE     = APP_ENV == "stage"
 
 POLL_INTERVAL = 15    # сек — интервал проверки Redis (просто чтение, быстро)
+EMISSION_MAX_AGE_MIN = 15  # мин — события старше не рассылаем (защита от спама историей)
 
 # ─── DB / Redis ───────────────────────────────────────────────────────────────
 
@@ -258,12 +261,127 @@ async def notify_profitable_lots(app: Application) -> None:
                     continue
 
 
+async def notify_emission_events(app: Application) -> None:
+    """
+    Рассылает Telegram-уведомления о старте/завершении выброса.
+
+    События фиксирует Celery worker (collect_emission) в emission_events,
+    бот подхватывает их по флагам: notified — «о старте отправлено»,
+    end_notified — «о завершении отправлено». Флаг ставится ТОЛЬКО после
+    ≥1 успешной отправки — дедупликация через БД, ретрай каждые 15 сек.
+    События старше EMISSION_MAX_AGE_MIN помечаются без рассылки.
+    """
+    async with SessionLocal() as db:
+        starts = (await db.execute(
+            select(EmissionEvent).where(EmissionEvent.notified == False)
+        )).scalars().all()
+        ends = (await db.execute(
+            select(EmissionEvent).where(
+                EmissionEvent.ended_at.isnot(None),
+                EmissionEvent.end_notified == False,
+            )
+        )).scalars().all()
+
+        if not starts and not ends:
+            return
+
+        # Отсечка свежести: старые события помечаем без рассылки
+        # (защита от спама историей после простоя бота)
+        now = datetime.now(timezone.utc)
+        max_age = timedelta(minutes=EMISSION_MAX_AGE_MIN)
+
+        fresh_starts: list[EmissionEvent] = []
+        for event in starts:
+            if now - event.started_at > max_age:
+                event.notified = True
+            else:
+                fresh_starts.append(event)
+
+        fresh_ends: list[EmissionEvent] = []
+        for event in ends:
+            if now - event.ended_at > max_age:
+                event.end_notified = True
+            else:
+                fresh_ends.append(event)
+
+        await db.commit()
+
+        if not fresh_starts and not fresh_ends:
+            return
+
+        rows = (await db.execute(
+            select(User, UserSettings)
+            .join(UserSettings, UserSettings.user_id == User.id, isouter=True)
+            .where(
+                User.telegram_chat_id.isnot(None),
+                User.is_active == True,
+                User.is_approved == True,
+            )
+        )).all()
+        recipients = [u for u, us in rows if us is None or us.notify_telegram]
+
+        if not recipients:
+            # Некому слать — помечаем событие обработанным,
+            # иначе вечный retry на каждой итерации
+            for event in fresh_starts:
+                event.notified = True
+            for event in fresh_ends:
+                event.end_notified = True
+            await db.commit()
+            return
+
+        prefix = "[STAGE] " if IS_STAGE else ""
+        queue = [(e, True) for e in fresh_starts] + [(e, False) for e in fresh_ends]
+
+        for event, is_start in queue:
+            if is_start:
+                local_time = event.started_at.astimezone(timezone(timedelta(hours=3)))
+                text = (
+                    f"{prefix}<b>Выброс начался</b>\n"
+                    f"Время: {local_time.strftime('%H:%M')} МСК\n"
+                    f"Аукционная активность снижена (~15 мин)"
+                )
+            else:
+                duration_min = None
+                if event.ended_at and event.started_at:
+                    duration_min = round((event.ended_at - event.started_at).total_seconds() / 60)
+                dur_str = f" (длился {duration_min} мин)" if duration_min else ""
+                text = f"{prefix}<b>Выброс завершён</b>{dur_str}\nАукцион возвращается к норме"
+
+            sent = 0
+            for user in recipients:
+                try:
+                    await app.bot.send_message(
+                        chat_id=user.telegram_chat_id,
+                        text=text,
+                        parse_mode="HTML",
+                    )
+                    sent += 1
+                except Exception as e:
+                    logger.error(
+                        f"notify_emission_events: send failed chat_id={user.telegram_chat_id}: {e}"
+                    )
+
+            # Флаг только после ≥1 успешной отправки; иначе ретрай через 15 сек
+            if sent > 0:
+                if is_start:
+                    event.notified = True
+                else:
+                    event.end_notified = True
+                await db.commit()
+                logger.info(
+                    f"Emission {'start' if is_start else 'end'} notified: "
+                    f"event_id={event.id} sent={sent}/{len(recipients)}"
+                )
+
+
 async def _notifier_loop(app: Application) -> None:
     """Бесконечный цикл уведомлений, запускается как asyncio task при старте бота."""
     await asyncio.sleep(15)  # небольшая задержка после старта
     while True:
         try:
             await notify_profitable_lots(app)
+            await notify_emission_events(app)
         except Exception as e:
             logger.error(f"Notifier loop error: {e}", exc_info=True)
         await asyncio.sleep(POLL_INTERVAL)

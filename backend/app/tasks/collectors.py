@@ -832,8 +832,8 @@ def _lot_end_after(lot: dict, sold_at: datetime) -> bool:
 def collect_emission(self):
     """
     Опрашивает Stalcraft API /emission каждые 2 минуты.
-    Детектирует начало/конец выброса, сохраняет в emission_events,
-    рассылает Telegram-уведомления всем пользователям с привязанным чатом.
+    Детектирует начало/конец выброса, сохраняет в emission_events.
+    Telegram-рассылку выполняет telegram_bot (notify_emission_events).
     """
     run_async(_collect_emission_async())
 
@@ -843,9 +843,8 @@ async def _collect_emission_async():
     from sqlalchemy import select, desc
     from app.core.config import settings
     from app.db.session import get_celery_db_session as get_db_session
-    from app.models.models import EmissionEvent, User
+    from app.models.models import EmissionEvent
     from app.services.collector.client import stalcraft_client
-    from app.services.telegram_sender import send_telegram_message
 
     region = settings.stalcraft_region
 
@@ -867,10 +866,6 @@ async def _collect_emission_async():
                     notified=False,
                 )
                 db.add(event)
-                await db.flush()
-
-                await _emission_broadcast(db, event, send_telegram_message, started=True)
-                event.notified = True
                 await db.commit()
 
                 await r.set(EMISSION_REDIS_KEY, current_start_raw, ex=7200)
@@ -892,6 +887,7 @@ async def _collect_emission_async():
                             started_at=datetime.fromisoformat(previous_start_raw.replace("Z", "+00:00")),
                             ended_at=datetime.fromisoformat(previous_end_raw.replace("Z", "+00:00")),
                             notified=True,
+                            end_notified=True,
                         )
                         db.add(seed)
                         await db.commit()
@@ -910,46 +906,8 @@ async def _collect_emission_async():
                 if active:
                     active.ended_at = datetime.now(timezone.utc)
                     await db.commit()
-                    await _emission_broadcast(db, active, send_telegram_message, started=False)
 
                 await r.delete(EMISSION_REDIS_KEY)
                 logger.info(f"Emission ended region={region}")
     finally:
         await r.aclose()
-
-
-async def _emission_broadcast(db, event: "EmissionEvent", send_fn, *, started: bool) -> None:
-    """Рассылает Telegram-уведомление о выбросе всем активным пользователям с chat_id."""
-    from sqlalchemy import select
-    from app.models.models import User
-
-    chat_ids = (await db.execute(
-        select(User.telegram_chat_id)
-        .where(User.telegram_chat_id.isnot(None))
-        .where(User.is_active == True)
-        .where(User.is_approved == True)
-    )).scalars().all()
-
-    if not chat_ids:
-        return
-
-    if started:
-        local_time = event.started_at.astimezone(timezone(timedelta(hours=3)))
-        time_str = local_time.strftime("%H:%M")
-        text = (
-            f"<b>Выброс начался</b>\n"
-            f"Время: {time_str} МСК\n"
-            f"Аукционная активность снижена (~15 мин)"
-        )
-    else:
-        duration_min = None
-        if event.ended_at and event.started_at:
-            duration_min = round((event.ended_at - event.started_at).total_seconds() / 60)
-        dur_str = f" (длился {duration_min} мин)" if duration_min else ""
-        text = f"<b>Выброс завершён</b>{dur_str}\nАукцион возвращается к норме"
-
-    for chat_id in chat_ids:
-        try:
-            await send_fn(chat_id, text)
-        except Exception as e:
-            logger.warning(f"_emission_broadcast: failed for chat_id={chat_id}: {e}")
