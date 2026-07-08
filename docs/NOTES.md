@@ -4,6 +4,22 @@
 
 ## Задачи в очереди
 
+- [ ] **Нестабильная сеть прод→api.telegram.org: прокси или форс IPv4 для
+  `telegram_bot`** ← выявлено 2026-07-08 при деплое emission-ревизии.
+  После пересборки `telegram_bot` ~14 мин крутился в рестарт-лупе с
+  `telegram.error.TimedOut` на инициализации (`get_me`), затем сам поднялся
+  (polling, статус Up). Это та же первопричина, из-за которой изначально
+  терялись уведомления о выбросе (worker падал на Timed out). Теперь ВСЯ
+  Telegram-рассылка (лоты + выброс) идёт через `telegram_bot` — при его
+  недоступности/рестарт-лупе не приходят никакие уведомления. Новая логика
+  смягчает частично (флаг `notified`/`end_notified` ставится только после
+  успешной отправки, ретрай каждые 15с), но при недоступности бота дольше
+  отсечки свежести 15 мин событие о выбросе гасится безвозвратно.
+  **Кандидат-решение:** настроить `HTTPS_PROXY` для `telegram_bot` (PTB
+  поддерживает из коробки) ИЛИ форсировать IPv4-маршрут до Telegram
+  (вероятно висит IPv6-маршрут). Диагностика не завершена — curl-проверки
+  IPv4/IPv6 с сервера не выполнены. Контекст — `docs/DEPLOY.md` (раздел
+  «Нюансы»), `docs/tasks/emission-notify-via-bot.md`.
 - [x] **Fix: задержки Telegram-уведомлений** ← 2026-07-06 — убран блокирующий
   `sleep(60)` на 429 в `StalcraftClient._request()` (retry естественно через
   `due_pairs` на следующем тике), один shared `aioredis`-клиент на весь батч
@@ -129,7 +145,7 @@
 
 ### Незадействованные возможности API
 
-- [x] **Emission-фича** ← 2026-07-06 — таблица `emission_events` (миграция `0031`), Celery-задача `collect_emission` (каждые 2 мин, 1 токен, Redis-дедупликация `emission:current_fingerprint`), эндпоинты `GET /api/v1/emission/current` и `/emission/history`, `EmissionWidget` в сайдбаре (красный при активном выбросе, золотой со счётчиком времени в ожидании, поллинг 15с/30с через `emissionStore`), Telegram broadcast всем `is_active AND is_approved AND telegram_chat_id IS NOT NULL` без гейтинга тарифом. Fix: `STALCRAFT_REGION` исправлен с `"EU"` на `"RU"`. Подробности → `docs/tasks/emission-tracker.md`. **Ревизия 2026-07-08:** рассылка перенесена из worker в `telegram_bot::notify_emission_events` (+ поле `end_notified`, миграция `0033`, + фильтр `UserSettings.notify_telegram`) — worker слал через одноразовый `Bot(token)` и терял отправки; см. `docs/tasks/emission-notify-via-bot.md`, `docs/CHANGELOG.md`.
+- [x] **Emission-фича** ← 2026-07-06 — таблица `emission_events` (миграция `0031`), Celery-задача `collect_emission` (каждые 2 мин, 1 токен, Redis-дедупликация `emission:current_fingerprint`), эндпоинты `GET /api/v1/emission/current` и `/emission/history`, `EmissionWidget` в сайдбаре (красный при активном выбросе, золотой со счётчиком времени в ожидании, поллинг 15с/30с через `emissionStore`), Telegram broadcast всем `is_active AND is_approved AND telegram_chat_id IS NOT NULL` без гейтинга тарифом. Fix: `STALCRAFT_REGION` исправлен с `"EU"` на `"RU"`. Подробности → `docs/tasks/emission-tracker.md`. **Ревизия 2026-07-08:** рассылка перенесена из worker в `telegram_bot::notify_emission_events` (+ поле `end_notified`, миграция `0033`, + фильтр `UserSettings.notify_telegram`) — worker слал через одноразовый `Bot(token)` и терял отправки; см. `docs/tasks/emission-notify-via-bot.md`, `docs/CHANGELOG.md`. **Задеплоено на прод 2026-07-08** (`alembic current` = `0033` head, backend/worker/scheduler/telegram_bot пересобраны `--no-cache`). Операционный риск с сетью до Telegram — отдельный пункт ниже.
 - [ ] **Пагинация лотов** — всегда `offset=0, limit=200`, дефолтная сортировка API неизвестна. Для предметов с >200 активными лотами `best_price_per_unit` может быть неточным. Исправить: добавить `sort=price&order=asc`, дозапросы offset=200/400... до < 200 лотов (max 1000). Учесть +2 токена за каждую доп. страницу.
 - [ ] **Items Metadata (stalzone-database)** — в БД хранится только `item_id`. Полная база предметов с названиями (ru/en), категориями, цветами — на GitHub `EXBO-Studio/stalzone-database`. Перед реализацией: выяснить как сейчас приходят названия на фронт (пользователь сказал «приходят с бэка из какого-то источника» — источник не найден при аудите, требует проверки).
 - [ ] **Пагинация истории** — `collect_all_history` берёт только offset=0, limit=200 раз в час. Для популярных предметов (>200 продаж/час) часть истории теряется навсегда. Аналогичное исправление через дозапросы.
