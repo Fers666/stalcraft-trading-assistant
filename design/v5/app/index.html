@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC Trading — терминал перепродажи для аукциона STALZONE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+/* ============================================================
+   Лендинг (публичная страница, без шелла). Только страничное,
+   только var(--…): хекс здесь = дефект. Display-кегли крупнее
+   app-шкалы — осознанное расширение маркетингового жанра
+   (только на публичных страницах, в tokens.css не выносится).
+   ============================================================ */
+@media (prefers-reduced-motion: no-preference){
+  html{scroll-behavior:smooth}
+}
+.pub-wrap{max-width:1160px;margin:0 auto;padding:0 32px}
+section{scroll-margin-top:calc(var(--nav-h) + 20px)}
+
+/* --- hero --- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) 384px;gap:56px;align-items:center;padding-top:76px;padding-bottom:60px}
+.h-badge{
+  display:inline-flex;align-items:center;gap:9px;padding:5px 12px;
+  border:1px solid var(--gold-line);background:var(--gold-dim);border-radius:var(--r);
+  font-family:var(--head);font-weight:600;font-size:var(--fs-11);letter-spacing:.18em;
+  text-transform:uppercase;color:var(--gold-2);
+}
+.h-badge i{width:6px;height:6px;flex:none;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+.hero h1{font-family:var(--head);font-weight:700;font-size:64px;line-height:.96;letter-spacing:.045em;color:var(--text);margin:20px 0 12px}
+.h-grad{font-family:var(--head);font-weight:600;font-size:20px;letter-spacing:.22em;color:var(--gold-2);text-transform:uppercase}
+.h-sub{margin:18px 0 0;font-size:var(--fs-15);line-height:1.7;color:var(--mut);max-width:52ch}
+.h-cta{display:flex;align-items:center;gap:12px;margin-top:30px}
+
+/* --- live-виджет терминала в hero --- */
+.hero-term{background:var(--s1);border:1px solid var(--line);border-top:2px solid var(--gold);border-radius:var(--r)}
+.tw-h{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.tw-b{padding:16px 16px 14px}
+.tw-b.swap{animation:rv-in var(--mid) var(--ease)}
+.tw-item{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.tw-ico{width:44px;height:44px;flex:none;position:relative;background:var(--s2);border:1px solid var(--line);display:grid;place-items:center}
+.tw-ico img{width:38px;height:38px;object-fit:contain}
+.tw-ico .fb{font-size:19px;position:absolute;inset:0}
+.tw-t{min-width:0;flex:1}
+.tw-name{display:block;font-size:var(--fs-14);font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tw-chips{display:flex;gap:5px;margin-top:4px}
+.tw-chips .chip{padding:1px 6px;font-size:var(--fs-105)}
+.tw-rows{margin:0;display:grid;grid-template-columns:auto 1fr;gap:7px 12px;align-items:baseline}
+.tw-rows dt{font-size:var(--fs-11);color:var(--faint);white-space:nowrap}
+.tw-rows dd{margin:0;text-align:right;font-family:var(--mono);font-size:var(--fs-125);color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tw-rows dd .u{color:var(--faint);font-size:var(--fs-105)}
+.tw-rows dd.med{font-size:24px;font-weight:700;line-height:1.05;color:var(--gold-hi);text-shadow:0 0 18px var(--gold-glow)}
+.tw-rows dd.pos{color:var(--green);font-weight:500}
+.tw-rows dd.dim{color:var(--faint)}
+.tw-f{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);font-variant-numeric:tabular-nums}
+
+/* --- статистическая полоса --- */
+.strip{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r)}
+.stc{background:var(--s1);padding:18px 22px}
+.stc .v{display:block;font-family:var(--mono);font-weight:500;font-size:24px;color:var(--text);font-variant-numeric:tabular-nums}
+.stc .v i{font-style:normal;font-family:var(--head);font-weight:700;font-size:var(--fs-11);letter-spacing:.1em;color:var(--gold-2);text-transform:uppercase;margin-left:3px}
+.stc .k{display:block;margin-top:5px;font-size:var(--fs-12);color:var(--faint)}
+.stc .k.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* --- секции --- */
+.sec{margin-top:88px}
+.sec-head{margin-bottom:24px}
+.sec-head h2{font-family:var(--head);font-weight:700;font-size:32px;letter-spacing:.05em;line-height:1.05}
+.sec-head .sub{margin-top:7px;font-size:var(--fs-13);color:var(--faint);max-width:70ch}
+
+/* --- фичи с мини-иллюстрациями из элементов системы --- */
+.featgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r)}
+.feat{background:var(--s1);padding:18px 20px 22px;min-width:0}
+.f-ill{height:136px;background:var(--s2);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;display:flex;flex-direction:column;justify-content:center;gap:3px;overflow:hidden;margin-bottom:16px}
+.feat h3{font-family:var(--head);font-weight:700;font-size:var(--fs-16);letter-spacing:.06em;text-transform:uppercase;color:var(--text);margin:8px 0}
+.feat p{margin:0;font-size:var(--fs-125);line-height:1.6;color:var(--mut)}
+/* мини-таблица лотов */
+.mrow{display:grid;grid-template-columns:minmax(0,1fr) 72px 78px;gap:8px;padding:4px 8px;font-family:var(--mono);font-size:var(--fs-105);color:var(--mut);font-variant-numeric:tabular-nums;border-radius:var(--r)}
+.mrow span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow span + span{text-align:right}
+.mrow.mh{font-family:var(--head);font-weight:600;font-size:var(--fs-10);letter-spacing:.1em;text-transform:uppercase;color:var(--faint);border-bottom:1px solid var(--line);border-radius:0}
+.mrow .p{color:var(--green)}
+.mrow.on{background:var(--gold-dim);box-shadow:inset 2px 0 0 var(--gold-hi);color:var(--gold-2)}
+.mrow.on .p{color:var(--green)}
+/* мини-график band */
+.mc{width:100%;height:100%;display:block}
+.mc-grid line{stroke:var(--grid)}
+.mc-band{fill:var(--gold-dim);stroke:var(--gold-line-soft)}
+.mc-line{fill:none;stroke:var(--gold-2);stroke-width:1.5}
+.mc-med{stroke:var(--gold);stroke-dasharray:5 4}
+/* мини-лента сигналов */
+.msig{display:flex;align-items:center;gap:8px;padding:5px 9px;background:var(--s1);border:1px solid var(--line);border-radius:var(--r)}
+.msig .d{width:6px;height:6px;flex:none;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+.msig .nm{flex:1;min-width:0;font-size:var(--fs-115);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msig .bd{flex:none;font-family:var(--mono);font-size:var(--fs-105);font-weight:700;color:var(--green);background:var(--green-dim);border:1px solid var(--green-line);padding:1px 6px;border-radius:var(--r);font-variant-numeric:tabular-nums}
+
+/* --- как это работает --- */
+.steps{display:grid;grid-template-columns:1fr 40px 1fr 40px 1fr;align-items:start}
+.step{border-top:1px solid var(--line-hi);padding-top:14px;min-width:0}
+.step .n{font-family:var(--mono);font-weight:700;font-size:26px;color:var(--gold-2);font-variant-numeric:tabular-nums}
+.step .n em{font-style:normal;font-size:var(--fs-12);color:var(--faint);font-weight:400}
+.step h3{font-family:var(--head);font-weight:700;font-size:var(--fs-16);letter-spacing:.05em;margin:8px 0 6px;color:var(--text)}
+.step p{margin:0;padding-right:12px;color:var(--mut);font-size:var(--fs-125);line-height:1.6}
+.sarr{display:grid;place-items:center;padding-top:22px;color:var(--gold-1);font-family:var(--mono);font-size:18px}
+
+/* --- тарифы --- */
+.plans{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r)}
+.plan{position:relative;background:var(--s1);padding:20px;display:flex;flex-direction:column;min-width:0}
+.plan.hot{background:var(--s2);box-shadow:inset 0 2px 0 var(--gold-hi)}
+.p-name{font-family:var(--head);font-weight:700;font-size:var(--fs-14);letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+.plan.hot .p-name{color:var(--gold-2)}
+.p-pop{
+  position:absolute;top:14px;right:16px;
+  font-family:var(--head);font-weight:700;font-size:var(--fs-10);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--gold-2);background:var(--gold-dim);border:1px solid var(--gold-line);
+  padding:2px 7px;border-radius:var(--r);
+}
+.p-num{display:flex;align-items:baseline;gap:7px;margin-top:14px}
+.p-num b{font-family:var(--mono);font-weight:700;font-size:30px;color:var(--text);font-variant-numeric:tabular-nums;line-height:1}
+.plan.hot .p-num b{color:var(--gold-2)}
+.p-num span{font-size:var(--fs-12);color:var(--faint)}
+.p-ft{margin:14px 0 16px;display:grid;grid-template-columns:auto 1fr;gap:7px 10px;border-top:1px solid var(--line);padding-top:13px}
+.p-ft dt{font-size:var(--fs-11);color:var(--faint);white-space:nowrap}
+.p-ft dd{margin:0;text-align:right;font-family:var(--mono);font-size:var(--fs-115);color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.p-ft dd.no{color:var(--faint)}
+.p-ft dd.ok{color:var(--green)}
+.plan .cta{margin-top:auto;width:100%;height:32px}
+.plan-note{margin-top:12px;font-size:var(--fs-12);color:var(--faint)}
+
+.pub-foot{margin-top:96px}
+</style>
+</head>
+<body>
+
+<div class="pub-bg" aria-hidden="true"></div>
+
+<!-- публичный хедер (без shell.js — пользователь ещё не вошёл) -->
+<header class="pub-top">
+  <a class="pub-brand" href="index.html" aria-label="SC Trading — на главную">
+    <svg class="pub-lg" width="28" height="28" viewBox="0 0 34 34" aria-hidden="true">
+      <defs><clipPath id="lgc"><polygon points="17,1 33,17 17,33 1,17"/></clipPath></defs>
+      <polygon class="o" points="17,1 33,17 17,33 1,17" stroke-width="1.5"/>
+      <g clip-path="url(#lgc)">
+        <rect class="r1" x="6" y="22" width="4" height="9"/>
+        <rect class="r2" x="11.5" y="18" width="4" height="13"/>
+        <rect class="r3" x="17" y="13" width="4" height="18"/>
+        <rect class="r4" x="22.5" y="8" width="4" height="23"/>
+      </g>
+    </svg>
+    <span class="bt"><b>SC TRADING</b><i>Zone Terminal</i></span>
+  </a>
+  <nav class="pub-act" aria-label="Вход">
+    <a class="qbtn" href="login.html">Войти</a>
+    <a class="gbtn" href="login.html">Регистрация</a>
+  </nav>
+</header>
+
+<main>
+  <!-- ============ HERO ============ -->
+  <section class="hero pub-wrap" aria-label="Главный экран">
+    <div>
+      <span class="h-badge"><i aria-hidden="true"></i>Система активна // регион RU</span>
+      <h1>TRADE THE ZONE.</h1>
+      <div class="h-grad" aria-label="Аномалия, данные, профит">Anomaly → Data → Profit</div>
+      <p class="h-sub">
+        Терминал перепродажи для аукциона STALZONE: реальные цены по истории сделок,
+        сигналы о лотах дешевле медианы и готовый расчёт прибыли после комиссии.
+      </p>
+      <div class="h-cta">
+        <a class="gbtn btn-lg" href="login.html">Начать бесплатно</a>
+        <a class="qbtn btn-lg" href="#features">Посмотреть возможности ↓</a>
+      </div>
+    </div>
+
+    <!-- живой виджет: продукт показывает себя сам -->
+    <aside class="hero-term" aria-label="Живой сигнал рынка">
+      <div class="tw-h">
+        <span class="kick">Live // Сигнал рынка</span>
+        <span class="livehint" id="tw-clock">--:--</span>
+      </div>
+      <div class="tw-b" id="tw-b"></div>
+      <div class="tw-f"><span id="tw-upd"></span><span id="tw-i"></span></div>
+    </aside>
+  </section>
+
+  <!-- ============ СТАТ-ПОЛОСА ============ -->
+  <section class="pub-wrap" aria-label="Ключевые цифры" data-rv>
+    <div class="strip">
+      <div class="stc"><span class="v">5 <i>мин</i></span><span class="k">цикл обновления данных</span></div>
+      <div class="stc"><span class="v">2 236</span><span class="k">предметов в базе</span></div>
+      <div class="stc"><span class="v">4 <i>региона</i></span><span class="k mono">RU · EU · NA · SEA</span></div>
+      <div class="stc"><span class="v">24/7</span><span class="k">непрерывный мониторинг</span></div>
+    </div>
+  </section>
+
+  <!-- ============ ФИЧИ ============ -->
+  <section class="sec pub-wrap" id="features" data-rv>
+    <div class="sec-head">
+      <h2>Что внутри терминала</h2>
+      <p class="sub">Три контура работы с рынком — от сырых срезов аукциона до готового решения «выкупать или нет». Иллюстрации ниже собраны из живых данных прототипа.</p>
+    </div>
+    <div class="featgrid">
+      <article class="feat">
+        <div class="f-ill" id="ill-lots" aria-hidden="true"></div>
+        <span class="kick">01 // Monitor</span>
+        <h3>Мониторинг рынка</h3>
+        <p>Срез аукциона каждые 5 минут: активные лоты, выкупы между срезами, отсев истекающего мусора. Ты видишь рынок раньше конкурентов.</p>
+      </article>
+      <article class="feat">
+        <div class="f-ill" aria-hidden="true">
+          <svg class="mc" viewBox="0 0 240 100" preserveAspectRatio="none">
+            <g class="mc-grid">
+              <line x1="0" y1="25" x2="240" y2="25"/>
+              <line x1="0" y1="50" x2="240" y2="50"/>
+              <line x1="0" y1="75" x2="240" y2="75"/>
+            </g>
+            <path class="mc-band" d="M0,62 L30,58 L60,66 L90,50 L120,56 L150,42 L180,48 L210,38 L240,44 L240,86 L210,80 L180,88 L150,78 L120,90 L90,84 L60,92 L30,86 L0,90 Z"/>
+            <path class="mc-line" d="M0,76 L30,72 L60,79 L90,67 L120,73 L150,60 L180,68 L210,59 L240,64"/>
+            <line class="mc-med" x1="0" y1="70" x2="240" y2="70"/>
+          </svg>
+        </div>
+        <span class="kick">02 // Analyze</span>
+        <h3>Аналитика продаж</h3>
+        <p>Медиана по реальным сделкам, коридор мин–макс, волатильность и лучший час для покупки и продажи. Цены из истории, а не из слухов.</p>
+      </article>
+      <article class="feat">
+        <div class="f-ill" id="ill-sigs" aria-hidden="true"></div>
+        <span class="kick">03 // Profit</span>
+        <h3>Сигналы о выгоде</h3>
+        <p>Лоты дешевле медианы попадают в ленту сигналов с готовым расчётом прибыли после комиссии 5 %. Осталось выкупить и перевыставить.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ КАК ЭТО РАБОТАЕТ ============ -->
+  <section class="sec pub-wrap" id="how" data-rv>
+    <div class="sec-head">
+      <h2>Как это работает</h2>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="n">01<em>/03</em></span>
+        <h3>Добавь в избранное</h3>
+        <p>Выбери предметы из каталога — до 25 позиций под постоянным наблюдением системы.</p>
+      </div>
+      <div class="sarr" aria-hidden="true">→</div>
+      <div class="step">
+        <span class="n">02<em>/03</em></span>
+        <h3>Получай сигналы</h3>
+        <p>Терминал сравнивает каждый новый лот с медианой и сообщает о дешёвых сразу после среза.</p>
+      </div>
+      <div class="sarr" aria-hidden="true">→</div>
+      <div class="step">
+        <span class="n">03<em>/03</em></span>
+        <h3>Перепродавай с прибылью</h3>
+        <p>Выкупай ниже рынка и выставляй по расчётной цене — прибыль после комиссии уже посчитана.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ТАРИФЫ ============ -->
+  <section class="sec pub-wrap" id="tariffs" data-rv>
+    <div class="sec-head">
+      <h2>Тарифы</h2>
+      <p class="sub">Глубина аналитики растёт с тарифом. Доступ выдаётся по запросу — регистрация открывает базовый уровень сразу.</p>
+    </div>
+    <div class="plans">
+      <article class="plan">
+        <h3 class="p-name">Базовая</h3>
+        <div class="p-num"><b>6</b><span>предметов в избранном</span></div>
+        <dl class="p-ft">
+          <dt>окна графиков</dt><dd>24ч · 48ч</dd>
+          <dt>раздел «Лоты»</dt><dd class="no">закрыт</dd>
+          <dt>лента сигналов</dt><dd class="ok">включена</dd>
+          <dt>радар рынка</dt><dd class="no">аддон</dd>
+        </dl>
+        <a class="qbtn cta" href="login.html">Запросить доступ</a>
+      </article>
+      <article class="plan">
+        <h3 class="p-name">Продвинутая</h3>
+        <div class="p-num"><b>10</b><span>предметов в избранном</span></div>
+        <dl class="p-ft">
+          <dt>окна графиков</dt><dd>до 7 дней</dd>
+          <dt>раздел «Лоты»</dt><dd class="no">закрыт</dd>
+          <dt>лента сигналов</dt><dd class="ok">включена</dd>
+          <dt>радар рынка</dt><dd class="no">аддон</dd>
+        </dl>
+        <a class="qbtn cta" href="login.html">Запросить доступ</a>
+      </article>
+      <article class="plan hot">
+        <span class="p-pop">Популярный</span>
+        <h3 class="p-name">Продвинутая+</h3>
+        <div class="p-num"><b>20</b><span>предметов в избранном</span></div>
+        <dl class="p-ft">
+          <dt>окна графиков</dt><dd>до 30 дней</dd>
+          <dt>раздел «Лоты»</dt><dd class="ok">открыт</dd>
+          <dt>лента сигналов</dt><dd class="ok">включена</dd>
+          <dt>радар рынка</dt><dd class="no">аддон</dd>
+        </dl>
+        <a class="gbtn cta" href="login.html">Запросить доступ</a>
+      </article>
+      <article class="plan">
+        <h3 class="p-name">Продвинутая Макс</h3>
+        <div class="p-num"><b>25</b><span>предметов в избранном</span></div>
+        <dl class="p-ft">
+          <dt>окна графиков</dt><dd>до 30 дней</dd>
+          <dt>раздел «Лоты»</dt><dd class="ok">открыт</dd>
+          <dt>лента сигналов</dt><dd class="ok">включена</dd>
+          <dt>радар рынка</dt><dd class="no">аддон</dd>
+        </dl>
+        <a class="qbtn cta" href="login.html">Запросить доступ</a>
+      </article>
+    </div>
+    <p class="plan-note">«Радар рынка» — отдельный аддон к любому тарифу: сканер всего аукциона без привязки к избранному.</p>
+  </section>
+</main>
+
+<footer class="pub-foot">
+  <span><b>SC TRADING // ZONE TERMINAL</b> · прототип v5</span>
+  <span class="fr">
+    <a href="#" id="faq-link" title="FAQ — вне охвата прототипа">Частые вопросы</a>
+    <span>Не аффилирован с EXBO Studio</span>
+  </span>
+</footer>
+
+<script src="../assets/data.js"></script>
+<script src="../assets/app.js"></script>
+<script>
+/* ============================================================
+   Лендинг: live-виджет hero на реальных данных, мини-иллюстрации
+   фич из тех же данных, reveal секций при скролле, заглушка FAQ.
+   ============================================================ */
+(function(){
+"use strict";
+var D = window.SC_DATA, A = window.SC_APP;
+var esc = A.esc, fmtP = A.fmtP, fmtCompact = A.fmtCompact;
+
+/* --- лучший выгодный лот предмета (активный, профит > 0) --- */
+function bestLot(f){
+  var ls = A.lotsOf(f).filter(function(l){ return l.left > 0 && l.profit > 0; });
+  if (!ls.length) return null;
+  return ls.reduce(function(a,b){ return b.profit > a.profit ? b : a; }, ls[0]);
+}
+
+/* --- топ выгодных позиций по всем данным прототипа --- */
+var TOP = [];
+D.favorites.forEach(function(f){
+  var b = bestLot(f);
+  if (b) TOP.push({f:f, l:b});
+});
+TOP.sort(function(a,b){ return b.l.profit - a.l.profit; });
+
+/* ============ LIVE-ВИДЖЕТ HERO ============ */
+var items = TOP.slice(0, 6);
+if (!items.length) items = D.favorites.slice(0, 4).map(function(f){ return {f:f, l:null}; });
+var wi = 0;
+
+document.getElementById("tw-clock").textContent = A.fmtHM(A.NOW);
+
+function renderWidget(){
+  var it = items[wi], f = it.f, l = it.l;
+  var r = A.rankOf(f);
+  var box = document.getElementById("tw-b");
+  box.innerHTML =
+    '<div class="tw-item">' +
+      A.iconHtml(f, "tw-ico") +
+      '<div class="tw-t">' +
+        '<span class="tw-name">' + esc(f.nameRu) + '</span>' +
+        '<span class="tw-chips">' +
+          '<span class="chip q" style="--qc:var(' + r.v + ')"><span class="qd" aria-hidden="true"></span>' + r.name + '</span>' +
+          '<span class="chip mono">' + esc(f.region) + '</span>' +
+        '</span>' +
+      '</div>' +
+    '</div>' +
+    '<dl class="tw-rows">' +
+      '<dt>медиана 7д</dt><dd class="med">' + fmtP(f.stats.medianPrice7d || 0) + '</dd>' +
+      '<dt>лучший лот</dt>' +
+      (l ? '<dd>' + fmtP(l.per) + ' <span class="u">/шт</span></dd>' : '<dd class="dim">—</dd>') +
+      '<dt>профит</dt>' +
+      (l ? '<dd class="pos">+' + fmtP(l.profit) + ' <span class="u">/шт</span></dd>' : '<dd class="dim">—</dd>') +
+    '</dl>';
+  var upd = f.market && f.market.collectTime ? A.agoMin(f.market.collectTime) : null;
+  document.getElementById("tw-upd").textContent = upd == null ? "" : "обновлено " + upd + " мин назад";
+  document.getElementById("tw-i").textContent = "сигнал " + (wi + 1) + "/" + items.length;
+  /* мягкая смена карточки (при reduce глушится глобально) */
+  box.classList.remove("swap");
+  void box.offsetWidth;
+  box.classList.add("swap");
+}
+renderWidget();
+
+/* смена предмета раз в 4 с; при reduce не крутим, на hover — пауза */
+var noMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+var twTimer = null;
+function startRotate(){
+  if (noMotion || items.length < 2 || twTimer) return;
+  twTimer = setInterval(function(){
+    wi = (wi + 1) % items.length;
+    renderWidget();
+  }, 4000);
+}
+function stopRotate(){ clearInterval(twTimer); twTimer = null; }
+var term = document.querySelector(".hero-term");
+term.addEventListener("mouseenter", stopRotate);
+term.addEventListener("mouseleave", startRotate);
+startRotate();
+
+/* ============ МИНИ-ИЛЛЮСТРАЦИИ ФИЧ (реальные данные) ============ */
+var ml = document.getElementById("ill-lots");
+if (ml){
+  var rows = TOP.slice(0, 3);
+  ml.innerHTML =
+    '<div class="mrow mh"><span>предмет</span><span>цена/шт</span><span>профит</span></div>' +
+    rows.map(function(x, i){
+      return '<div class="mrow' + (i === 0 ? " on" : "") + '">' +
+        '<span>' + esc(x.f.nameRu) + '</span>' +
+        '<span>' + fmtCompact(x.l.per) + '</span>' +
+        '<span class="p">+' + fmtCompact(x.l.profit) + '</span>' +
+        '</div>';
+    }).join("");
+}
+var ms = document.getElementById("ill-sigs");
+if (ms){
+  ms.innerHTML = TOP.slice(0, 3).map(function(x){
+    return '<div class="msig">' +
+      '<span class="d"></span>' +
+      '<span class="nm">' + esc(x.f.nameRu) + '</span>' +
+      '<span class="bd">+' + fmtCompact(x.l.profit) + '</span>' +
+      '</div>';
+  }).join("");
+}
+
+/* ============ REVEAL СЕКЦИЙ ============ */
+var rvEls = document.querySelectorAll("[data-rv]");
+if ("IntersectionObserver" in window && rvEls.length){
+  Array.prototype.forEach.call(rvEls, function(el){ el.classList.add("rv"); });
+  var io = new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if (e.isIntersecting){
+        e.target.classList.add("in");
+        io.unobserve(e.target);
+      }
+    });
+  }, {threshold: 0.12, rootMargin: "0px 0px -40px 0px"});
+  Array.prototype.forEach.call(rvEls, function(el){ io.observe(el); });
+}
+
+/* ============ FAQ — вне охвата ============ */
+document.getElementById("faq-link").addEventListener("click", function(e){
+  e.preventDefault();
+  A.toast("FAQ — вне охвата прототипа");
+});
+})();
+</script>
+</body>
+</html>

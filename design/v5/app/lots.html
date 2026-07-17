@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC Trading — Лоты</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+/* ============================================================
+   Страничные стили «Лотов». Только то, чего нет в base.css.
+   Цвета — только var(--…): хекс здесь = дефект.
+   ============================================================ */
+
+/* колонка контента: панель поиска + панель результата */
+.vcol{display:flex;flex-direction:column;gap:12px;min-width:0}
+
+/* --- автодополнение --- */
+.acwrap{position:relative;flex:1;min-width:0}
+.acwrap .search{margin:0}
+.ac{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:30;background:var(--s3);border:1px solid var(--line-hi);border-radius:var(--r);overflow:hidden}
+.ac[hidden]{display:none}
+.aci{display:flex;align-items:center;gap:9px;width:100%;padding:7px 10px;text-align:left;transition:background-color var(--fast) var(--ease)}
+.aci:hover,.aci.act{background:var(--gold-dim)}
+.aci .an{flex:1;min-width:0;font-size:var(--fs-125);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aci .ac-c{font-size:var(--fs-105);color:var(--faint);white-space:nowrap}
+
+/* --- история запросов --- */
+.hist-h{display:flex;align-items:center;gap:7px;padding:2px 18px 10px;color:var(--faint)}
+.histgrid{display:flex;flex-wrap:wrap;gap:8px;padding:0 18px 18px}
+.hcard{
+  display:flex;align-items:center;gap:10px;min-width:200px;padding:9px 12px;
+  background:var(--s2);border:1px solid var(--line);border-radius:var(--r);text-align:left;
+  transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease);
+}
+.hcard:hover{background:var(--s3);border-color:var(--line-hi)}
+.hcard:active{background:var(--s3)}
+.h-ico{width:36px;height:36px;flex:none;position:relative;background:var(--s1);border:1px solid var(--line);display:grid;place-items:center}
+.h-ico img{width:30px;height:30px;object-fit:contain}
+.h-ico .fb{font-size:15px;position:absolute;inset:0}
+.hcard .htx{min-width:0}
+.hcard .hn{display:block;font-size:var(--fs-125);font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.hcard .hc{display:block;font-size:var(--fs-105);color:var(--faint);margin-top:1px;white-space:nowrap}
+
+/* --- шапка результата --- */
+.r-ico{width:44px;height:44px;flex:none;position:relative;background:var(--s2);border:1px solid var(--line);display:grid;place-items:center}
+.r-ico img{width:38px;height:38px;object-fit:contain}
+.r-ico .fb{font-size:20px;position:absolute;inset:0}
+.r-trow{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.r-trow h1{font-family:var(--head);font-weight:700;font-size:var(--fs-26);letter-spacing:.03em;line-height:1}
+.r-en{font-size:var(--fs-12);color:var(--faint)}
+.r-id{font-family:var(--mono);font-size:var(--fs-11);color:var(--faint);border:1px solid var(--line);padding:1px 6px;border-radius:var(--r)}
+.r-chips{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}
+.chip.fresh{color:var(--green);border-color:var(--green-line)}
+
+/* --- фильтры --- (класс свой: .fbar в base.css — sticky-панель Ленты) */
+.lots-fbar{display:flex;align-items:center;gap:12px;padding:0 18px 12px;flex-wrap:wrap}
+.fld{display:flex;align-items:center;gap:7px}
+.lots-fbar .shown{margin-left:auto;font-family:var(--mono);font-size:var(--fs-11);color:var(--faint);font-variant-numeric:tabular-nums}
+.lots-fbar .shown b{color:var(--mut);font-weight:500}
+
+/* --- таблица лотов --- */
+.ltbl tbody tr{cursor:default}
+.ltbl td.tl{text-align:left}
+.ltbl .w-act{width:48px}
+.ltbl td.best{color:var(--gold-hi);font-weight:700;text-shadow:0 0 14px var(--gold-glow)}
+.ltbl td.tleft-x{color:var(--amber)}
+.lst{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:var(--fs-11);padding:1px 7px;border-radius:var(--r);border:1px solid}
+.lst.ok{color:var(--green);border-color:var(--green-line);background:var(--green-dim)}
+.lst.exp{color:var(--amber);border-color:var(--amber-line);background:var(--amber-dim)}
+.wl-skel{display:inline-block;width:18px;height:18px;vertical-align:middle}
+
+/* тултипы у правого края (последняя колонка, чип кэша) — не за viewport */
+.ltbl td:last-child [data-tip]:hover::after,
+.ltbl td:last-child [data-tip]:focus-visible::after,
+.pg-h .pr [data-tip]:hover::after,
+.pg-h .pr [data-tip]:focus-visible::after{left:auto;right:0;transform:none}
+
+/* --- locked-стейт страницы: .pagelock/.demo.hl — в base.css --- */
+.lockwrap{padding:0 16px 20px}
+</style>
+</head>
+<body>
+
+<!-- оболочка: навбар + лента сигналов (футер добавит shell.js) -->
+<div id="shell"></div>
+
+<main class="layout rev" id="app">
+  <!-- сайдбар: дерево категорий -->
+  <aside class="side" aria-label="Категории лотов">
+    <div class="side-h"><h2>Категории</h2><span class="n" id="catn">—</span></div>
+    <div class="cattree" id="tree"></div>
+  </aside>
+
+  <div class="vcol">
+    <!-- поиск -->
+    <section class="panel" aria-label="Поиск лотов">
+      <div class="pg-h">
+        <div class="tt">
+          <span class="kick">ПОИСК ЛОТОВ // LOT SCANNER</span>
+          <h1>Поиск лотов</h1>
+          <div class="sub">Живые лоты по предмету или категории — без добавления в Избранное. Кэш обновляется каждые 5 минут.</div>
+        </div>
+      </div>
+      <div class="toolrow">
+        <div class="acwrap">
+          <div class="search">
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><circle cx="5.5" cy="5.5" r="4.2" stroke="currentColor" stroke-width="1.5"/><path d="m9 9 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <input id="q" type="search" placeholder="Найти предмет — от 2 символов…" aria-label="Поиск предмета"
+              autocomplete="off" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="ac">
+          </div>
+          <div class="ac" id="ac" role="listbox" aria-label="Подсказки" hidden></div>
+        </div>
+        <select class="input" id="reg" aria-label="Регион">
+          <option>RU</option><option>EU</option><option>NA</option><option>SEA</option>
+        </select>
+      </div>
+      <!-- история запросов: видна, когда результата нет -->
+      <div id="histwrap" hidden>
+        <div class="hist-h">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.3"/><path d="M6 3.2V6l1.8 1.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          <span class="kick">История запросов</span>
+        </div>
+        <div class="histgrid" id="hist"></div>
+      </div>
+    </section>
+
+    <!-- результат -->
+    <section class="panel" id="res" hidden aria-label="Найденные лоты">
+      <div class="pg-h" id="res-h"></div>
+      <div class="lots-fbar" id="fbar"></div>
+      <table class="ltbl" aria-label="Лоты">
+        <thead><tr id="lhead"></tr></thead>
+        <tbody id="lrows"></tbody>
+      </table>
+      <div class="tfoot-line" id="lfoot"></div>
+    </section>
+  </div>
+</main>
+
+<!-- центральный locked-стейт (тариф ниже ПРОДВИНУТАЯ+) -->
+<main class="lockwrap" id="lockwrap" hidden>
+  <section class="panel pagelock" id="lockbox" aria-label="Страница недоступна на текущем тарифе"></section>
+</main>
+
+<script src="../assets/data.js"></script>
+<script src="../assets/app.js"></script>
+<script src="../assets/shell.js"></script>
+<script>
+/* ============================================================
+   Страница «Лоты»: автодополнение по пулу предметов, история
+   запросов, лоты предмета или категории, фильтры качество/заточка,
+   сортировка, добавление в избранное, гейтинг тарифом.
+   Лоты избранного — реальные из data.js; для предметов каталога
+   без market лоты генерируются от медианы соседей по категории.
+   ============================================================ */
+(function(){
+"use strict";
+var D = window.SC_DATA, A = window.SC_APP, S = window.SC_SHELL;
+var esc = A.esc, fmtN = A.fmtN, fmtP = A.fmtP, fmtLeft = A.fmtLeft;
+var QNAME = A.QNAME;
+var QV = ["--q-default","--q-newbie","--q-stalker","--q-veteran","--q-master","--q-legend"];
+var V_TOTAL = 2236;
+var EXP_MS = 7200000;                  /* < 2 ч — лот истекает */
+
+/* --- оболочка --- */
+S.render("lots");
+
+/* --- перевод ключей категорий (зеркало frontend/src/utils/i18n.ts) --- */
+var CAT_RU = {
+  weapon:"Оружие", armor:"Броня", artefact:"Артефакт", attachment:"Обвес",
+  bullet:"Патроны", medicine:"Медицина", supply:"Расходники", food:"Еда",
+  drink:"Напитки", grenade:"Гранаты", containers:"Контейнеры", backpacks:"Рюкзаки",
+  misc:"Разное", other:"Прочее", device:"Устройство", weapon_modules:"Модули оружия",
+  assault_rifle:"Штурмовая винтовка", sniper_rifle:"Снайперская винтовка",
+  pistol:"Пистолет", shotgun_rifle:"Дробовик", submachine_gun:"Пистолет-пулемёт",
+  machine_gun:"Пулемёт", melee:"Холодное оружие", heavy:"Тяжёлое",
+  combat:"Боевая", light:"Лёгкая", clothes:"Одежда", combined:"Комбинированная", scientist:"Учёного",
+  biochemical:"Биохимический", thermal:"Термический", gravity:"Гравитационный",
+  electrophysical:"Электрофизический", other_arts:"Прочие", proto:"Прото",
+  collimator_sights:"Коллиматор", barrel:"Ствол", mag:"Магазин", forend:"Цевьё",
+  handgrips:"Рукоять", accessory:"Аксессуар", pistol_handle:"Пист. рукоять",
+  weapon_module:"Оружейный модуль", weapon_module_core:"Ядро модуля", weapon_module_remover:"Квазидеструктор"
+};
+function catRu(c){
+  if (!c) return "—";
+  return c.split("/").map(function(p){ return CAT_RU[p] || p; }).join(" / ");
+}
+
+/* --- дерево категорий (зеркало frontend/src/utils/categories.ts) --- */
+var TREE = [
+  {id:"weapon", label:"Оружие", kids:[
+    ["weapon/assault_rifle","Штурмовые винтовки"],["weapon/sniper_rifle","Снайперские винтовки"],
+    ["weapon/pistol","Пистолеты"],["weapon/shotgun_rifle","Дробовики"],
+    ["weapon/submachine_gun","Пистолеты-пулемёты"],["weapon/machine_gun","Пулемёты"],
+    ["weapon/melee","Холодное оружие"],["weapon/heavy","Тяжёлое"]]},
+  {id:"armor", label:"Броня", kids:[
+    ["armor/combat","Боевая"],["armor/light","Лёгкая"],["armor/heavy","Тяжёлая"],
+    ["armor/clothes","Одежда"],["armor/combined","Комбинированная"],["armor/scientist","Учёного"]]},
+  {id:"artefact", label:"Артефакты", kids:[
+    ["artefact/biochemical","Биохимические"],["artefact/thermal","Термические"],
+    ["artefact/gravity","Гравитационные"],["artefact/electrophysical","Электрофизические"],
+    ["artefact/other_arts","Прочие"]]},
+  {id:"attachment", label:"Обвесы", kids:[
+    ["attachment/collimator_sights","Коллиматоры"],["attachment/barrel","Стволы"],
+    ["attachment/mag","Магазины"],["attachment/forend","Цевья"],["attachment/handgrips","Рукояти"],
+    ["attachment/accessory","Аксессуары"],["attachment/pistol_handle","Пист. рукоять"],["attachment/other","Прочее"]]},
+  {id:"weapon_modules", label:"Модули оружия"},
+  {id:"bullet", label:"Патроны"},
+  {id:"supply/medicine", label:"Медикаменты"},
+  {id:"medicine", label:"Подсумки"},
+  {id:"supply/food", label:"Еда"},
+  {id:"supply/drink", label:"Напитки"},
+  {id:"grenade", label:"Гранаты"},
+  {id:"containers", label:"Контейнеры"},
+  {id:"backpacks", label:"Рюкзаки"},
+  {id:"device", label:"Устройства"},
+  {id:"misc", label:"Разное"},
+  {id:"other", label:"Прочее"}
+];
+
+/* --- общий пул: избранное (с реальными лотами) + добор каталога --- */
+var POOL = (D.favorites || []).map(function(f){
+  return {
+    itemId:f.itemId, nameRu:f.nameRu, nameEn:f.nameEn, category:f.category,
+    color:f.color, icon:f.icon,
+    batch: !!(f.stats && f.stats.batchStats) || /^(artefact|misc|bullet)/.test(f.category || ""),
+    fav: f
+  };
+}).concat(D.catalogExtra || []);
+POOL.sort(function(a,b){ return a.nameRu.localeCompare(b.nameRu, "ru"); });
+function poolById(id){
+  for (var i=0;i<POOL.length;i++) if (POOL[i].itemId === id) return POOL[i];
+  return null;
+}
+
+/* --- хелперы --- */
+function hash(s){ var h = 0; for (var i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) >>> 0; return h; }
+function rng(seed){
+  var s = seed >>> 0 || 1;
+  return function(){ s = (s*1664525 + 1013904223) >>> 0; return s/4294967296; };
+}
+function inCat(it, id){
+  if (!id) return true;
+  var c = it.category || "";
+  return c === id || c.indexOf(id + "/") === 0;
+}
+function cntCat(id){
+  var n = 0;
+  POOL.forEach(function(it){ if (inCat(it, id)) n++; });
+  return n;
+}
+/* «размноженный» счётчик дерева — согласован со страницей Каталога */
+function vcnt(id){
+  if (id == null) return V_TOTAL;
+  var real = cntCat(id);
+  if (!real) return 0;
+  return real*35 + hash(id)%17;
+}
+function plu(n, f){
+  var m10 = n%10, m100 = n%100;
+  return f[(m10 === 1 && m100 !== 11) ? 0 : (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) ? 1 : 2];
+}
+
+/* --- лоты предмета: реальные из data.js или генерация от медианы соседей --- */
+function medianNeighbors(cat){
+  var top = (cat || "").split("/")[0];
+  var meds = [];
+  (D.favorites || []).forEach(function(f){
+    if ((f.category || "").split("/")[0] === top && f.stats && f.stats.medianPrice7d) meds.push(f.stats.medianPrice7d);
+  });
+  if (!meds.length)
+    (D.favorites || []).forEach(function(f){ if (f.stats && f.stats.medianPrice7d) meds.push(f.stats.medianPrice7d); });
+  meds.sort(function(a,b){ return a - b; });
+  return meds.length ? meds[Math.floor(meds.length/2)] : 25000;
+}
+var RANK_MUL = {"default":1, rank_newbie:1.6, rank_stalker:3.2, rank_veteran:7, rank_master:14, rank_legend:30};
+function genLots(it){
+  var r = rng(hash(it.itemId + "·" + region));
+  var med = medianNeighbors(it.category);
+  var base = Math.max(10, Math.round(med * (RANK_MUL[it.color || "default"] || 1)));
+  var isArt = (it.category || "").indexOf("artefact") === 0;
+  var n = 6 + Math.floor(r()*3);
+  var out = [];
+  var AMTS = [1,1,5,10,25,50];
+  for (var i=0;i<n;i++){
+    var amount = it.batch ? AMTS[Math.floor(r()*AMTS.length)] : 1;
+    var per = Math.max(2, Math.round(base * (0.85 + r()*0.55)));
+    var qlt = isArt ? (r() < 0.55 ? 0 : (r() < 0.7 ? 1 : 2)) : null;
+    var ptn = isArt ? (r() < 0.5 ? 0 : 1 + Math.floor(r()*8)) : null;
+    out.push({
+      i:i, buyout:per*amount, amount:amount, per:per, qlt:qlt, ptn:ptn,
+      left: Math.round((0.6 + r()*46) * 3600000),
+      item: it
+    });
+  }
+  return out;
+}
+function lotsFor(it){
+  if (it.fav){
+    var isArt = (it.category || "").indexOf("artefact") === 0;
+    return A.lotsOf(it.fav)
+      .filter(function(l){ return l.left > 0; })
+      .map(function(l){
+        l.i = l.idx; l.item = it;
+        /* qlt/ptn есть только у артефактов — у прочих это шум конвертации */
+        if (!isArt){ l.qlt = null; l.ptn = null; }
+        return l;
+      });
+  }
+  return genLots(it);
+}
+
+/* --- состояние --- */
+var mode = "none";                     /* none | item | cat */
+var item = null, catId = null, catLabel = "";
+var region = "RU";
+var lots = [], catItems = [];
+var fq = "all", fe = "all";            /* фильтры: качество / заточка */
+var sort = {key:"buyout", dir:1};
+var pi = 0, rpp = 25;                  /* страница и строк на страницу */
+var WL = {};                           /* состояния кнопок «в избранное» */
+var fresh = false;                     /* после «Обновить» */
+var token = 0;                         /* защита отложенных колбэков */
+var open = {};                         /* раскрытые группы дерева */
+var booted = false;
+
+/* ============ ДЕРЕВО КАТЕГОРИЙ ============ */
+var CV = '<span class="cv" aria-hidden="true"><svg width="9" height="6" viewBox="0 0 9 6" fill="none"><path d="m1 1 3.5 3.5L8 1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>';
+function ctBtn(id, label, hasKids){
+  var on = mode === "cat" ? catId === id : (mode === "none" && id === "");
+  return '<button type="button" class="ct-item' + (on ? " on" : "") + '"' +
+    ' data-cat="' + esc(id) + '"' +
+    (hasKids ? ' aria-expanded="' + !!open[id] + '"' : '') +
+    (on ? ' aria-current="true"' : '') + '>' +
+    '<span class="lbl">' + esc(label) + '</span>' +
+    '<span class="ct-n">' + fmtN(id === "" ? V_TOTAL : vcnt(id)) + '</span>' +
+    (hasKids ? CV : '') +
+    '</button>';
+}
+function renderTree(){
+  var h = ctBtn("", "Все категории", false);
+  h += '<div class="ct-sep" aria-hidden="true"></div>';
+  TREE.forEach(function(g){
+    var kids = g.kids || [];
+    h += ctBtn(g.id, g.label, kids.length > 0);
+    if (kids.length){
+      h += '<div class="ct-kids"' + (open[g.id] ? '' : ' hidden') + '>';
+      kids.forEach(function(k){ h += ctBtn(k[0], k[1], false); });
+      h += '</div>';
+    }
+  });
+  var tree = document.getElementById("tree");
+  tree.innerHTML = h;
+  Array.prototype.forEach.call(tree.querySelectorAll(".ct-item"), function(b){
+    b.addEventListener("click", function(){
+      var id = b.getAttribute("data-cat");
+      var grp = null;
+      for (var i=0;i<TREE.length;i++) if (TREE[i].id === id) grp = TREE[i];
+      if (grp && grp.kids) open[id] = !open[id];
+      setCat(id === "" ? null : id);
+    });
+  });
+  document.getElementById("catn").textContent = fmtN(V_TOTAL);
+}
+function labelOf(id){
+  for (var i=0;i<TREE.length;i++){
+    var g = TREE[i];
+    if (g.id === id) return g.label;
+    var kids = g.kids || [];
+    for (var j=0;j<kids.length;j++) if (kids[j][0] === id) return kids[j][1];
+  }
+  return id;
+}
+
+/* ============ ИСТОРИЯ ЗАПРОСОВ ============ */
+var HIST_IDS = ["jkq7", "ljrj", "qoq6", "wg53", "m22k"];
+function renderHistory(){
+  var box = document.getElementById("hist");
+  box.innerHTML = HIST_IDS.map(function(id){
+    var it = poolById(id);
+    if (!it) return "";
+    return '<button type="button" class="hcard" data-id="' + esc(id) + '">' +
+      A.iconHtml(it, "h-ico") +
+      '<span class="htx"><span class="hn">' + esc(it.nameRu) + '</span>' +
+      '<span class="hc">' + esc(catRu(it.category)) + '</span></span>' +
+      '</button>';
+  }).join("");
+  Array.prototype.forEach.call(box.querySelectorAll(".hcard"), function(b){
+    b.addEventListener("click", function(){
+      var it = poolById(b.getAttribute("data-id"));
+      document.getElementById("q").value = it.nameRu;
+      setItem(it);
+    });
+  });
+}
+
+/* ============ АВТОДОПОЛНЕНИЕ ============ */
+var sugs = [], actIdx = -1;
+var qEl = document.getElementById("q"), acEl = document.getElementById("ac");
+function hideAc(){
+  sugs = []; actIdx = -1;
+  acEl.hidden = true;
+  acEl.innerHTML = "";
+  qEl.setAttribute("aria-expanded", "false");
+}
+function renderAc(){
+  if (!sugs.length){ hideAc(); return; }
+  acEl.innerHTML = sugs.map(function(it, i){
+    return '<button type="button" class="aci' + (i === actIdx ? " act" : "") + '" role="option"' +
+      ' aria-selected="' + (i === actIdx) + '" data-i="' + i + '">' +
+      A.iconHtml(it, "t-ico") +
+      '<span class="an">' + esc(it.nameRu) + '</span>' +
+      '<span class="ac-c">' + esc(catRu(it.category)) + '</span>' +
+      '</button>';
+  }).join("");
+  acEl.hidden = false;
+  qEl.setAttribute("aria-expanded", "true");
+  Array.prototype.forEach.call(acEl.querySelectorAll(".aci"), function(b){
+    b.addEventListener("click", function(){ pick(sugs[Number(b.getAttribute("data-i"))]); });
+  });
+}
+function pick(it){
+  qEl.value = it.nameRu;
+  hideAc();
+  setItem(it);
+}
+qEl.addEventListener("input", function(){
+  var v = qEl.value.trim().toLowerCase();
+  if (mode === "item"){ mode = "none"; item = null; renderAll(); }
+  if (v.length < 2){ hideAc(); return; }
+  sugs = POOL.filter(function(it){
+    return (it.nameRu||"").toLowerCase().indexOf(v) >= 0 || (it.nameEn||"").toLowerCase().indexOf(v) >= 0;
+  }).slice(0, 8);
+  actIdx = -1;
+  renderAc();
+});
+qEl.addEventListener("keydown", function(e){
+  if (acEl.hidden) return;
+  if (e.key === "ArrowDown"){ e.preventDefault(); actIdx = Math.min(sugs.length-1, actIdx+1); renderAc(); }
+  else if (e.key === "ArrowUp"){ e.preventDefault(); actIdx = Math.max(0, actIdx-1); renderAc(); }
+  else if (e.key === "Enter"){ e.preventDefault(); if (sugs.length) pick(sugs[actIdx >= 0 ? actIdx : 0]); }
+  else if (e.key === "Escape"){ hideAc(); }
+});
+document.addEventListener("click", function(e){
+  if (!document.querySelector(".acwrap").contains(e.target)) hideAc();
+});
+
+/* ============ ВЫБОР ПРЕДМЕТА / КАТЕГОРИИ ============ */
+function setItem(it){
+  token++;
+  mode = "item"; item = it; catId = null;
+  lots = lotsFor(it);
+  fq = "all"; fe = "all";
+  sort = {key:"buyout", dir:1};
+  pi = 0; WL = {}; fresh = false;
+  renderAll();
+}
+function setCat(id){
+  token++;
+  qEl.value = ""; hideAc();
+  item = null;
+  if (id == null){ mode = "none"; catId = null; renderAll(); return; }
+  mode = "cat"; catId = id; catLabel = labelOf(id);
+  catItems = POOL.filter(function(it){ return inCat(it, id); });
+  lots = [];
+  catItems.forEach(function(it){ lots = lots.concat(lotsFor(it)); });
+  lots.forEach(function(l, i){ l.i = i; });     /* стабильный индекс в сборной таблице */
+  fq = "all"; fe = "all";
+  sort = {key:"buyout", dir:1};
+  pi = 0; WL = {}; fresh = false;
+  renderAll();
+}
+
+/* ============ ШАПКА РЕЗУЛЬТАТА ============ */
+var REFRESH = '<svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><path d="M11 6.5a4.5 4.5 0 1 1-1.32-3.18" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M11 1v2.5H8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function cacheChip(){
+  if (fresh)
+    return '<span class="chip mono fresh" data-tip="Получено только что из API аукциона">свежие данные</span>';
+  return '<span class="chip mono" data-tip="Срез аукциона ' + A.fmtHM(A.NOW - 4*60000) + ' · автообновление каждые 5 мин">из кэша · 4 мин</span>';
+}
+function renderResHead(){
+  var head = document.getElementById("res-h");
+  var right =
+    '<div class="pr">' +
+      '<button type="button" class="qbtn" id="refresh">' + REFRESH + 'Обновить</button>' +
+      cacheChip() +
+    '</div>';
+  if (mode === "item"){
+    head.innerHTML =
+      A.iconHtml(item, "r-ico") +
+      '<div class="tt">' +
+        '<div class="r-trow"><h1>' + esc(item.nameRu) + '</h1>' +
+          '<span class="r-en">' + esc(item.nameEn || "") + '</span>' +
+          '<span class="r-id">' + esc(item.itemId) + '</span></div>' +
+        '<div class="r-chips">' +
+          '<span class="chip">' + esc(catRu(item.category)) + '</span>' +
+          '<span class="chip mono">' + esc(region) + '</span>' +
+          '<span class="chip mono">' + fmtN(lots.length) + ' ' + plu(lots.length, ["лот","лота","лотов"]) + '</span>' +
+        '</div>' +
+      '</div>' + right;
+  } else {
+    head.innerHTML =
+      '<div class="tt">' +
+        '<div class="r-trow"><h1>' + esc(catLabel) + '</h1></div>' +
+        '<div class="r-chips">' +
+          '<span class="chip mono">' + esc(region) + '</span>' +
+          '<span class="chip mono">' + fmtN(catItems.length) + ' ' + plu(catItems.length, ["предмет","предмета","предметов"]) + ' с лотами</span>' +
+          '<span class="chip mono">' + fmtN(lots.length) + ' ' + plu(lots.length, ["лот","лота","лотов"]) + '</span>' +
+        '</div>' +
+      '</div>' + right;
+  }
+  document.getElementById("refresh").addEventListener("click", function(){
+    fresh = true;
+    renderResHead();
+    A.toast("Лоты обновлены из API");
+  });
+}
+
+/* ============ ФИЛЬТРЫ ============ */
+function uniqVals(k){
+  var seen = {}, out = [];
+  lots.forEach(function(l){
+    var v = l[k];
+    if (v == null || seen[v]) return;
+    seen[v] = true; out.push(v);
+  });
+  return out.sort(function(a,b){ return a - b; });
+}
+function renderFbar(){
+  var box = document.getElementById("fbar");
+  var qVals = uniqVals("qlt"), eVals = uniqVals("ptn");
+  var h = "";
+  if (qVals.length){
+    h += '<div class="fld"><label class="kick" for="f-q">Качество</label><select id="f-q" class="input">' +
+      '<option value="all">Все качества (' + lots.length + ')</option>' +
+      qVals.map(function(v){
+        var n = lots.filter(function(l){ return l.qlt === v; }).length;
+        return '<option value="' + v + '">' + QNAME[v] + ' (' + n + ')</option>';
+      }).join("") + '</select></div>';
+  }
+  if (eVals.length){
+    h += '<div class="fld"><label class="kick" for="f-e">Заточка</label><select id="f-e" class="input">' +
+      '<option value="all">Все заточки</option>' +
+      eVals.map(function(v){
+        var n = lots.filter(function(l){ return l.ptn === v; }).length;
+        return '<option value="' + v + '">' + (v === 0 ? "Не точёный" : "+" + v) + ' (' + n + ')</option>';
+      }).join("") + '</select></div>';
+  }
+  h += '<button type="button" class="qbtn" id="f-rst" hidden>Сбросить</button>';
+  h += '<span class="shown" id="shown"></span>';
+  box.innerHTML = h;
+  var fqEl = document.getElementById("f-q"), feEl = document.getElementById("f-e");
+  var rstEl = document.getElementById("f-rst");
+  function syncRst(){ rstEl.hidden = fq === "all" && fe === "all"; }
+  if (fqEl) fqEl.addEventListener("change", function(){ fq = fqEl.value; pi = 0; syncRst(); renderTable(); });
+  if (feEl) feEl.addEventListener("change", function(){ fe = feEl.value; pi = 0; syncRst(); renderTable(); });
+  rstEl.addEventListener("click", function(){
+    fq = "all"; fe = "all"; pi = 0;
+    if (fqEl) fqEl.value = "all";
+    if (feEl) feEl.value = "all";
+    syncRst();
+    renderTable();
+  });
+}
+
+/* ============ ТАБЛИЦА ============ */
+var BM_ADD = '<svg width="12" height="14" viewBox="0 0 12 14" fill="none" aria-hidden="true"><path d="M2 1.5h8a.5.5 0 0 1 .5.5v10.6L6 9.6l-4.5 3V2a.5.5 0 0 1 .5-.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M6 3.8v3M4.5 5.3h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+var BM_OK  = '<svg width="12" height="14" viewBox="0 0 12 14" fill="none" aria-hidden="true"><path d="M2 1.5h8a.5.5 0 0 1 .5.5v10.6L6 9.6l-4.5 3V2a.5.5 0 0 1 .5-.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="m3.9 5.4 1.6 1.6 2.8-2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function colCount(){ return mode === "cat" ? 9 : 8; }
+function renderHead(){
+  var cols = [];
+  if (mode === "cat") cols.push({k:null, l:"Предмет", left:true});
+  cols.push({k:"buyout", l:"Цена выкупа"});
+  cols.push({k:"amount", l:"Кол-во"});
+  cols.push({k:"per", l:"Цена/шт"});
+  cols.push({k:"qlt", l:"Качество"});
+  cols.push({k:"ptn", l:"Заточка"});
+  cols.push({k:"left", l:"Осталось", tip:"Меньше 2 ч до конца — лот истекает"});
+  cols.push({k:null, l:"Статус"});
+  cols.push({k:null, l:"", act:true});
+  var lhead = document.getElementById("lhead");
+  lhead.innerHTML = cols.map(function(c){
+    if (c.k)
+      return '<th data-k="' + c.k + '"><button class="thb" type="button"' +
+        (c.tip ? ' data-tip="' + c.tip + '"' : '') + '>' + c.l + '<span class="si"></span></button></th>';
+    return '<th' + (c.act ? ' class="w-act"' : '') + '><span class="thx' + (c.left ? '' : ' r') + '">' + c.l + '</span></th>';
+  }).join("");
+  A.sortTable(lhead, sort, {buyout:1, amount:-1, per:1, qlt:-1, ptn:-1, left:1}, function(){
+    pi = 0;
+    renderTable();
+  });
+}
+function sVal(l, k){ var v = l[k]; return v == null ? -1 : v; }
+function filteredSorted(){
+  var list = lots.filter(function(l){
+    if (fq !== "all" && l.qlt !== Number(fq)) return false;
+    if (fe !== "all" && l.ptn !== Number(fe)) return false;
+    return true;
+  });
+  list.sort(function(a,b){ return (sVal(a, sort.key) - sVal(b, sort.key)) * sort.dir || a.i - b.i; });
+  return list;
+}
+function wlKey(l){ return l.item.itemId + "_" + l.qlt + "_" + l.ptn; }
+function renderTable(){
+  A.markSort(document.getElementById("lhead"), sort);
+  var tbody = document.getElementById("lrows");
+  var list = filteredSorted();
+  var total = list.length;
+  var from = pi*rpp, to = Math.min(total, from + rpp);
+  var rows = list.slice(from, to);
+  var minBuy = Infinity;
+  list.forEach(function(l){ if (l.buyout < minBuy) minBuy = l.buyout; });
+
+  /* счётчик «показано: X из Y» */
+  var shown = document.getElementById("shown");
+  if (shown) shown.innerHTML = 'показано: <b>' + fmtN(total) + '</b> из ' + fmtN(lots.length);
+
+  if (!rows.length){
+    tbody.innerHTML = '<tr><td colspan="' + colCount() + '" class="t-empty">' +
+      (lots.length
+        ? 'Нет лотов, подходящих под фильтры, — сбрось качество или заточку.'
+        : 'Активных лотов с выкупом сейчас нет — загляни позже.') +
+      '</td></tr>';
+    document.getElementById("lfoot").innerHTML = "";
+    return;
+  }
+
+  tbody.innerHTML = rows.map(function(l){
+    var expiring = l.left < EXP_MS;
+    var st = WL[wlKey(l)];
+    var wlCell;
+    if (st === "loading")
+      wlCell = '<span class="wl-skel skel" role="status" aria-label="Добавляем в избранное"></span>';
+    else if (st === "added")
+      wlCell = '<button type="button" class="ibtn ok" data-tip="Уже в Избранном" aria-label="Уже в Избранном">' + BM_OK + '</button>';
+    else
+      wlCell = '<button type="button" class="ibtn wl" data-k="' + esc(wlKey(l)) + '" data-tip="В избранное" aria-label="В избранное">' + BM_ADD + '</button>';
+    return '<tr>' +
+      (mode === "cat"
+        ? '<td class="tl"><span class="t-item">' + A.iconHtml(l.item, "t-ico") +
+          '<span class="ti-t"><span class="ti-nm">' + esc(l.item.nameRu) + '</span></span></span></td>'
+        : '') +
+      '<td' + (l.buyout === minBuy ? ' class="best" data-tip="Лучшая цена выкупа"' : '') + '>' + fmtP(l.buyout) + '</td>' +
+      '<td>' + fmtN(l.amount) + '</td>' +
+      '<td>' + fmtP(l.per) + '</td>' +
+      (l.qlt != null
+        ? '<td><span class="chip q" style="--qc:var(' + QV[l.qlt] + ')"><span class="qd" aria-hidden="true"></span>' + QNAME[l.qlt] + '</span></td>'
+        : '<td class="dim">—</td>') +
+      '<td class="' + (l.ptn ? '' : 'dim') + '">' + (l.ptn == null ? '—' : (l.ptn === 0 ? 'не точёный' : '+' + l.ptn)) + '</td>' +
+      '<td class="' + (expiring ? 'tleft-x' : 'dim') + '">' + fmtLeft(l.left) + '</td>' +
+      '<td><span class="lst ' + (expiring ? 'exp' : 'ok') + '">' + (expiring ? 'Истекает' : 'Активен') + '</span></td>' +
+      '<td>' + wlCell + '</td>' +
+      '</tr>';
+  }).join("");
+
+  /* кнопки «в избранное»: loading (скелетон) -> added + тост */
+  Array.prototype.forEach.call(tbody.querySelectorAll(".ibtn.wl"), function(b){
+    b.addEventListener("click", function(){
+      var k = b.getAttribute("data-k");
+      var t = token;
+      WL[k] = "loading";
+      renderTable();
+      setTimeout(function(){
+        if (t !== token) return;
+        WL[k] = "added";
+        renderTable();
+        A.toast("Добавлено в Избранное");
+      }, 450);
+    });
+  });
+  Array.prototype.forEach.call(tbody.querySelectorAll(".ibtn.ok"), function(b){
+    b.addEventListener("click", function(){ A.toast("Уже в Избранном"); });
+  });
+
+  /* футер: диапазон + строк на страницу */
+  var foot = document.getElementById("lfoot");
+  foot.innerHTML =
+    '<button type="button" class="pgbtn" data-pg="-1" aria-label="Предыдущая страница"' + (pi === 0 ? " disabled" : "") + '>‹</button>' +
+    '<span>' + fmtN(from+1) + '–' + fmtN(to) + ' из ' + fmtN(total) + '</span>' +
+    '<button type="button" class="pgbtn" data-pg="1" aria-label="Следующая страница"' + (to >= total ? " disabled" : "") + '>›</button>' +
+    '<span>· строк на стр:</span>' +
+    '<select class="input" id="rpp" aria-label="Строк на страницу">' +
+      [25,50,100].map(function(v){ return '<option value="' + v + '"' + (v === rpp ? " selected" : "") + '>' + v + '</option>'; }).join("") +
+    '</select>';
+  Array.prototype.forEach.call(foot.querySelectorAll(".pgbtn"), function(b){
+    b.addEventListener("click", function(){
+      pi += Number(b.getAttribute("data-pg"));
+      renderTable();
+    });
+  });
+  document.getElementById("rpp").addEventListener("change", function(e){
+    rpp = Number(e.target.value);
+    pi = 0;
+    renderTable();
+  });
+}
+
+/* ============ РЕГИОН ============ */
+document.getElementById("reg").addEventListener("change", function(e){
+  region = e.target.value;
+  if (mode === "item"){ lots = lotsFor(item); pi = 0; WL = {}; fresh = false; renderAll(); }
+  else if (mode === "cat"){ setCat(catId); }
+});
+
+/* ============ ГЕЙТИНГ ТАРИФОМ ============ */
+function locked(){ return !S.tierAllows("30d"); }  /* «Лоты» открыты с ПРОДВИНУТАЯ+ */
+function renderLock(){
+  document.getElementById("lockbox").innerHTML =
+    S.lockSvg(26, 28, 1.1) +
+    '<span class="kick">Поиск лотов</span>' +
+    '<span class="big">Доступно на тарифе ПРОДВИНУТАЯ+</span>' +
+    '<span class="note">Твой тариф — ' + S.tierName() + '. Живые лоты по любому предмету аукциона открываются уровнем выше.</span>' +
+    '<div class="acts">' +
+      '<button type="button" class="gbtn" id="lk-plans">Смотреть тарифы</button>' +
+      '<button type="button" class="qbtn" id="lk-demo">Сменить тариф в демо</button>' +
+    '</div>';
+  document.getElementById("lk-plans").addEventListener("click", function(){
+    A.toast("Экран тарифов — вне охвата прототипа");
+  });
+  document.getElementById("lk-demo").addEventListener("click", function(){
+    var d = document.querySelector(".demo");
+    if (!d) return;
+    d.classList.add("hl");
+    var sel = document.getElementById("demo-tier");
+    if (sel) sel.focus();
+    setTimeout(function(){
+      var d2 = document.querySelector(".demo");
+      if (d2) d2.classList.remove("hl");
+    }, 3200);
+  });
+}
+function applyLock(){
+  var l = locked();
+  document.getElementById("app").hidden = l;
+  document.getElementById("lockwrap").hidden = !l;
+  if (l) renderLock();
+}
+window.addEventListener("sc:tier", function(){
+  applyLock();
+  if (!locked() && !booted) initDefault();
+});
+
+/* ============ ОБЩИЙ РЕНДЕР ============ */
+function renderAll(){
+  renderTree();
+  var has = mode !== "none";
+  document.getElementById("histwrap").hidden = has;
+  document.getElementById("res").hidden = !has;
+  if (has){
+    renderResHead();
+    renderFbar();
+    renderHead();
+    renderTable();
+  }
+}
+
+/* ============ СТАРТ ============ */
+function initDefault(){
+  booted = true;
+  renderHistory();
+  /* ?item=<id> — прямые ссылки из Ленты; иначе Гелий — дефолт демо */
+  var want = null;
+  try{ want = new URLSearchParams(location.search).get("item"); }catch(e){}
+  var start = (want && poolById(want)) || poolById("kqr0");
+  if (start){
+    qEl.value = start.nameRu;
+    setItem(start);
+  } else {
+    renderAll();
+  }
+}
+applyLock();
+if (!locked()) initDefault();
+else renderHistory();
+})();
+</script>
+</body>
+</html>

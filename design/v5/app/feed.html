@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC Trading — Лента возможностей</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+/* ============================================================
+   Страничные стили «Ленты возможностей». Только то, чего нет
+   в base.css. Цвета — только var(--…): хекс здесь = дефект.
+   ============================================================ */
+
+/* левая колонка: шапка + sticky-фильтры + лента */
+.feedcol{display:flex;flex-direction:column;gap:12px;min-width:0}
+
+/* сводка в сайдбаре: метрики на 1px-щелях (реюз .st) */
+.sumgrid{display:grid;gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
+
+/* лучший сигнал дня */
+.best{padding:12px}
+.best .bi{display:flex;align-items:center;gap:9px;margin-top:8px;min-width:0}
+.best .bi .bn{flex:1;min-width:0;line-height:1.3}
+.best .bi .bn .nm{display:block;font-size:var(--fs-125);font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.best .bi .bn .qq{font-size:var(--fs-105);font-weight:600;color:var(--qc,var(--q-default))}
+/* пик иерархии экрана — один, с глоу */
+.bestv{
+  display:block;margin-top:8px;font-family:var(--mono);font-weight:700;font-size:var(--fs-28);
+  line-height:1.05;color:var(--gold-hi);font-variant-numeric:tabular-nums;
+  text-shadow:0 0 22px var(--gold-glow);
+}
+.bests{display:block;margin-top:2px;font-family:var(--mono);font-size:var(--fs-11);color:var(--faint);font-variant-numeric:tabular-nums}
+.best .gbtn{display:block;width:100%;margin-top:10px;text-align:center;text-decoration:none}
+.best-empty{margin-top:8px;font-size:var(--fs-12);color:var(--faint)}
+
+/* мини-блок «Настройка сигналов» */
+.side-note{padding:12px;border-top:1px solid var(--line);font-size:var(--fs-12);color:var(--mut);line-height:1.5}
+.side-note .crit{font-family:var(--mono);color:var(--gold-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.side-note .qbtn{margin-top:9px;text-decoration:none}
+
+/* иконка предмета в строке события / в «лучшем сигнале» */
+.e-ico{width:26px;height:26px;flex:none;position:relative;background:var(--s2);border:1px solid var(--line);display:grid;place-items:center}
+.e-ico img{width:22px;height:22px;object-fit:contain}
+.e-ico .fb{font-size:12px;position:absolute;inset:0}
+</style>
+</head>
+<body>
+
+<!-- оболочка: навбар + лента сигналов (футер добавит shell.js) -->
+<div id="shell"></div>
+
+<main class="layout">
+  <div class="feedcol">
+    <!-- шапка страницы -->
+    <section class="panel" aria-label="Лента возможностей — шапка">
+      <div class="pg-h">
+        <div class="tt">
+          <span class="kick">ЛЕНТА ВОЗМОЖНОСТЕЙ // OPPORTUNITY FEED</span>
+          <h1>Что купить прямо сейчас</h1>
+          <div class="sub">Сигналы по твоему избранному в реальном времени: выгодные лоты ниже медианы, всплески оптовых сделок, движения цены и события Зоны.</div>
+        </div>
+        <div class="pr"><span class="livehint" id="livehint">обновлено —</span></div>
+      </div>
+    </section>
+
+    <!-- панель фильтров (sticky под навбаром) -->
+    <section class="panel fbar" id="fbar" aria-label="Фильтры ленты">
+      <button type="button" class="fchip" id="ch-all" aria-pressed="true">Все<span class="fc-n" id="cn-all">0</span></button>
+      <button type="button" class="fchip" data-type="lot" aria-pressed="true" style="--fcc:var(--green)"><span class="fc-d" aria-hidden="true"></span>Выгодные лоты<span class="fc-n" id="cn-lot">0</span></button>
+      <button type="button" class="fchip" data-type="spike" aria-pressed="true" style="--fcc:var(--amber)"><span class="fc-d" aria-hidden="true"></span>Всплески<span class="fc-n" id="cn-spike">0</span></button>
+      <button type="button" class="fchip" data-type="move" aria-pressed="true" style="--fcc:var(--gold-2)"><span class="fc-d" aria-hidden="true"></span>Движения цены<span class="fc-n" id="cn-move">0</span></button>
+      <button type="button" class="fchip" data-type="emis" aria-pressed="true" style="--fcc:var(--red)"><span class="fc-d" aria-hidden="true"></span>Выброс<span class="fc-n" id="cn-emis">0</span></button>
+      <span class="fsep" aria-hidden="true"></span>
+      <div class="mlft">
+        <label class="kick flab" for="minp">Мин. профит</label>
+        <select class="input" id="minp" aria-label="Минимальный профит выгодного лота">
+          <option value="5">5 %</option>
+          <option value="10">10 %</option>
+          <option value="15" selected>15 %</option>
+          <option value="25">25 %</option>
+        </select>
+        <span class="fsep" aria-hidden="true"></span>
+        <label class="switch"><input type="checkbox" id="favonly" checked><span class="sl" aria-hidden="true"></span><span class="lb">Только избранное</span></label>
+      </div>
+    </section>
+
+    <!-- поток событий -->
+    <section class="panel" aria-label="Поток сигналов">
+      <div class="evlist" id="evlist" role="feed" aria-label="События ленты"></div>
+      <div class="tfoot-line" id="ffoot"></div>
+    </section>
+  </div>
+
+  <!-- сайдбар: сводка 24ч -->
+  <aside class="side" aria-label="Сводка за 24 часа">
+    <div class="side-h"><h2>Сводка 24ч</h2><span class="n" id="sm-n">—</span></div>
+    <div class="sumgrid" id="sumgrid"></div>
+    <div class="best" id="best"></div>
+    <div class="side-note">
+      Сигналы считаются от критерия выгодности в профиле — сейчас <span class="crit" id="critv">15 %</span>.
+      Telegram-бот шлёт те же сигналы, что попадают в ленту.
+      <br><a class="qbtn" href="settings.html">Настройка сигналов</a>
+    </div>
+  </aside>
+</main>
+
+<script src="../assets/data.js"></script>
+<script src="../assets/app.js"></script>
+<script src="../assets/shell.js"></script>
+<script>
+/* ============================================================
+   Страница «Лента возможностей»: продуктовый концепт.
+   События выводятся ДЕТЕРМИНИРОВАННО из реальных данных
+   SC_DATA.favorites (лоты, статистика, дневная история):
+     lot   — лучший лот предмета с профитом vs медиана 7д;
+     spike — объём сделок 24ч ≥ 4× дневной нормы недели;
+     move  — |средняя 24ч − средняя 7д| / средняя 7д ≥ 20%;
+     emis  — событие игры «выброс» (виджет в навбаре).
+   Добор вне избранного — от категорийных медиан (как в Радаре).
+   ============================================================ */
+(function(){
+"use strict";
+var D = window.SC_DATA, A = window.SC_APP, S = window.SC_SHELL;
+var NOW = A.NOW;
+var esc = A.esc, fmtN = A.fmtN, fmtP = A.fmtP, fmtCompact = A.fmtCompact,
+    fmtHM = A.fmtHM, fmtLeft = A.fmtLeft;
+var FAVS = D.favorites || [];
+
+/* --- оболочка --- */
+S.render("feed");
+
+/* ============ ДЕТЕРМИНИРОВАННЫЕ ХЕЛПЕРЫ ============ */
+function hash(s){ var h = 0; for (var i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) >>> 0; return h; }
+/* «минут назад» из ключа: разброс lo…hi минут, без рандома */
+function stampMin(key, lo, hi){ return lo + hash(key) % Math.max(1, hi - lo); }
+function jit(id, salt, lo, hi){ return lo + (hi - lo) * (hash(id + salt) % 1000) / 1000; }
+function median(a){
+  if (!a.length) return 0;
+  var s = a.slice().sort(function(x,y){ return x - y; });
+  var m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
+}
+function topCat(c){ return (c || "").split("/")[0]; }
+
+/* ряды спарклайнов — из реальной дневной истории */
+function priceSeries(f){
+  return (f.historyDaily || []).slice(-7).map(function(r){ return r.avg; }).filter(function(v){ return v > 0; });
+}
+function salesSeries(f){
+  return (f.historyDaily || []).slice(-7).map(function(r){ return r.sales || 0; });
+}
+/* синтетический ряд для добора вне избранного (от категорийной базы) */
+function synthSeries(id, base, last){
+  var out = [];
+  for (var i=0;i<6;i++) out.push(base * jit(id, "s" + i, 0.78, 1.22));
+  out.push(last);
+  return out;
+}
+
+/* категорийные медианы по избранному — база метрик добора (как в Радаре) */
+var GROUPS = {}, ALLG = {p24:[], v7:[]};
+FAVS.forEach(function(f){
+  var k = topCat(f.category);
+  var g = GROUPS[k] = GROUPS[k] || {p24:[], v7:[]};
+  [g, ALLG].forEach(function(o){
+    o.p24.push(f.stats.avgPrice24h || 0);
+    o.v7.push(f.stats.salesVolume7d || 0);
+  });
+});
+function catMed(cat){
+  var g = GROUPS[topCat(cat)] || ALLG;
+  return {p24: median(g.p24), v7: median(g.v7)};
+}
+
+/* ============ ГЕНЕРАЦИЯ СОБЫТИЙ ============ */
+var ALLEV = [], POOL = [], MOVES = [];
+
+FAVS.forEach(function(f){
+  var st = f.stats;
+  var med = st.medianPrice7d || 0;
+
+  /* 1) выгодный лот — лучший по профиту на штуку */
+  if (med > 0){
+    var good = A.lotsOf(f).filter(function(l){ return l.profit > 0 && l.left > 0; });
+    good.sort(function(a,b){ return b.profit - a.profit || a.idx - b.idx; });
+    if (good.length){
+      var best = good[0];
+      var margin = Math.round(best.profit / med * 100);
+      if (margin >= 5){
+        ALLEV.push({
+          type:"lot", fav:true, item:f, lot:best, med:med, margin:margin,
+          spark:priceSeries(f), sparkLab:"цена 7д",
+          ago:stampMin(f.itemId + ":lot", 2, 240)
+        });
+      }
+      /* пул live-добавок: второй лучший лот предмета */
+      if (good.length > 1){
+        var b2 = good[1], m2 = Math.round(b2.profit / med * 100);
+        if (m2 >= 5){
+          POOL.push({
+            type:"lot", fav:true, item:f, lot:b2, med:med, margin:m2,
+            spark:priceSeries(f), sparkLab:"цена 7д", ago:0
+          });
+        }
+      }
+    }
+  }
+
+  /* 2) всплеск опта: сделки 24ч ≥ 4× дневной нормы недели */
+  var v24 = st.salesVolume24h || 0, v7 = st.salesVolume7d || 0;
+  var norm = v7 / 7;
+  if (norm > 0 && v24 / norm >= 4){
+    ALLEV.push({
+      type:"spike", fav:true, item:f,
+      v24:v24, norm:Math.round(norm), pct:Math.round((v24 / norm - 1) * 100),
+      spark:salesSeries(f), sparkLab:"объём 7д",
+      ago:stampMin(f.itemId + ":spk", 10, 360)
+    });
+  }
+
+  /* 3) движение цены: средняя 24ч против средней 7д */
+  var a24 = st.avgPrice24h || 0, a7 = st.avgPrice7d || 0;
+  if (a7 > 0){
+    var dev = (a24 - a7) / a7;
+    if (Math.abs(dev) >= 0.2){
+      MOVES.push({
+        type:"move", fav:true, item:f, a24:a24, a7:a7, med:med,
+        pct:Math.round(dev * 100),
+        spark:priceSeries(f), sparkLab:"цена 7д",
+        ago:stampMin(f.itemId + ":mov", 60, 480)
+      });
+    }
+  }
+});
+
+/* движения — только 6 самых сильных, иначе шум */
+MOVES.sort(function(a,b){ return Math.abs(b.pct) - Math.abs(a.pct); });
+ALLEV = ALLEV.concat(MOVES.slice(0, 6));
+
+/* 4) выброс — глобальное событие (видно и в режиме «только избранное») */
+ALLEV.push({type:"emis", fav:true, item:null, ago:120});
+
+/* добор вне избранного: 3 события от категорийных медиан */
+function exById(id){
+  var arr = D.catalogExtra || [];
+  for (var i=0;i<arr.length;i++) if (arr[i].itemId === id) return arr[i];
+  return null;
+}
+[
+  {id:"g34p",  kind:"spike"},   /* Юла */
+  {id:"5rpq",  kind:"move"},    /* Янтарник */
+  {id:"w29o",  kind:"spike"}    /* Патрон 9 мм жгучий */
+].forEach(function(x){
+  var it = exById(x.id);
+  if (!it) return;
+  var m = catMed(it.category);
+  if (x.kind === "spike"){
+    var nrm = Math.max(4, Math.round(m.v7 / 7 * jit(x.id, "n", 0.6, 1.3)));
+    var pct = 150 + hash(x.id + "p") % 160;
+    var v24 = Math.round(nrm * (1 + pct / 100));
+    ALLEV.push({
+      type:"spike", fav:false, item:it, v24:v24, norm:nrm, pct:pct,
+      spark:synthSeries(x.id, nrm, v24), sparkLab:"объём 7д",
+      ago:stampMin(x.id + ":spk", 20, 420)
+    });
+  } else {
+    var base = Math.max(10, Math.round(m.p24 * jit(x.id, "b", 0.5, 1.4)));
+    var mpct = -(20 + hash(x.id + "m") % 18);
+    var a24x = Math.round(base * (1 + mpct / 100));
+    ALLEV.push({
+      type:"move", fav:false, item:it, a24:a24x, a7:base, med:0, pct:mpct,
+      spark:synthSeries(x.id, base, a24x), sparkLab:"цена 7д",
+      ago:stampMin(x.id + ":mov", 20, 420)
+    });
+  }
+});
+
+/* лучший лот дня — «только что»: свежий верх ленты с глоу */
+var bestLot = null;
+ALLEV.forEach(function(e){ if (e.type === "lot" && (!bestLot || e.margin > bestLot.margin)) bestLot = e; });
+if (bestLot) bestLot.ago = 3;
+
+/* виртуальные таймстампы + сортировка: свежее сверху */
+var seq = 0;
+ALLEV.forEach(function(e){ e.t = NOW - e.ago * 60000; e.id = "e" + (seq++); });
+ALLEV.sort(function(a,b){ return b.t - a.t; });
+POOL.forEach(function(e){ e.id = "p" + (seq++); });
+
+/* ============ ФИЛЬТРЫ ============ */
+var ST = {types:{lot:true, spike:true, move:true, emis:true}, minMargin:15, favOnly:true};
+
+/* база для счётчиков чипов: все ограничения, кроме тумблеров типов */
+function baseSet(){
+  return ALLEV.filter(function(e){
+    if (ST.favOnly && !e.fav) return false;
+    if (e.type === "lot" && e.margin < ST.minMargin) return false;
+    return true;
+  });
+}
+function visible(){
+  return baseSet().filter(function(e){ return ST.types[e.type]; });
+}
+function anyTypeOn(){
+  return ST.types.lot || ST.types.spike || ST.types.move || ST.types.emis;
+}
+
+/* ============ РЕНДЕР СОБЫТИЯ ============ */
+var GLYPH = {
+  lot:  '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M1.5 1.5h5.2l6.8 6.8-5.2 5.2-6.8-6.8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="4.7" cy="4.7" r="1.1" fill="currentColor"/></svg>',
+  spike:'<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2 13V9.5M5.7 13V5.5M9.3 13V7.5M13 13V2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  move: '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M1.5 11.5 5.5 7l3 3 5-6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.8 3.5h3.7v3.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  emis: '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M7.5 1.8 14 13.2H1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M7.5 6v3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="7.5" cy="11.2" r=".8" fill="currentColor"/></svg>'
+};
+var TYPE_KICK = {lot:"Выгодный лот", spike:"Всплеск опта", move:"Движение цены", emis:"Выброс"};
+
+function sparkSvg(vals, lab){
+  if (!vals || vals.length < 2) return "";
+  var w = 110, h = 26;
+  var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
+  var span = (mx - mn) || 1;
+  var pts = [];
+  for (var i=0;i<vals.length;i++){
+    pts.push([
+      (3 + (w - 6) * i / (vals.length - 1)).toFixed(1),
+      (h - 3 - (h - 6) * ((vals[i] - mn) / span)).toFixed(1)
+    ]);
+  }
+  var dAttr = "M" + pts.map(function(p){ return p[0] + "," + p[1]; }).join(" L");
+  var last = pts[pts.length - 1];
+  return '<svg class="spk" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+    '<path d="' + dAttr + '" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>' +
+    '<circle class="sd" cx="' + last[0] + '" cy="' + last[1] + '" r="2.5"/></svg>' +
+    '<span class="s">' + lab + '</span>';
+}
+function agoTxt(min){
+  if (min <= 0) return "только что";
+  if (min < 60) return min + " м назад";
+  var hh = Math.floor(min / 60);
+  return hh + " ч назад";
+}
+function chipsOf(e){
+  var out = "";
+  if (e.item){
+    var r = A.rankOf(e.item);
+    out += '<span class="chip q" style="--qc:var(' + r.v + ')"><span class="qd" aria-hidden="true"></span>' + r.name + '</span>';
+    if (e.item.enchantFilter) out += '<span class="chip mono">+' + e.item.enchantFilter + '</span>';
+  }
+  if (!e.fav) out += '<span class="chip out">вне избранного</span>';
+  return out;
+}
+function m(v){ return '<span class="mono">' + v + '</span>'; }
+function col(v, cls, s){
+  return '<span class="ev-col"><span class="v' + (cls ? " " + cls : "") + '">' + v + '</span><span class="s">' + s + '</span></span>';
+}
+function acts(e){
+  var out = '<span class="ev-act">';
+  if (e.type === "lot"){
+    out += '<a class="qbtn" href="lots.html?item=' + encodeURIComponent(e.item.itemId) + '">Лоты</a>' +
+           '<a class="qbtn" href="favorites.html?item=' + encodeURIComponent(e.item.itemId) + '">Карточка</a>';
+  } else if (e.type === "emis"){
+    out += '<a class="qbtn" href="catalog.html">Каталог</a>';
+  } else if (e.fav){
+    out += '<a class="qbtn" href="favorites.html?item=' + encodeURIComponent(e.item.itemId) + '">Карточка</a>';
+  } else {
+    out += '<a class="qbtn" href="catalog.html">Каталог</a>';
+  }
+  return out + '</span>';
+}
+
+function evHtml(e, fresh, isNew){
+  var name, tx, cols = "", spark = "";
+  if (e.type === "lot"){
+    name = e.item.nameRu;
+    tx = 'лот ' + m(fmtP(e.lot.buyout)) + ' × ' + m(fmtN(e.lot.amount) + " шт") +
+      ' · осталось ' + m(fmtLeft(e.lot.left)) +
+      ' · перепродажа по медиане даст ' + m("+" + fmtCompact(e.lot.profit * e.lot.amount));
+    cols = col(fmtP(e.lot.per), "", "цена/шт") +
+           col("+" + e.margin + " %", "g", "мед. " + fmtCompact(e.med));
+    spark = sparkSvg(e.spark, e.sparkLab);
+  } else if (e.type === "spike"){
+    name = e.item.nameRu;
+    tx = 'скупают оптом: ' + m(fmtN(e.v24) + " сделок") + ' за 24ч при норме ' +
+      m(fmtN(e.norm) + "/день") + ' — возможен разгон цены';
+    cols = col(fmtN(e.v24), "", "сделок за 24ч") +
+           col("+" + fmtN(e.pct) + " %", "a", "к норме недели");
+    spark = sparkSvg(e.spark, e.sparkLab);
+  } else if (e.type === "move"){
+    name = e.item.nameRu;
+    var up = e.pct > 0;
+    tx = 'средняя за сутки ' + m(fmtCompact(e.a24)) + ' против ' + m(fmtCompact(e.a7)) +
+      ' за неделю' + (e.med > 0 ? ' · медиана 7д ' + m(fmtCompact(e.med)) : '') +
+      (up ? ' — не переплачивай на закупке' : ' — окно для закупки ниже обычного');
+    cols = col(fmtCompact(e.a24), "", "средняя 24ч") +
+           col((up ? "+" : "−") + fmtN(Math.abs(e.pct)) + " %", up ? "g" : "r", "к средней 7д");
+    spark = sparkSvg(e.spark, e.sparkLab);
+  } else {
+    name = "Зона · STALZONE";
+    tx = 'выброс завершился ' + m("2 ч назад") +
+      ' — в первые часы после выброса цены артефактов обычно проседают. Окно для закупки по избранному.';
+  }
+  return '<article class="ev t-' + e.type + (fresh ? " fresh" : "") + (isNew ? " enew" : "") + '"' +
+      ' aria-label="' + esc(TYPE_KICK[e.type]) + ': ' + esc(name) + '">' +
+    '<span class="ev-g" aria-hidden="true">' + GLYPH[e.type] + '</span>' +
+    '<span class="ev-main">' +
+      '<span class="ev-hr"><span class="ev-k">' + TYPE_KICK[e.type] + '</span>' +
+      (e.item ? A.iconHtml(e.item, "e-ico") : '') +
+      '<span class="ev-nm">' + esc(name) + '</span>' + chipsOf(e) + '</span>' +
+      '<span class="ev-tx">' + tx + '</span>' +
+    '</span>' +
+    cols +
+    '<span class="ev-spark">' + spark + '</span>' +
+    acts(e) +
+    '<span class="ev-t"><span class="hm">' + fmtHM(e.t) + '</span><span class="ago">' + agoTxt(e.ago) + '</span></span>' +
+    '</article>';
+}
+
+/* ============ РЕНДЕР ЛЕНТЫ ============ */
+var GROUP_LABEL = ["Только что", "За последний час", "Сегодня"];
+function groupOf(min){ return min <= 15 ? 0 : (min <= 60 ? 1 : 2); }
+
+function renderFeed(newId){
+  var list = document.getElementById("evlist");
+  var foot = document.getElementById("ffoot");
+  var evs = visible();
+
+  if (!evs.length){
+    var allOff = !anyTypeOn();
+    list.innerHTML = '<div class="ev-empty">' +
+      '<svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true"><circle cx="13" cy="13" r="10.5" stroke="currentColor" stroke-width="1.4"/><path d="M13 13 20 6.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="13" r="1.4" fill="currentColor"/></svg>' +
+      '<span class="tt">' + (allOff ? "Все типы сигналов выключены" : "По текущим фильтрам событий нет") + '</span>' +
+      '<span class="tx">Настрой фильтры — сигналы появятся здесь. ' +
+      (allOff ? "Включи хотя бы один тип события." : "Понизь минимальный профит или сними «только избранное».") + '</span>' +
+      '<button type="button" class="qbtn" id="resetf">Включить все типы</button>' +
+      '</div>';
+    foot.innerHTML = '<span class="mr">окно 24ч · срез ' + fmtHM(NOW) + '</span><span>0 событий</span>';
+    var rb = document.getElementById("resetf");
+    if (rb) rb.addEventListener("click", function(){
+      ST.types = {lot:true, spike:true, move:true, emis:true};
+      syncChips(); renderAll();
+    });
+    return;
+  }
+
+  var freshId = evs[0].id;
+  var html = "", lastG = -1;
+  var gCount = [0, 0, 0];
+  evs.forEach(function(e){ gCount[groupOf(e.ago)]++; });
+  evs.forEach(function(e){
+    var g = groupOf(e.ago);
+    if (g !== lastG){
+      html += '<div class="ev-sep"><span class="kick">' + GROUP_LABEL[g] + '</span>' +
+        '<span class="n">' + gCount[g] + '</span></div>';
+      lastG = g;
+    }
+    html += evHtml(e, e.id === freshId, e.id === newId);
+  });
+  list.innerHTML = html;
+
+  foot.innerHTML =
+    '<span class="mr">окно 24ч · срез ' + fmtHM(NOW) + ' · профит считается от медианы 7д</span>' +
+    '<span>' + evs.length + ' ' + plural(evs.length, "событие", "события", "событий") + '</span>';
+}
+function plural(n, one, few, many){
+  var m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+
+/* ============ СЧЁТЧИКИ ЧИПОВ ============ */
+function syncChips(){
+  var base = baseSet();
+  var cnt = {lot:0, spike:0, move:0, emis:0};
+  base.forEach(function(e){ cnt[e.type]++; });
+  ["lot", "spike", "move", "emis"].forEach(function(k){
+    document.getElementById("cn-" + k).textContent = cnt[k];
+    var b = document.querySelector('.fchip[data-type="' + k + '"]');
+    b.setAttribute("aria-pressed", String(ST.types[k]));
+  });
+  document.getElementById("cn-all").textContent = base.length;
+  document.getElementById("ch-all").setAttribute("aria-pressed",
+    String(ST.types.lot && ST.types.spike && ST.types.move && ST.types.emis));
+}
+
+/* ============ СВОДКА В САЙДБАРЕ ============ */
+function renderSummary(){
+  var evs = visible();
+  var lots = baseSet().filter(function(e){ return e.type === "lot"; });
+  document.getElementById("sm-n").textContent = evs.length;
+
+  var avg = 0;
+  lots.forEach(function(e){ avg += e.margin; });
+  avg = lots.length ? Math.round(avg / lots.length) : 0;
+
+  document.getElementById("sumgrid").innerHTML =
+    sCell("Сигналов за 24ч", fmtN(evs.length), "") +
+    sCell("Выгодных лотов", fmtN(lots.length), lots.length ? "g" : "") +
+    sCell("Средний профит сигнала", lots.length ? "+" + avg + " %" : "—", lots.length ? "g" : "") +
+    sCell("Всплесков опта", fmtN(baseSet().filter(function(e){ return e.type === "spike"; }).length), "a");
+
+  var bb = document.getElementById("best");
+  var top = null;
+  lots.forEach(function(e){ if (!top || e.margin > top.margin) top = e; });
+  if (!top){
+    bb.innerHTML = '<span class="kick">Лучший сигнал дня</span>' +
+      '<div class="best-empty">Нет лотов выше критерия ' + ST.minMargin + ' % — понизь порог в фильтрах.</div>';
+    return;
+  }
+  var r = A.rankOf(top.item);
+  bb.innerHTML =
+    '<span class="kick">Лучший сигнал дня</span>' +
+    '<div class="bi">' + A.iconHtml(top.item, "e-ico") +
+      '<span class="bn"><span class="nm">' + esc(top.item.nameRu) + '</span>' +
+      '<span class="qq" style="--qc:var(' + r.v + ')">' + r.name + '</span></span></div>' +
+    '<span class="bestv">+' + top.margin + ' %</span>' +
+    '<span class="bests">лот ' + fmtP(top.lot.buyout) + ' × ' + fmtN(top.lot.amount) +
+      ' шт · +' + fmtCompact(top.lot.profit * top.lot.amount) + ' к медиане</span>' +
+    '<a class="gbtn" href="lots.html?item=' + encodeURIComponent(top.item.itemId) + '">Смотреть лоты</a>';
+}
+function sCell(k, v, cls){
+  return '<div class="st"><span class="k">' + k + '</span><span class="v' + (cls ? " " + cls : "") + '">' + v + '</span></div>';
+}
+
+/* ============ LIVE-СТАТУС ============ */
+function renderLive(){
+  var evs = visible();
+  var min = evs.length ? evs[0].ago : null;
+  document.getElementById("livehint").textContent =
+    min === null ? "сигналов нет" : (min <= 0 ? "обновлено только что" : "обновлено " + agoTxt(min));
+}
+
+function renderAll(newId){
+  syncChips();
+  renderFeed(newId);
+  renderSummary();
+  renderLive();
+}
+
+/* ============ СОБЫТИЯ UI ============ */
+Array.prototype.forEach.call(document.querySelectorAll(".fchip[data-type]"), function(b){
+  b.addEventListener("click", function(){
+    var k = b.getAttribute("data-type");
+    ST.types[k] = !ST.types[k];
+    renderAll();
+  });
+});
+document.getElementById("ch-all").addEventListener("click", function(){
+  ST.types = {lot:true, spike:true, move:true, emis:true};
+  renderAll();
+});
+document.getElementById("minp").addEventListener("change", function(e){
+  ST.minMargin = Number(e.target.value) || 15;
+  renderAll();
+});
+document.getElementById("favonly").addEventListener("change", function(e){
+  ST.favOnly = e.target.checked;
+  renderAll();
+});
+
+/* ============ ДЕМО-ЖИВОСТЬ: новое событие раз в 45 с ============ */
+var liveIdx = 0;
+function passesNow(e){
+  if (!ST.types[e.type]) return false;
+  if (ST.favOnly && !e.fav) return false;
+  if (e.type === "lot" && e.margin < ST.minMargin) return false;
+  return true;
+}
+if (POOL.length){
+  setInterval(function(){
+    /* берём следующий из пула; предпочитаем проходящий текущие фильтры,
+       чтобы добавление было видно — иначе первый попавшийся */
+    var src = null;
+    for (var i = 0; i < POOL.length; i++){
+      var cand = POOL[(liveIdx + i) % POOL.length];
+      if (passesNow(cand)){ src = cand; liveIdx += i; break; }
+    }
+    if (!src) src = POOL[liveIdx % POOL.length];
+    liveIdx++;
+    var copy = {};
+    for (var k in src) if (Object.prototype.hasOwnProperty.call(src, k)) copy[k] = src[k];
+    copy.id = "live" + liveIdx;
+    copy.ago = 0;
+    copy.t = NOW + liveIdx * 1000;   /* поверх всех: свежее сверху */
+    ALLEV.unshift(copy);
+    renderAll(copy.id);
+  }, 45000);
+}
+
+renderAll();
+})();
+</script>
+</body>
+</html>

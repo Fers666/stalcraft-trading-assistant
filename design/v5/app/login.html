@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC Trading — вход в систему</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+/* ============================================================
+   Страница входа (публичная, без шелла и хедера).
+   Только страничное, только var(--…): хекс здесь = дефект.
+   ============================================================ */
+body{padding-top:0}
+.lg-wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:48px 16px}
+.lg-card{width:440px;background:var(--s1);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.lg-bar{height:2px;background:linear-gradient(90deg,var(--gold-1),var(--gold) 50%,var(--gold-2))}
+.lg-body{padding:26px 28px 24px}
+.lg-brand{margin-bottom:22px}
+.lg-body h1{font-family:var(--head);font-weight:700;font-size:var(--fs-26);letter-spacing:.04em;line-height:1.05;margin-bottom:7px;color:var(--text)}
+.lg-sub{margin:0 0 20px;font-size:var(--fs-125);line-height:1.6;color:var(--mut)}
+.lg-form{display:flex;flex-direction:column;gap:14px}
+.lg-form .input{height:36px;width:100%}
+.lg-form .input:focus{border-color:var(--gold-line)}
+.lg-submit{margin-top:4px;width:100%}
+.lg-demo{margin:0;text-align:center;font-family:var(--mono);font-size:var(--fs-105);color:var(--faint)}
+.lg-alt{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);text-align:center;font-size:var(--fs-125);color:var(--mut)}
+.lg-alt a{color:var(--gold-2);text-decoration:none;border-bottom:1px solid var(--gold-line);transition:color var(--fast) var(--ease),border-color var(--fast) var(--ease)}
+.lg-alt a:hover{color:var(--gold-hi);border-color:var(--gold-hi)}
+.lg-sys{margin:0;font-family:var(--mono);font-size:var(--fs-105);letter-spacing:.06em;color:var(--faint);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+
+<div class="pub-bg" aria-hidden="true"></div>
+
+<main class="lg-wrap">
+  <div class="lg-card">
+    <div class="lg-bar" aria-hidden="true"></div>
+    <div class="lg-body">
+
+      <a class="pub-brand lg-brand" href="index.html" aria-label="SC Trading — на главную">
+        <svg class="pub-lg" width="30" height="30" viewBox="0 0 34 34" aria-hidden="true">
+          <defs><clipPath id="lgc-login"><polygon points="17,1 33,17 17,33 1,17"/></clipPath></defs>
+          <polygon class="o" points="17,1 33,17 17,33 1,17" stroke-width="1.5"/>
+          <g clip-path="url(#lgc-login)">
+            <rect class="r1" x="6" y="22" width="4" height="9"/>
+            <rect class="r2" x="11.5" y="18" width="4" height="13"/>
+            <rect class="r3" x="17" y="13" width="4" height="18"/>
+            <rect class="r4" x="22.5" y="8" width="4" height="23"/>
+          </g>
+        </svg>
+        <span class="bt"><b>SC TRADING</b><i>Zone Terminal</i></span>
+      </a>
+
+      <h1>Вход в систему</h1>
+      <p class="lg-sub">
+        Реальные цены по истории сделок, сигналы о выгодных лотах
+        и прогноз времени продажи — для аукциона STALZONE.
+      </p>
+
+      <form class="lg-form" id="lg-form">
+        <div class="frow">
+          <label class="kick" for="lg-email">Email</label>
+          <input class="input" id="lg-email" type="email" value="stalker@zone.ru" autocomplete="off" spellcheck="false" required>
+        </div>
+        <div class="frow">
+          <label class="kick" for="lg-pass">Пароль</label>
+          <input class="input" id="lg-pass" type="password" value="demo-zone-042" autocomplete="off" required>
+        </div>
+        <button class="gbtn btn-lg lg-submit" id="lg-go" type="submit">Войти</button>
+        <p class="lg-demo">демо: поля уже заполнены — просто нажми «Войти»</p>
+      </form>
+
+      <div class="lg-alt">
+        Нет аккаунта? <a href="index.html#tariffs">Запросить доступ</a>
+      </div>
+
+    </div>
+  </div>
+
+  <p class="lg-sys">SC TRADING TERMINAL · v5 · защищённое соединение</p>
+</main>
+
+<script src="../assets/data.js"></script>
+<script src="../assets/app.js"></script>
+<script>
+/* ============================================================
+   Вход: в прототипе всегда успех — 600 мс состояния загрузки
+   на кнопке, затем переход в приложение (favorites.html).
+   ============================================================ */
+(function(){
+"use strict";
+document.getElementById("lg-form").addEventListener("submit", function(e){
+  e.preventDefault();
+  var b = document.getElementById("lg-go");
+  if (b.disabled) return;
+  b.disabled = true;
+  b.textContent = "Подключение…";
+  setTimeout(function(){
+    location.href = "favorites.html";
+  }, 600);
+});
+})();
+</script>
+</body>
+</html>

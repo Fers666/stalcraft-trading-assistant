@@ -63,6 +63,7 @@ Docker Compose. Данные глобальные (user_id=NULL), персона
 ```
 backend/app/   — FastAPI (entry: main.py), SQLAlchemy models, Celery tasks (graphify: 328 nodes)
 frontend/src/  — React/TS (entry: App.tsx), Zustand store, MUI (graphify: 140 nodes)
+design/v5/     — прототип редизайна «Терминал» (эталон для внедрения, см. docs/tasks/design-v5-implementation.md)
 docs/          — формулы, БД, архитектура, деплой (см. таблицу в Блоке 2)
 .claude/       — агенты, skills, команды Claude Code
 ```

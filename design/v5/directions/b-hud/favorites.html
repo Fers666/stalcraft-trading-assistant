@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC Trading — Избранное · Направление B «Тактический HUD»</title>
+<!--
+  design/v5 · Направление B «Тактический HUD»
+  Прототип страницы «Избранное». Self-contained: единственная зависимость — ../../assets/data.js (window.SC_DATA).
+  Время симулируется от market.collectTime (+6 мин), чтобы «осталось» и «обновлено» выглядели живыми при открытии по file://.
+  Шкала качества/рангов — единая (инвариант 1 AUDIT.md): default/newbie/stalker/veteran/master/legend → серый/зелёный/синий/фиолетовый/красный/янтарный.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@700&family=Russo+One&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============ 1. Токены (единственный источник цвета) ============ */
+:root{
+  --nav-h:52px;
+
+  /* поверхности: глубокий оливково-серый, не чистый чёрный */
+  --bg0:#0A0E0A;          /* страница */
+  --bg1:#10150F;          /* инпуты, шапки таблиц, вложенные зоны */
+  --bg2:#151B14;          /* панели */
+  --bg3:#1C2419;          /* приподнятое / hover */
+  --line:rgba(170,192,160,.10);
+  --line-hi:rgba(232,163,61,.30);
+
+  /* фосфорный янтарный — рабочий акцент */
+  --amber-dim:#A87A2E;
+  --amber:#E8A33D;
+  --amber-hi:#FFC46B;
+  --amber-glow:rgba(232,163,61,.10);
+  --amber-crn:rgba(232,163,61,.50);   /* скобки-уголки */
+
+  /* ночной зелёный — сигнал / профит */
+  --phos:#8FD974;
+  --phos-dim:#5E9A4C;
+  --phos-glow:rgba(143,217,116,.12);
+
+  /* статусы */
+  --danger:#FF6B5A;
+  --danger-glow:rgba(255,107,90,.12);
+  --warn:#F0B25A;
+  --info:#5CB8E8;
+
+  /* текст (muted ≥ 4.5:1 на --bg2) */
+  --t0:#E9EEE4;
+  --t1:#A9B4A0;
+  --t2:#828F78;
+
+  /* единая шкала рангов предметов (rarity, поле color) */
+  --rk-default:#9AA692;
+  --rk-newbie:#7FCF72;
+  --rk-stalker:#5CB8E8;
+  --rk-veteran:#B48CF0;
+  --rk-master:#FF6B5A;
+  --rk-legend:#FFB454;
+
+  /* шкала качества (qlt 0..5: Обычный..Легендарный) */
+  --q0:#9AA692; --q1:#7FCF72; --q2:#5CB8E8; --q3:#F0B25A; --q4:#E8A33D; --q5:#FFB454;
+
+  /* z-шкала */
+  --z-nav:100; --z-tip:120; --z-fx:200;
+
+  /* шрифты: Rajdhani — только латинский бренд в лого; Russo One — кириллический дисплей;
+     JetBrains Mono — все данные/телеметрия; Inter — UI-текст */
+  --brand:"Rajdhani",system-ui,sans-serif;
+  --display:"Russo One",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  --ui:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+
+/* ============ 2. Базовое ============ */
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  background:var(--bg0);
+  background-image:
+    linear-gradient(rgba(150,170,140,.028) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(150,170,140,.028) 1px,transparent 1px);
+  background-size:44px 44px;
+  color:var(--t0);
+  font-family:var(--ui);
+  font-size:13px;line-height:1.45;
+  padding-top:var(--nav-h);
+  min-height:100vh;
+}
+/* сканлайн + виньетка: едва заметные, статичные, не перехватывают клики */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:var(--z-fx);
+  background:repeating-linear-gradient(0deg,rgba(214,255,214,.012) 0 1px,transparent 1px 3px);
+}
+body::after{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:calc(var(--z-fx) - 1);
+  background:radial-gradient(120% 95% at 50% 38%,transparent 60%,rgba(0,0,0,.26) 100%);
+}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.kick{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--t2)}
+a{color:inherit}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+:focus-visible{outline:2px solid var(--amber-hi);outline-offset:2px}
+::selection{background:rgba(232,163,61,.30)}
+
+.wrap{max-width:1520px;margin:0 auto;padding:0 20px 56px}
+
+/* панель со скобками-уголками */
+.pane{position:relative;background:var(--bg2);border:1px solid var(--line)}
+.crn::before{
+  content:"";position:absolute;inset:-1px;pointer-events:none;
+  background:
+    linear-gradient(var(--amber-crn),var(--amber-crn)) left 0 top 0/13px 1px,
+    linear-gradient(var(--amber-crn),var(--amber-crn)) left 0 top 0/1px 13px,
+    linear-gradient(var(--amber-crn),var(--amber-crn)) right 0 top 0/13px 1px,
+    linear-gradient(var(--amber-crn),var(--amber-crn)) right 0 top 0/1px 13px,
+    linear-gradient(var(--amber-crn),var(--amber-crn)) left 0 bottom 0/13px 1px,
+    linear-gradient(var(--amber-crn),var(--amber-crn)) left 0 bottom 0/1px 13px,
+    linear-gradient(var(--amber-crn),var(--amber-crn)) right 0 bottom 0/13px 1px,
+    linear-gradient(var(--amber-crn),var(--amber-crn)) right 0 bottom 0/1px 13px;
+  background-repeat:no-repeat;
+}
+.pane-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.pane-head .kick{color:var(--amber)}
+.pane-head .sub{font-size:12px;color:var(--t2)}
+.pane-head .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+
+/* лампа состояния */
+.lamp{width:7px;height:7px;flex:none;background:var(--phos);box-shadow:0 0 7px var(--phos)}
+.lamp.amber{background:var(--amber);box-shadow:0 0 7px var(--amber)}
+.lamp.red{background:var(--danger);box-shadow:0 0 7px var(--danger)}
+@media (prefers-reduced-motion: no-preference){
+  .lamp.pulse{animation:lampPulse 2.4s ease-out infinite}
+  @keyframes lampPulse{0%,100%{opacity:1}50%{opacity:.45}}
+}
+
+/* чипы */
+.chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;font-weight:500;
+  padding:1px 7px;border:1px solid var(--line);border-radius:2px;color:var(--t1);white-space:nowrap}
+.chip.q{border-color:color-mix(in srgb,var(--qc) 40%,transparent);color:var(--qc);background:color-mix(in srgb,var(--qc) 10%,transparent)}
+
+/* ============ 3. Навбар (обычный div, fixed) ============ */
+.nav{
+  position:fixed;top:0;left:0;right:0;height:var(--nav-h);z-index:var(--z-nav);
+  display:flex;align-items:center;gap:14px;padding:0 20px;
+  background:rgba(13,17,12,.96);border-bottom:1px solid var(--line);
+  backdrop-filter:blur(6px);
+}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;flex:none}
+.brand svg{width:26px;height:26px}
+.brand .bt{line-height:1.02}
+.brand .bt .n{font-family:var(--brand);font-weight:700;font-size:16px;letter-spacing:.08em;color:var(--t0);display:block}
+.brand .bt .s{font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:var(--t2);text-transform:uppercase}
+.links{display:flex;gap:2px;min-width:0}
+.links a{
+  font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--t1);text-decoration:none;padding:6px 10px;border-radius:2px;white-space:nowrap;
+  transition:color .15s ease-out,background-color .15s ease-out;
+  display:inline-flex;align-items:center;gap:6px;
+}
+.links a:hover{color:var(--t0);background:var(--bg2)}
+.links a.on{color:var(--amber-hi);background:var(--amber-glow);box-shadow:inset 0 -2px 0 var(--amber)}
+.links a.locked{color:var(--t2)}
+.links a.locked svg{width:11px;height:11px}
+.tip{position:relative}
+.tip::after{
+  content:attr(data-tip);position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);
+  font-family:var(--mono);font-size:11px;letter-spacing:.04em;text-transform:none;white-space:nowrap;
+  background:var(--bg3);border:1px solid var(--line-hi);color:var(--t0);padding:5px 9px;border-radius:2px;
+  opacity:0;pointer-events:none;z-index:var(--z-tip);transition:opacity .15s ease-out;
+}
+.tip:hover::after,.tip:focus-visible::after{opacity:1}
+
+/* индикатор выброса — «угроза» в HUD-стиле */
+.emis{display:flex;align-items:center;gap:9px;margin-left:auto;padding:5px 10px;border:1px solid var(--line);background:var(--bg1);flex:none}
+.emis .bars{display:flex;align-items:flex-end;gap:2px;height:14px}
+.emis .bars i{width:4px;background:var(--bg3);border:1px solid var(--line)}
+.emis .bars i:nth-child(1){height:6px}
+.emis .bars i:nth-child(2){height:10px}
+.emis .bars i:nth-child(3){height:14px}
+.emis .bars i.on{background:var(--amber);border-color:var(--amber);box-shadow:0 0 6px rgba(232,163,61,.6)}
+.emis .et{line-height:1.15}
+.emis .et b{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.16em;color:var(--amber);display:block}
+.emis .et span{font-family:var(--mono);font-size:11px;color:var(--t1)}
+.userbox{display:flex;align-items:center;gap:9px;flex:none}
+.userbox .un{font-family:var(--mono);font-size:12px;color:var(--t1)}
+.userbox .plan{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;color:#141910;background:linear-gradient(90deg,var(--amber),var(--amber-hi));padding:3px 8px;border-radius:2px}
+.sysbtns{display:flex;gap:4px;flex:none}
+.icobtn{display:grid;place-items:center;width:30px;height:30px;border:1px solid transparent;border-radius:2px;color:var(--t1);
+  transition:color .15s ease-out,border-color .15s ease-out,background-color .15s ease-out}
+.icobtn:hover{color:var(--t0);border-color:var(--line);background:var(--bg2)}
+.icobtn svg{width:15px;height:15px}
+
+/* ============ 4. Лента сигналов ============ */
+.signals{display:flex;align-items:stretch;gap:8px;margin:14px 0;padding:9px 10px;background:var(--bg1);border:1px solid var(--line);overflow-x:auto;
+  scrollbar-width:thin;scrollbar-color:var(--amber-dim) transparent}
+.sig-label{flex:none;display:flex;flex-direction:column;justify-content:center;gap:4px;padding:0 14px 0 4px;border-right:1px solid var(--line)}
+.sig-label .st{display:flex;align-items:center;gap:7px}
+.sig-label .kick{color:var(--amber)}
+.sig-label .sub{font-family:var(--mono);font-size:11px;color:var(--phos)}
+.sig{flex:none;display:flex;align-items:center;gap:9px;min-width:196px;padding:6px 10px;background:var(--bg2);border:1px solid var(--line);text-align:left;
+  transition:border-color .15s ease-out,background-color .15s ease-out}
+.sig:hover{border-color:var(--line-hi);background:var(--bg3)}
+.sig.on{border-color:var(--amber);background:var(--amber-glow)}
+.sig .ic{width:28px;height:28px;flex:none;position:relative;font-size:20px}
+.sig .sm{min-width:0;flex:1}
+.sig .sname{font-size:12px;font-weight:600;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.sig .ssub{font-family:var(--mono);font-size:11px;color:var(--t2);white-space:nowrap;display:block}
+.sig .sbadge{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--phos);background:var(--phos-glow);border:1px solid rgba(143,217,116,.30);padding:2px 7px;border-radius:2px;flex:none}
+
+/* иконки предметов с фолбэком */
+.iico{position:relative;display:block;width:100%;height:100%}
+.iico img{width:100%;height:100%;object-fit:contain;display:block}
+.iico .fb{display:none;position:absolute;inset:0;place-items:center;font-family:var(--display);font-size:.62em;
+  color:var(--qc,var(--t1));background:color-mix(in srgb,var(--qc,var(--t2)) 14%,var(--bg1));border:1px solid color-mix(in srgb,var(--qc,var(--t2)) 40%,transparent)}
+.iico.noimg img{display:none}
+.iico.noimg .fb{display:grid}
+
+/* ============ 5. Layout ============ */
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:14px;align-items:start}
+.main{display:flex;flex-direction:column;gap:14px;min-width:0}
+
+/* ============ 6. Карточка предмета ============ */
+.ic-head{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:14px;padding:14px;align-items:center}
+.ic-ico{width:64px;height:64px;padding:6px;background:var(--bg1);border:1px solid var(--line);position:relative}
+.ic-ico::before{
+  content:"";position:absolute;inset:-1px;pointer-events:none;
+  background:
+    linear-gradient(var(--amber-crn),var(--amber-crn)) left 0 top 0/9px 1px,
+    linear-gradient(var(--amber-crn),var(--amber-crn)) left 0 top 0/1px 9px,
+    linear-gradient(var(--amber-crn),var(--amber-crn)) right 0 bottom 0/9px 1px,
+    linear-gradient(var(--amber-crn),var(--amber-crn)) right 0 bottom 0/1px 9px;
+  background-repeat:no-repeat;
+}
+.ic-ico .iico{font-size:34px}
+.ic-title{min-width:0}
+.ic-krow{display:flex;align-items:center;gap:10px;min-width:0}
+.rank-dot{width:8px;height:8px;flex:none;background:var(--rc,var(--rk-default));box-shadow:0 0 6px color-mix(in srgb,var(--rc,var(--rk-default)) 60%,transparent)}
+.ic-krow h1{font-family:var(--display);font-weight:400;font-size:20px;letter-spacing:.02em;margin:0;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ic-en{font-family:var(--mono);font-size:12px;color:var(--t2);white-space:nowrap}
+.del{display:inline-flex;align-items:center;gap:6px;margin-left:auto;padding:4px 9px;border:1px solid var(--line);border-radius:2px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--t1);flex:none;
+  transition:color .15s ease-out,border-color .15s ease-out,background-color .15s ease-out}
+.del:hover{color:var(--danger);border-color:var(--danger)}
+.del svg{width:13px;height:13px}
+.del.armed{color:var(--danger);border-color:var(--danger);background:var(--danger-glow)}
+.ic-meta{display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap}
+.ic-meta .id{font-family:var(--mono);font-size:11px;color:var(--t2);letter-spacing:.06em}
+.ic-right{display:flex;align-items:center;gap:18px}
+.risks{display:flex;flex-direction:column;gap:6px}
+.risk{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--t1)}
+.risk b{font-weight:600}
+.risk b.lo{color:var(--phos)} .risk b.mid{color:var(--warn)} .risk b.hi{color:var(--danger)}
+.med{text-align:right}
+.med .kick{display:block;margin-bottom:3px}
+.med .v{font-family:var(--mono);font-size:28px;font-weight:700;color:var(--amber-hi);line-height:1.05;font-variant-numeric:tabular-nums}
+.ic-status{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--line)}
+.ic-status .cell{display:flex;flex-direction:column;gap:3px;padding:9px 16px;border-right:1px solid var(--line)}
+.ic-status .cell:last-child{border-right:0;margin-left:auto}
+.ic-status .cv{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--t0);font-variant-numeric:tabular-nums}
+.ic-status .cv .up{color:var(--phos);font-size:10px} .ic-status .cv .dn{color:var(--info);font-size:10px}
+.ic-status .cv.dim{color:var(--t1);font-weight:400}
+
+/* ============ 7. Средний ряд: таблица + продажа/пачки ============ */
+.mid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:14px;align-items:start}
+.col-r{display:flex;flex-direction:column;gap:14px;min-width:0}
+
+/* таблица лотов */
+.tbl-scroll{max-height:378px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--amber-dim) transparent}
+table{width:100%;border-collapse:collapse}
+thead th{position:sticky;top:0;background:var(--bg1);z-index:1;text-align:right;padding:0;border-bottom:1px solid var(--line)}
+thead th:first-child .thb{justify-content:flex-start}
+.thb{display:flex;align-items:center;gap:5px;justify-content:flex-end;width:100%;padding:7px 12px;
+  font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--t2);
+  transition:color .15s ease-out}
+.thb:hover{color:var(--t0)}
+.thb .si{font-size:9px;color:var(--amber);width:9px;display:inline-block}
+tbody td{padding:7px 12px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums;text-align:right;color:var(--t0);white-space:nowrap}
+tbody td:first-child{text-align:left}
+tbody tr{cursor:pointer;transition:background-color .15s ease-out}
+tbody tr:hover{background:var(--bg3)}
+tbody tr[aria-selected="true"]{background:var(--amber-glow);box-shadow:inset 2px 0 0 var(--amber),inset -2px 0 0 var(--amber)}
+td .mut{color:var(--t2)}
+td .pf-up{color:var(--phos);font-weight:600}
+td .pf-dn{color:var(--danger)}
+td .exp{color:var(--danger)}
+td .expw{color:var(--warn)}
+.empty{padding:26px 14px;text-align:center;color:var(--t1);font-size:12.5px}
+
+/* варианты продажи */
+.so-list{display:flex;flex-direction:column}
+.so{display:grid;grid-template-columns:86px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
+.so:last-of-type{border-bottom:0}
+.so .lbl .kick{display:block;color:var(--t1)}
+.so .lbl .eta{font-family:var(--mono);font-size:11px;color:var(--t2)}
+.so .mid2{line-height:1.5}
+.so .p1{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--t0);font-variant-numeric:tabular-nums}
+.so .p2{font-family:var(--mono);font-size:11px;color:var(--t1);font-variant-numeric:tabular-nums;display:block}
+.so .pr{font-family:var(--mono);font-size:14px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+.so .pr.up{color:var(--phos)} .so .pr.dn{color:var(--danger)}
+.so .pr small{display:block;font-size:10px;font-weight:500;letter-spacing:.1em;color:var(--t2);text-transform:uppercase}
+.so-base{padding:8px 14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--t2)}
+.so-base b{color:var(--amber);font-weight:600}
+
+/* пачки */
+.batches{padding:6px 14px 12px}
+.brow{display:grid;grid-template-columns:64px minmax(0,1fr) 92px;gap:10px;align-items:center;padding:5px 0}
+.brow .bl{font-family:var(--mono);font-size:11px;color:var(--t1);white-space:nowrap}
+.brow .track{height:10px;position:relative}
+.brow .bar{position:absolute;left:0;top:1px;height:8px;background:var(--amber);border-radius:0 2px 2px 0;min-width:2px;opacity:.9}
+.brow.top .bar{background:var(--amber-hi)}
+.brow .bv{font-family:var(--mono);font-size:11px;color:var(--t0);text-align:right;font-variant-numeric:tabular-nums}
+.brow .bv .mut{color:var(--t2)}
+
+/* ============ 8. Графики ============ */
+.tabs{display:flex;gap:2px}
+.tab{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.08em;padding:5px 12px;border:1px solid var(--line);border-radius:2px;color:var(--t1);
+  display:inline-flex;align-items:center;gap:6px;transition:color .15s ease-out,border-color .15s ease-out,background-color .15s ease-out}
+.tab:hover{color:var(--t0);border-color:var(--line-hi)}
+.tab[aria-selected="true"]{color:var(--amber-hi);border-color:var(--amber);background:var(--amber-glow)}
+.tab svg{width:10px;height:10px}
+.ch-wrap{position:relative;padding:8px 8px 4px}
+#chart-box{min-height:280px}
+#chart-box.blurred{filter:blur(6px) saturate(.55);opacity:.55}
+#chart-box svg{display:block}
+.cg{stroke:rgba(233,238,228,.07);stroke-width:1}
+.cax{stroke:rgba(233,238,228,.20);stroke-width:1}
+.ct{fill:var(--t2);font-family:var(--mono);font-size:11px}
+.cd{fill:var(--amber);fill-opacity:.85;stroke:var(--bg2);stroke-width:1.5}
+.cd:hover{fill:var(--amber-hi);fill-opacity:1}
+.cmed{stroke:var(--phos);stroke-width:1;stroke-dasharray:3 4;opacity:.8}
+.cmt{fill:var(--phos-dim)}
+.carea{fill:var(--amber);fill-opacity:.10}
+.cbound{stroke:var(--amber);stroke-opacity:.35;stroke-width:1;fill:none}
+.cavg{stroke:var(--amber-hi);stroke-width:2;fill:none;stroke-linejoin:round;stroke-linecap:round}
+.cend{fill:var(--amber-hi);stroke:var(--bg2);stroke-width:2}
+.clbl{fill:var(--t0);font-family:var(--mono);font-size:11px;font-weight:600}
+.chov{fill:transparent}
+.chov:hover{fill:rgba(233,238,228,.05)}
+.ce{fill:var(--t1);font-family:var(--mono);font-size:12px}
+.gate{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:20px}
+.gate[hidden]{display:none}
+.gate svg{width:26px;height:26px;color:var(--amber)}
+.gate .gt{font-family:var(--display);font-size:14px;letter-spacing:.04em;color:var(--t0)}
+.gate .gs{font-size:12.5px;color:var(--t1);max-width:340px}
+.btn-cta{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:#141910;background:linear-gradient(90deg,var(--amber),var(--amber-hi));padding:8px 18px;border-radius:2px;margin-top:4px;
+  transition:transform .15s ease-out,filter .15s ease-out}
+.btn-cta:hover{filter:brightness(1.08)}
+.btn-cta:active{transform:translateY(1px)}
+
+/* ============ 9. Сайдбар ============ */
+.side{position:sticky;top:calc(var(--nav-h) + 14px);display:flex;flex-direction:column;max-height:calc(100vh - var(--nav-h) - 28px)}
+.side-head{display:flex;align-items:baseline;justify-content:space-between;padding:12px 14px 10px}
+.side-head .kick{color:var(--amber)}
+.side-head .cnt{font-family:var(--mono);font-size:12px;color:var(--t1);font-variant-numeric:tabular-nums}
+.search{display:flex;align-items:center;gap:8px;margin:0 12px 10px;padding:7px 10px;background:var(--bg1);border:1px solid var(--line);border-radius:2px;
+  transition:border-color .15s ease-out}
+.search:focus-within{border-color:var(--amber)}
+.search svg{width:13px;height:13px;color:var(--t2);flex:none}
+.search input{flex:1;min-width:0;background:transparent;border:0;outline:0;color:var(--t0);font-family:var(--mono);font-size:12px}
+.search input::placeholder{color:var(--t2)}
+.fav-list{overflow-y:auto;padding:0 8px 10px;display:flex;flex-direction:column;gap:2px;
+  scrollbar-width:thin;scrollbar-color:var(--amber-dim) transparent}
+.fav{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border:1px solid transparent;border-radius:2px;text-align:left;
+  transition:background-color .15s ease-out,border-color .15s ease-out}
+.fav:hover{background:var(--bg3)}
+.fav.on{background:var(--amber-glow);border-color:var(--line-hi)}
+.fav .ic{width:30px;height:30px;flex:none;font-size:22px}
+.fav .fm{min-width:0;flex:1}
+.fav .fr1{display:flex;align-items:center;gap:6px;min-width:0}
+.fav .fr1 .rank-dot{width:6px;height:6px}
+.fav .fname{font-size:12.5px;font-weight:500;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fav.on .fname{color:var(--amber-hi)}
+.fav .fench{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--amber);background:var(--amber-glow);padding:0 4px;border-radius:2px;flex:none}
+.fav .fr2{display:flex;align-items:center;gap:6px;margin-top:2px}
+.fav .fr2 .chip{font-size:10px;padding:0 5px}
+.fav .fr2 .reg{font-family:var(--mono);font-size:10px;color:var(--t2);letter-spacing:.08em}
+.fav .fgood{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:12px;font-weight:700;color:var(--phos);flex:none}
+.fav .fgood .lamp{width:5px;height:5px}
+.side .empty{padding:18px 10px}
+
+/* ============ 10. Телеметрия по углам ============ */
+.tele{position:fixed;bottom:10px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--t2);
+  pointer-events:none;z-index:calc(var(--z-fx) - 2);display:flex;align-items:center;gap:7px;text-transform:uppercase}
+.tele-l{left:16px}
+.tele-r{right:16px}
+.tele .lamp{width:5px;height:5px}
+
+/* ============ 11. Деградация до 1280 ============ */
+@media (max-width:1400px){
+  .layout{grid-template-columns:minmax(0,1fr) 246px}
+  .links a{padding:6px 7px;font-size:11px}
+  .emis .et span{display:none}
+  .sig{min-width:180px}
+}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{transition:none !important;animation:none !important;scroll-behavior:auto !important}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ Навбар ============ -->
+<div class="nav">
+  <a class="brand" href="#" aria-label="SC Trading — на главную">
+    <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <path d="M16 3 L27 12 L16 29 L5 12 Z" stroke="#E8A33D" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M16 3 L16 29 M5 12 L27 12" stroke="#E8A33D" stroke-width=".8" opacity=".55"/>
+      <path d="M16 0.5 L16 2 M16 30 L16 31.5 M2.5 12 L4 12 M28 12 L29.5 12" stroke="#FFC46B" stroke-width="1.2"/>
+    </svg>
+    <span class="bt"><span class="n">SC TRADING</span><span class="s">TACTICAL TERMINAL</span></span>
+  </a>
+  <nav class="links" aria-label="Основная навигация">
+    <a href="#" class="on" aria-current="page">Избранное</a>
+    <a href="#">Каталог</a>
+    <a href="#">Лоты</a>
+    <a href="#">Лента</a>
+    <a href="#">Склад</a>
+    <a href="#">Новости</a>
+    <a href="#" class="locked tip" data-tip="Доступно как аддон" aria-describedby="radar-tip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="1"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+      Радар рынка
+    </a>
+  </nav>
+  <span id="radar-tip" hidden>Доступно как аддон</span>
+  <div class="emis" role="status" aria-label="Индикатор выброса: фон стабилен, последний 2 часа назад">
+    <span class="bars" aria-hidden="true"><i class="on"></i><i></i><i></i></span>
+    <span class="et"><b>ВЫБРОС</b><span class="num">последний: 2 ч назад</span></span>
+  </div>
+  <div class="userbox">
+    <span class="un">trader_01</span>
+    <span class="plan">ПРОДВИНУТАЯ+</span>
+  </div>
+  <div class="sysbtns">
+    <button class="icobtn" aria-label="Помощь">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.3c-.8.35-.9 1-.9 1.7"/><path d="M12 16.6v.1"/></svg>
+    </button>
+    <button class="icobtn" aria-label="Настройки">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5c.1-.4.1-.8.1-1.2Z"/></svg>
+    </button>
+    <button class="icobtn" aria-label="Выход">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7"/><path d="M17 8l4 4-4 4M21 12H10"/></svg>
+    </button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- ============ Лента сигналов ============ -->
+  <div class="signals" id="signals" aria-label="Лента сигналов по избранному"></div>
+
+  <div class="layout">
+    <main class="main" id="main"></main>
+
+    <!-- ============ Сайдбар ============ -->
+    <aside class="side pane crn" aria-label="Список избранного">
+      <div class="side-head">
+        <span class="kick">Избранное</span>
+        <span class="cnt num" id="fav-count">0/25</span>
+      </div>
+      <label class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></svg>
+        <input id="q" type="search" placeholder="Поиск по избранному" aria-label="Поиск по избранному" autocomplete="off">
+      </label>
+      <div class="fav-list" id="fav-list"></div>
+    </aside>
+  </div>
+</div>
+
+<!-- телеметрия по углам -->
+<div class="tele tele-l"><span class="lamp pulse" aria-hidden="true"></span>TRM-07 // SIGNAL OK</div>
+<div class="tele tele-r">RU · MSK <span class="num" id="clock">--:--:--</span></div>
+
+<script src="../../assets/data.js"></script>
+<script>
+'use strict';
+(function(){
+  var D = window.SC_DATA || { favorites: [] };
+
+  /* ---------- Константы ---------- */
+  var FAV_LIMIT = 25;
+  var COMMISSION = 0.95;                 /* аукцион забирает 5% */
+  var SIM_OFFSET = 6 * 60000;            /* «сейчас» = collectTime + 6 мин */
+  var QUALITY_NAMES = ['Обычный','Необычный','Особый','Ветеран','Мастер','Легендарный'];
+  var QUALITY_VARS  = ['--q0','--q1','--q2','--q3','--q4','--q5'];
+  var RANK_VARS = { 'default':'--rk-default', rank_newbie:'--rk-newbie', rank_stalker:'--rk-stalker',
+                    rank_veteran:'--rk-veteran', rank_master:'--rk-master', rank_legend:'--rk-legend' };
+  var DAY_RU = { Monday:'пн', Tuesday:'вт', Wednesday:'ср', Thursday:'чт', Friday:'пт', Saturday:'сб', Sunday:'вс' };
+
+  /* ---------- Состояние ---------- */
+  var state = {
+    items: D.favorites.slice(),
+    activeId: null,
+    query: '',
+    sortKey: 'perUnit',
+    sortDir: 1,               /* 1 asc, -1 desc */
+    selectedLot: null,        /* объект лота */
+    tab: '24h',
+    delTimer: null
+  };
+
+  /* ---------- Утилиты ---------- */
+  function el(s, root){ return (root || document).querySelector(s); }
+  function els(s, root){ return Array.prototype.slice.call((root || document).querySelectorAll(s)); }
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function fmt(n){ return Math.round(n).toLocaleString('ru-RU'); }
+  function fmtP(n){ return fmt(n) + ' ₽'; }
+  function fmtSign(n){ return (n >= 0 ? '+' : '-') + fmt(Math.abs(n)) + ' ₽'; }
+  function fmtC(n){
+    if (n >= 1e6) return String(Math.round(n / 1e5) / 10).replace('.', ',') + 'М';
+    if (n >= 1e3) return String(Math.round(n / 1e3)) + 'К';
+    return String(Math.round(n));
+  }
+  function fmtTime(t){ return new Date(t).toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit', timeZone:'Europe/Moscow' }); }
+  function fmtDayN(t){ return new Date(t).toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', timeZone:'Europe/Moscow' }); }
+  function fmtDT(t){ return fmtDayN(t) + ' ' + fmtTime(t); }
+  function simNow(item){
+    var ct = item.market && item.market.collectTime ? Date.parse(item.market.collectTime) : Date.now();
+    return ct + SIM_OFFSET;
+  }
+  function cur(){
+    for (var i = 0; i < state.items.length; i++) if (state.items[i].itemId === state.activeId) return state.items[i];
+    return null;
+  }
+  function rankVar(c){ return RANK_VARS[c] || '--rk-default'; }
+  function qColorVar(q){ return QUALITY_VARS[Math.max(0, Math.min(5, q|0))]; }
+  function bestTime(day, hour){
+    if (!day && hour == null) return null;
+    var d = DAY_RU[day] || '';
+    var h = (hour == null) ? '' : (String(hour).length < 2 ? '0' + hour : hour) + ':00';
+    return (d + ' ' + h).trim();
+  }
+  function riskLevel(v){
+    if (v == null) return null;
+    if (v < 50)  return { cls:'lo',  txt:'НИЗКИЙ' };
+    if (v < 150) return { cls:'mid', txt:'СРЕДНИЙ' };
+    return { cls:'hi', txt:'ВЫСОКИЙ' };
+  }
+  function iconHTML(item, extraClass){
+    var letter = esc((item.nameRu || '?').replace(/^[«"']/, '').charAt(0).toUpperCase());
+    return '<span class="iico ' + (extraClass || '') + '" style="--qc:var(' + rankVar(item.color) + ')">' +
+      '<img src="' + esc(item.icon) + '" alt="" loading="lazy" onerror="this.parentNode.classList.add(\'noimg\')">' +
+      '<span class="fb" aria-hidden="true">' + letter + '</span></span>';
+  }
+
+  /* ---------- Расчёты по лотам ---------- */
+  function buyoutLots(item){
+    var med = item.stats ? item.stats.medianPrice7d : null;
+    var lots = (item.market && item.market.lots) ? item.market.lots : [];
+    var out = [];
+    for (var i = 0; i < lots.length; i++){
+      var l = lots[i];
+      if (!l.buyoutPrice || l.buyoutPrice <= 0) continue;
+      var per = l.buyoutPrice / (l.amount || 1);
+      out.push({
+        buyout: l.buyoutPrice,
+        amount: l.amount || 1,
+        perUnit: per,
+        ptn: l.ptn,
+        end: Date.parse(l.endTime),
+        profit: (med != null) ? (med * COMMISSION - per) : null
+      });
+    }
+    return out;
+  }
+  function goodCount(item){
+    var lots = buyoutLots(item), n = 0;
+    for (var i = 0; i < lots.length; i++) if (lots[i].profit != null && lots[i].profit > 0) n++;
+    return n;
+  }
+  function cheapestLot(item){
+    var lots = buyoutLots(item);
+    if (!lots.length) return null;
+    lots.sort(function(a, b){ return a.perUnit - b.perUnit; });
+    return lots[0];
+  }
+  function timeLeft(endT, now){
+    var ms = endT - now;
+    if (isNaN(ms)) return { txt:'—', cls:'mut' };
+    if (ms <= 0) return { txt:'истёк', cls:'mut' };
+    var m = Math.floor(ms / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+    if (m < 120) return { txt: Math.floor(m / 60) + ' ч ' + (m % 60) + ' м', cls:'exp', warn:'истекает' };
+    if (d >= 1) return { txt: d + ' д ' + (h % 24) + ' ч', cls:'' };
+    return { txt: h + ' ч', cls:'' };
+  }
+
+  /* ---------- Лента сигналов ---------- */
+  function renderSignals(){
+    var host = el('#signals');
+    var html = '<div class="sig-label"><span class="st"><span class="lamp pulse" aria-hidden="true"></span><span class="kick">Сигналы</span></span>' +
+               '<span class="sub num">эфир активен</span></div>';
+    var items = state.items.filter(function(it){ return it.market && it.market.lots && it.market.lots.length; });
+    items.forEach(function(it){
+      var good = goodCount(it);
+      var mins = Math.max(1, Math.round((simNow(it) - Date.parse(it.market.collectTime)) / 60000));
+      html += '<button class="sig' + (it.itemId === state.activeId ? ' on' : '') + '" data-id="' + esc(it.itemId) + '">' +
+        '<span class="ic">' + iconHTML(it) + '</span>' +
+        '<span class="sm"><span class="sname">' + esc(it.nameRu) + '</span>' +
+        '<span class="ssub num">' + mins + ' мин · ' + it.market.totalLots + ' лотов</span></span>' +
+        (good > 0 ? '<span class="sbadge num" title="Выгодных лотов: ' + good + '">+' + good + '</span>' : '') +
+        '</button>';
+    });
+    host.innerHTML = html;
+    els('.sig', host).forEach(function(b){
+      b.addEventListener('click', function(){ selectItem(b.getAttribute('data-id')); });
+    });
+  }
+
+  /* ---------- Сайдбар ---------- */
+  function renderSidebar(){
+    el('#fav-count').textContent = state.items.length + '/' + FAV_LIMIT;
+    var host = el('#fav-list');
+    var q = state.query.trim().toLowerCase();
+    var list = state.items.filter(function(it){
+      if (!q) return true;
+      return (it.nameRu || '').toLowerCase().indexOf(q) >= 0 || (it.nameEn || '').toLowerCase().indexOf(q) >= 0;
+    });
+    if (!list.length){
+      host.innerHTML = '<div class="empty">Ничего не найдено по запросу «' + esc(state.query) + '»</div>';
+      return;
+    }
+    var html = '';
+    list.forEach(function(it){
+      var good = goodCount(it);
+      var qchip = (it.qualityFilter != null)
+        ? '<span class="chip q" style="--qc:var(' + qColorVar(it.qualityFilter) + ')">' + esc(QUALITY_NAMES[it.qualityFilter] || it.qualityFilter) + '</span>'
+        : '';
+      html += '<button class="fav' + (it.itemId === state.activeId ? ' on' : '') + '" data-id="' + esc(it.itemId) + '">' +
+        '<span class="ic">' + iconHTML(it) + '</span>' +
+        '<span class="fm">' +
+          '<span class="fr1"><span class="rank-dot" style="--rc:var(' + rankVar(it.color) + ')" aria-hidden="true"></span>' +
+          '<span class="fname">' + esc(it.nameRu) + '</span>' +
+          (it.enchantFilter != null ? '<span class="fench num">+' + it.enchantFilter + '</span>' : '') + '</span>' +
+          '<span class="fr2">' + qchip + '<span class="reg num">' + esc(it.region) + '</span></span>' +
+        '</span>' +
+        (good > 0 ? '<span class="fgood num" title="Выгодных лотов: ' + good + '"><span class="lamp" aria-hidden="true"></span>' + good + '</span>' : '') +
+        '</button>';
+    });
+    host.innerHTML = html;
+    els('.fav', host).forEach(function(b){
+      b.addEventListener('click', function(){ selectItem(b.getAttribute('data-id')); });
+    });
+  }
+
+  /* ---------- Карточка предмета ---------- */
+  function renderMain(){
+    var host = el('#main');
+    var item = cur();
+    if (!item){
+      host.innerHTML = '<section class="pane crn"><div class="empty" style="padding:48px 20px">' +
+        'Избранное пусто. Добавь предметы из <a href="#" style="color:var(--amber)">Каталога</a>, чтобы следить за ценами.</div></section>';
+      return;
+    }
+    var s = item.stats || {};
+    var now = simNow(item);
+    var upd = Math.max(1, Math.round((now - Date.parse(item.market.collectTime)) / 60000));
+    var r7 = riskLevel(s.volatility7d), r30 = riskLevel(s.volatility30d);
+    var sell = bestTime(s.bestSellDay, s.bestSellHour);
+    var buy = bestTime(s.bestBuyDay, s.bestBuyHour);
+    var qchip = (item.qualityFilter != null)
+      ? '<span class="chip q" style="--qc:var(' + qColorVar(item.qualityFilter) + ')">кач. ' + esc(QUALITY_NAMES[item.qualityFilter] || item.qualityFilter) + '</span>'
+      : '';
+    var ench = (item.enchantFilter != null) ? '<span class="chip q" style="--qc:var(--amber)">заточка +' + item.enchantFilter + '</span>' : '';
+
+    var html =
+    '<section class="pane crn item-card" aria-label="Карточка предмета">' +
+      '<div class="ic-head">' +
+        '<div class="ic-ico">' + iconHTML(item) + '</div>' +
+        '<div class="ic-title">' +
+          '<div class="ic-krow">' +
+            '<span class="rank-dot" style="--rc:var(' + rankVar(item.color) + ')" title="Ранг предмета" aria-hidden="true"></span>' +
+            '<h1>' + esc(item.nameRu) + '</h1>' +
+            '<span class="ic-en">' + esc(item.nameEn) + '</span>' +
+            '<button class="del" id="del-btn" aria-label="Удалить ' + esc(item.nameRu) + ' из избранного">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m3 0-1 13a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1L6 7"/></svg>' +
+              '<span id="del-txt">Удалить</span>' +
+            '</button>' +
+          '</div>' +
+          '<div class="ic-meta">' +
+            '<span class="id num">ID ' + esc(item.itemId) + '</span>' +
+            '<span class="chip">' + esc(item.region) + '</span>' + qchip + ench +
+          '</div>' +
+        '</div>' +
+        '<div class="ic-right">' +
+          '<div class="risks">' +
+            (r7 ? '<span class="risk" title="Волатильность 7д: ' + s.volatility7d + '%"><span class="lamp ' + (r7.cls === 'lo' ? '' : r7.cls === 'mid' ? 'amber' : 'red') + '" aria-hidden="true"></span>РИСК 7Д: <b class="' + r7.cls + '">' + r7.txt + '</b></span>' : '') +
+            (r30 ? '<span class="risk" title="Волатильность 30д: ' + s.volatility30d + '%"><span class="lamp ' + (r30.cls === 'lo' ? '' : r30.cls === 'mid' ? 'amber' : 'red') + '" aria-hidden="true"></span>РИСК 30Д: <b class="' + r30.cls + '">' + r30.txt + '</b></span>' : '') +
+          '</div>' +
+          '<div class="med"><span class="kick">Медиана 7д</span><span class="v">' + (s.medianPrice7d != null ? fmtP(s.medianPrice7d) : '—') + '</span></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ic-status">' +
+        '<div class="cell"><span class="kick">Продаж 7д</span><span class="cv">' + fmt(s.salesVolume7d || 0) + '</span></div>' +
+        '<div class="cell"><span class="kick">Продавать</span><span class="cv"><span class="up">◆</span> ' + (sell || '—') + '</span></div>' +
+        '<div class="cell"><span class="kick">Покупать</span><span class="cv"><span class="dn">◆</span> ' + (buy || '—') + '</span></div>' +
+        '<div class="cell"><span class="kick">Ср. время продажи</span><span class="cv">' + (s.avgSellTimeHours != null ? '~' + Math.round(s.avgSellTimeHours) + ' ч' : '—') + '</span></div>' +
+        '<div class="cell"><span class="kick">Обновлено</span><span class="cv dim">' + upd + ' мин назад</span></div>' +
+      '</div>' +
+    '</section>' +
+
+    '<div class="mid">' +
+      '<section class="pane crn" aria-label="Выгодные лоты">' +
+        '<div class="pane-head"><span class="lamp" aria-hidden="true"></span><span class="kick">Выгодные лоты</span>' +
+          '<span class="sub num" id="lots-count"></span>' +
+          '<span class="right"><span class="sub">клик по лоту — пересчёт вариантов продажи</span></span></div>' +
+        '<div class="tbl-scroll"><table id="lots-tbl">' +
+          '<thead><tr>' +
+            thCell('buyout','Цена выкупа') + thCell('amount','Кол-во') + thCell('perUnit','Цена/шт') +
+            thCell('ptn','Заточка') + thCell('left','Осталось') + thCell('profit','Профит/шт*') +
+          '</tr></thead><tbody id="lots-body"></tbody>' +
+        '</table></div>' +
+        '<div class="so-base">* если продать по медиане 7д, с учётом комиссии 5%</div>' +
+      '</section>' +
+      '<div class="col-r">' +
+        '<section class="pane crn" aria-label="Варианты продажи">' +
+          '<div class="pane-head"><span class="kick">Варианты продажи</span>' +
+            '<span class="right sub num" id="so-conf"></span></div>' +
+          '<div class="so-list" id="so-list"></div>' +
+          '<div class="so-base" id="so-base"></div>' +
+        '</section>' +
+        '<section class="pane crn" aria-label="Распределение пачек">' +
+          '<div class="pane-head"><span class="kick">Пачки</span><span class="right sub" id="b-src"></span></div>' +
+          '<div class="batches" id="batches"></div>' +
+        '</section>' +
+      '</div>' +
+    '</div>' +
+
+    '<section class="pane crn" aria-label="История цен">' +
+      '<div class="pane-head">' +
+        '<span class="kick">История цен</span>' +
+        '<div class="tabs" role="tablist" aria-label="Период" style="margin-left:6px">' +
+          tabBtn('24h','24Ч') + tabBtn('48h','48Ч') + tabBtn('7d','7Д') + tabBtn('30d','30Д', true) +
+        '</div>' +
+        '<span class="right sub num" id="chart-vol"></span>' +
+      '</div>' +
+      '<div class="ch-wrap">' +
+        '<div id="chart-box" role="img" aria-label="График истории цен"></div>' +
+        '<div class="gate" id="chart-gate" hidden>' +
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="1"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>' +
+          '<span class="gt">30-дневная история заблокирована</span>' +
+          '<span class="gs">Доступно на тарифе «Продвинутая Макс» — коридор min–max за месяц и сезонные окна цен.</span>' +
+          '<button class="btn-cta">Тарифы</button>' +
+        '</div>' +
+      '</div>' +
+    '</section>';
+
+    host.innerHTML = html;
+
+    /* удаление: двухшаговое подтверждение */
+    var delBtn = el('#del-btn');
+    delBtn.addEventListener('click', function(){
+      if (delBtn.classList.contains('armed')){
+        clearTimeout(state.delTimer);
+        removeActive();
+        return;
+      }
+      delBtn.classList.add('armed');
+      el('#del-txt').textContent = 'Точно?';
+      clearTimeout(state.delTimer);
+      state.delTimer = setTimeout(function(){
+        delBtn.classList.remove('armed');
+        el('#del-txt').textContent = 'Удалить';
+      }, 3000);
+    });
+
+    /* сортировка */
+    els('.thb', host).forEach(function(b){
+      b.addEventListener('click', function(){
+        var k = b.getAttribute('data-k');
+        if (state.sortKey === k) state.sortDir = -state.sortDir;
+        else { state.sortKey = k; state.sortDir = (k === 'profit') ? -1 : 1; }
+        renderLots();
+      });
+    });
+
+    /* табы графиков */
+    els('.tab', host).forEach(function(b){
+      b.addEventListener('click', function(){
+        state.tab = b.getAttribute('data-tab');
+        els('.tab', host).forEach(function(x){ x.setAttribute('aria-selected', x === b ? 'true' : 'false'); });
+        renderChart();
+      });
+    });
+
+    renderLots();
+    renderSell();
+    renderBatches();
+    renderChart();
+  }
+
+  function thCell(k, label){
+    return '<th scope="col"><button class="thb" data-k="' + k + '">' + label + ' <span class="si" data-si="' + k + '"></span></button></th>';
+  }
+  function tabBtn(id, label, locked){
+    return '<button class="tab" role="tab" data-tab="' + id + '" aria-selected="' + (state.tab === id ? 'true' : 'false') + '">' +
+      (locked ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="1"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>' : '') +
+      label + '</button>';
+  }
+
+  /* ---------- Таблица лотов ---------- */
+  function sortedLots(item){
+    var lots = buyoutLots(item);
+    var k = state.sortKey, dir = state.sortDir;
+    lots.sort(function(a, b){
+      var av, bv;
+      if (k === 'left'){ av = a.end || Infinity; bv = b.end || Infinity; }
+      else if (k === 'ptn'){ av = (a.ptn == null ? -1 : a.ptn); bv = (b.ptn == null ? -1 : b.ptn); }
+      else { av = a[k] == null ? -Infinity : a[k]; bv = b[k] == null ? -Infinity : b[k]; }
+      return (av - bv) * dir;
+    });
+    return lots;
+  }
+  function renderLots(){
+    var item = cur(); if (!item) return;
+    var now = simNow(item);
+    var lots = sortedLots(item);
+    var good = goodCount(item);
+    el('#lots-count').textContent = lots.length ? (good + ' выгодных из ' + item.market.totalLots) : '';
+
+    /* индикаторы сортировки + aria-sort */
+    els('#lots-tbl thead th').forEach(function(th){
+      var b = th.querySelector('.thb'), si = th.querySelector('.si');
+      if (b.getAttribute('data-k') === state.sortKey){
+        si.textContent = state.sortDir === 1 ? '▲' : '▼';
+        th.setAttribute('aria-sort', state.sortDir === 1 ? 'ascending' : 'descending');
+      } else { si.textContent = ''; th.removeAttribute('aria-sort'); }
+    });
+
+    var body = el('#lots-body');
+    if (!lots.length){
+      body.innerHTML = '<tr><td colspan="6"><div class="empty">Активных лотов с выкупом нет — жди следующего сбора данных.</div></td></tr>';
+      return;
+    }
+    var html = '';
+    lots.forEach(function(l, i){
+      var lt = timeLeft(l.end, now);
+      var pf = (l.profit == null) ? '<span class="mut">—</span>'
+        : '<span class="' + (l.profit > 0 ? 'pf-up' : 'pf-dn') + '">' + fmtSign(l.profit) + '</span>';
+      var sel = (state.selectedLot && state.selectedLot.buyout === l.buyout && state.selectedLot.end === l.end && state.selectedLot.amount === l.amount);
+      html += '<tr tabindex="0" data-i="' + i + '" aria-selected="' + (sel ? 'true' : 'false') + '">' +
+        '<td>' + fmtP(l.buyout) + '</td>' +
+        '<td>' + (l.amount > 1 ? '×' + l.amount : '<span class="mut">×1</span>') + '</td>' +
+        '<td>' + fmtP(l.perUnit) + '</td>' +
+        '<td>' + (l.ptn != null ? '+' + l.ptn : '<span class="mut">—</span>') + '</td>' +
+        '<td><span class="' + (lt.cls || '') + '">' + lt.txt + (lt.warn ? ' · ' + lt.warn : '') + '</span></td>' +
+        '<td>' + pf + '</td></tr>';
+    });
+    body.innerHTML = html;
+
+    els('tr', body).forEach(function(tr){
+      function pick(){
+        var l = lots[parseInt(tr.getAttribute('data-i'), 10)];
+        var same = state.selectedLot && state.selectedLot.buyout === l.buyout && state.selectedLot.end === l.end && state.selectedLot.amount === l.amount;
+        state.selectedLot = same ? null : l;
+        renderLots();
+        renderSell();
+      }
+      tr.addEventListener('click', pick);
+      tr.addEventListener('keydown', function(e){
+        if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pick(); }
+      });
+    });
+  }
+
+  /* ---------- Варианты продажи ---------- */
+  function renderSell(){
+    var item = cur(); if (!item) return;
+    var s = item.stats || {};
+    var host = el('#so-list'), base = el('#so-base'), conf = el('#so-conf');
+    var lot = state.selectedLot || cheapestLot(item);
+
+    var opts;
+    if (s.sellOptions && s.sellOptions.length){
+      opts = s.sellOptions.map(function(o){
+        return { label: o.label_ru, price: o.price_per_unit, net: o.net_price_per_unit || Math.round(o.price_per_unit * COMMISSION),
+                 eta: o.estimated_hours_display || ('~' + Math.round(o.estimated_hours) + ' ч') };
+      });
+      conf.textContent = 'достоверность: высокая · ' + fmt(s.sellOptions[0].data_points) + ' сделок';
+    } else if (s.medianPrice7d != null){
+      var m = s.medianPrice7d, t = s.avgSellTimeHours || 6;
+      opts = [
+        { label:'Быстро',    price: Math.round(m * 0.93), net: Math.round(m * 0.93 * COMMISSION), eta:'~' + Math.max(1, Math.round(t * 0.5)) + ' ч' },
+        { label:'Нормально', price: Math.round(m),        net: Math.round(m * COMMISSION),        eta:'~' + Math.max(1, Math.round(t)) + ' ч' },
+        { label:'Выгодно',   price: Math.round(m * 1.08), net: Math.round(m * 1.08 * COMMISSION), eta:'~' + Math.max(1, Math.round(t * 2)) + ' ч' }
+      ];
+      conf.textContent = 'расчёт от медианы 7д';
+    } else {
+      host.innerHTML = '<div class="empty">Недостаточно данных для расчёта.</div>';
+      base.textContent = '';
+      conf.textContent = '';
+      return;
+    }
+
+    var html = '';
+    opts.forEach(function(o){
+      var profit = lot ? (o.net - lot.perUnit) : null;
+      html += '<div class="so">' +
+        '<div class="lbl"><span class="kick">' + esc(o.label) + '</span><span class="eta num">' + esc(o.eta) + '</span></div>' +
+        '<div class="mid2"><span class="p1">выставить за ' + fmtP(o.price) + '</span>' +
+        '<span class="p2">получишь ' + fmtP(o.net) + ' (−5%)</span></div>' +
+        '<div class="pr ' + (profit == null ? '' : profit > 0 ? 'up' : 'dn') + '">' +
+        (profit == null ? '—' : fmtSign(profit)) + '<small>прибыль/шт</small></div>' +
+        '</div>';
+    });
+    host.innerHTML = html;
+    base.innerHTML = lot
+      ? 'база расчёта — лот <b>' + fmtP(lot.perUnit) + '/шт</b>' + (lot.amount > 1 ? ' (пачка ×' + lot.amount + ')' : '') +
+        (state.selectedLot ? '' : ' · самый дешёвый, выбери другой в таблице')
+      : 'активных лотов нет — прибыль не рассчитать';
+  }
+
+  /* ---------- Пачки ---------- */
+  function renderBatches(){
+    var item = cur(); if (!item) return;
+    var host = el('#batches'), src = el('#b-src');
+    var s = item.stats || {};
+    var rows = [];
+    if (s.batchStats && s.batchStats.by_size){
+      var keys = Object.keys(s.batchStats.by_size);
+      keys.forEach(function(k){
+        var b = s.batchStats.by_size[k];
+        rows.push({ label: b.label, count: b.count, pct: b.share_pct, med: b.median_price_per_unit });
+      });
+      src.textContent = 'по продажам 7д';
+    } else {
+      /* фолбэк: распределение по активным лотам */
+      var buckets = [
+        { label:'1 шт', max:1 }, { label:'2–5 шт', max:5 }, { label:'6–10 шт', max:10 },
+        { label:'11–25 шт', max:25 }, { label:'26–50 шт', max:50 }, { label:'50+ шт', max:Infinity }
+      ];
+      var lots = (item.market && item.market.lots) ? item.market.lots : [];
+      var total = lots.length || 1;
+      buckets.forEach(function(b){ b.count = 0; });
+      lots.forEach(function(l){
+        var a = l.amount || 1;
+        for (var i = 0; i < buckets.length; i++){
+          if (a <= buckets[i].max){ buckets[i].count++; break; }
+        }
+      });
+      buckets.forEach(function(b){
+        if (b.count > 0) rows.push({ label: b.label, count: b.count, pct: Math.round(b.count / total * 1000) / 10, med: null });
+      });
+      src.textContent = 'по активным лотам';
+    }
+    if (!rows.length){
+      host.innerHTML = '<div class="empty">Нет данных о пачках.</div>';
+      return;
+    }
+    var maxPct = 0;
+    rows.forEach(function(r){ if (r.pct > maxPct) maxPct = r.pct; });
+    var html = '';
+    rows.forEach(function(r){
+      var w = maxPct ? Math.max(1.5, r.pct / maxPct * 100) : 0;
+      html += '<div class="brow' + (r.pct === maxPct ? ' top' : '') + '"' +
+        (r.med != null ? ' title="медиана ' + fmt(r.med) + ' ₽/шт"' : '') + '>' +
+        '<span class="bl">' + esc(r.label) + '</span>' +
+        '<span class="track"><span class="bar" style="width:' + w + '%"></span></span>' +
+        '<span class="bv">' + fmt(r.count) + ' <span class="mut">· ' + String(r.pct).replace('.', ',') + '%</span></span>' +
+        '</div>';
+    });
+    host.innerHTML = html;
+  }
+
+  /* ---------- Графики (инлайн-SVG) ---------- */
+  function svgOpen(w, h){ return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">'; }
+  function emptyChart(w, h, msg){
+    return svgOpen(w, h) + '<text x="' + (w / 2) + '" y="' + (h / 2) + '" text-anchor="middle" class="ce">' + esc(msg) + '</text></svg>';
+  }
+  function logY(min, max, top, bot){
+    var lm = Math.log(min), lx = Math.log(max);
+    if (lx - lm < 1e-9) lx = lm + 1;
+    return function(v){ return bot - (Math.log(Math.max(v, min)) - lm) / (lx - lm) * (bot - top); };
+  }
+  function logTicks(min, max){
+    var out = [];
+    var e = Math.floor(Math.log10 ? Math.log10(min) : Math.log(min) / Math.LN10);
+    var maxE = Math.ceil(Math.log(max) / Math.LN10);
+    for (; e <= maxE; e++){
+      [1, 2, 5].forEach(function(m){
+        var v = m * Math.pow(10, e);
+        if (v >= min * 0.999 && v <= max * 1.001) out.push(v);
+      });
+    }
+    while (out.length > 6){
+      var thin = [];
+      for (var i = 0; i < out.length; i += 2) thin.push(out[i]);
+      if (thin[thin.length - 1] !== out[out.length - 1]) thin.push(out[out.length - 1]);
+      out = thin;
+    }
+    return out;
+  }
+
+  function scatterSVG(item, hours, w, h){
+    var now = simNow(item), from = now - hours * 3600000;
+    var pts = (item.historyScatter || []).map(function(s){ return { t: Date.parse(s.t), p: s.p, a: s.a || 1 }; })
+      .filter(function(s){ return s.p > 0 && s.t >= from && s.t <= now; });
+    if (!pts.length) return emptyChart(w, h, 'Нет продаж за период');
+    var pad = { l: 58, r: 96, t: 16, b: 28 };
+    var min = Infinity, max = 0;
+    pts.forEach(function(s){ if (s.p < min) min = s.p; if (s.p > max) max = s.p; });
+    var med = (item.stats || {}).medianPrice7d;
+    if (med != null){ min = Math.min(min, med); max = Math.max(max, med); }
+    if (min === max){ min *= 0.8; max *= 1.25; }
+    var y = logY(min, max, pad.t, h - pad.b);
+    var x = function(t){ return pad.l + (t - from) / (now - from) * (w - pad.l - pad.r); };
+    var out = svgOpen(w, h);
+    logTicks(min, max).forEach(function(v){
+      var yy = y(v);
+      out += '<line x1="' + pad.l + '" x2="' + (w - pad.r) + '" y1="' + yy + '" y2="' + yy + '" class="cg"/>' +
+             '<text x="' + (pad.l - 8) + '" y="' + (yy + 3.5) + '" text-anchor="end" class="ct">' + fmtC(v) + '</text>';
+    });
+    var step = hours <= 24 ? 6 : 12;
+    for (var k = 0; k <= hours / step; k++){
+      var t = from + k * step * 3600000, xx = x(t);
+      out += '<line x1="' + xx + '" x2="' + xx + '" y1="' + (h - pad.b) + '" y2="' + (h - pad.b + 4) + '" class="cax"/>' +
+             '<text x="' + xx + '" y="' + (h - 8) + '" text-anchor="middle" class="ct">' + fmtTime(t) + '</text>';
+    }
+    out += '<line x1="' + pad.l + '" x2="' + (w - pad.r) + '" y1="' + (h - pad.b) + '" y2="' + (h - pad.b) + '" class="cax"/>';
+    if (med != null){
+      var ym = y(med);
+      out += '<line x1="' + pad.l + '" x2="' + (w - pad.r) + '" y1="' + ym + '" y2="' + ym + '" class="cmed"/>' +
+             '<text x="' + (w - pad.r + 6) + '" y="' + (ym + 3.5) + '" class="ct cmt">медиана ' + fmtC(med) + '</text>';
+    }
+    pts.forEach(function(s){
+      var r = s.a > 1 ? 4.5 : 3;
+      out += '<circle cx="' + x(s.t).toFixed(1) + '" cy="' + y(s.p).toFixed(1) + '" r="' + r + '" class="cd">' +
+             '<title>' + fmtP(s.p) + (s.a > 1 ? ' ×' + s.a : '') + ' · ' + fmtDT(s.t) + '</title></circle>';
+    });
+    return out + '</svg>';
+  }
+
+  function corridorSVG(item, days, w, h){
+    var daily = item.historyDaily || [];
+    var now = simNow(item);
+    var rows;
+    if (days === 7){
+      var from = now - 7 * 86400000;
+      rows = daily.filter(function(r){ return Date.parse(r.day + 'T12:00:00') >= from; });
+      if (rows.length < 2) rows = daily.slice(-7);
+    } else {
+      rows = daily.slice(-30);
+    }
+    if (rows.length < 2) return emptyChart(w, h, 'Недостаточно данных');
+    var pad = { l: 58, r: 96, t: 16, b: 28 };
+    var min = Infinity, max = 0;
+    rows.forEach(function(r){
+      if (r.min > 0 && r.min < min) min = r.min;
+      if (r.max > max) max = r.max;
+    });
+    if (!isFinite(min) || max <= 0) return emptyChart(w, h, 'Недостаточно данных');
+    var y = logY(min, max, pad.t, h - pad.b);
+    var x = function(i){ return pad.l + i / (rows.length - 1) * (w - pad.l - pad.r); };
+    var out = svgOpen(w, h);
+    logTicks(min, max).forEach(function(v){
+      var yy = y(v);
+      out += '<line x1="' + pad.l + '" x2="' + (w - pad.r) + '" y1="' + yy + '" y2="' + yy + '" class="cg"/>' +
+             '<text x="' + (pad.l - 8) + '" y="' + (yy + 3.5) + '" text-anchor="end" class="ct">' + fmtC(v) + '</text>';
+    });
+    /* коридор min–max */
+    var top = '', bottom = '';
+    rows.forEach(function(r, i){
+      top += (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(Math.max(r.max, min)).toFixed(1);
+    });
+    for (var j = rows.length - 1; j >= 0; j--){
+      bottom += 'L' + x(j).toFixed(1) + ',' + y(Math.max(rows[j].min, min)).toFixed(1);
+    }
+    out += '<path d="' + top + bottom + 'Z" class="carea"/>';
+    out += '<path d="' + top + '" class="cbound"/>';
+    var bpath = '';
+    rows.forEach(function(r, i){ bpath += (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(Math.max(r.min, min)).toFixed(1); });
+    out += '<path d="' + bpath + '" class="cbound"/>';
+    /* линия средней */
+    var ap = '';
+    rows.forEach(function(r, i){ ap += (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(Math.max(r.avg, min)).toFixed(1); });
+    out += '<path d="' + ap + '" class="cavg"/>';
+    var last = rows[rows.length - 1];
+    var lx = x(rows.length - 1), ly = y(Math.max(last.avg, min));
+    out += '<circle cx="' + lx + '" cy="' + ly + '" r="4.5" class="cend"/>' +
+           '<text x="' + (lx + 9) + '" y="' + (ly + 3.5) + '" class="clbl">' + fmtC(last.avg) + '</text>';
+    /* ось X */
+    var tickEvery = Math.max(1, Math.round(rows.length / 6));
+    rows.forEach(function(r, i){
+      if (i % tickEvery !== 0 && i !== rows.length - 1) return;
+      var xx = x(i);
+      var d = new Date(r.day + 'T12:00:00');
+      out += '<line x1="' + xx + '" x2="' + xx + '" y1="' + (h - pad.b) + '" y2="' + (h - pad.b + 4) + '" class="cax"/>' +
+             '<text x="' + xx + '" y="' + (h - 8) + '" text-anchor="middle" class="ct">' +
+             d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) + '</text>';
+    });
+    out += '<line x1="' + pad.l + '" x2="' + (w - pad.r) + '" y1="' + (h - pad.b) + '" y2="' + (h - pad.b) + '" class="cax"/>';
+    /* hover-колонки с деталями дня */
+    var band = (w - pad.l - pad.r) / (rows.length - 1);
+    rows.forEach(function(r, i){
+      var x0 = x(i) - band / 2;
+      out += '<rect x="' + Math.max(pad.l, x0).toFixed(1) + '" y="' + pad.t + '" width="' + band.toFixed(1) + '" height="' + (h - pad.b - pad.t) + '" class="chov">' +
+             '<title>' + new Date(r.day + 'T12:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) +
+             ' · мин ' + fmt(r.min) + ' · сред ' + fmt(r.avg) + ' · макс ' + fmt(r.max) + ' · продаж: ' + fmt(r.sales) + '</title></rect>';
+    });
+    return out + '</svg>';
+  }
+
+  function renderChart(){
+    var item = cur(); if (!item) return;
+    var box = el('#chart-box'), gate = el('#chart-gate'), vol = el('#chart-vol');
+    if (!box) return;
+    var volKey = { '24h':'salesVolume24h', '48h':'salesVolume48h', '7d':'salesVolume7d', '30d':'salesVolume30d' }[state.tab];
+    var v = (item.stats || {})[volKey];
+    vol.textContent = (v != null) ? 'объём продаж: ' + fmt(v) : '';
+    var w = Math.max(560, box.clientWidth || 900), h = 280;
+    var svg;
+    if (state.tab === '24h' || state.tab === '48h') svg = scatterSVG(item, state.tab === '24h' ? 24 : 48, w, h);
+    else svg = corridorSVG(item, state.tab === '7d' ? 7 : 30, w, h);
+    box.innerHTML = svg;
+    var locked = state.tab === '30d';
+    box.classList.toggle('blurred', locked);
+    gate.hidden = !locked;
+  }
+
+  /* ---------- Переключение / удаление ---------- */
+  function selectItem(id){
+    if (id === state.activeId) return;
+    state.activeId = id;
+    state.selectedLot = null;
+    clearTimeout(state.delTimer);
+    renderSignals();
+    renderSidebar();
+    renderMain();
+  }
+  function removeActive(){
+    var idx = -1;
+    for (var i = 0; i < state.items.length; i++) if (state.items[i].itemId === state.activeId) idx = i;
+    if (idx < 0) return;
+    state.items.splice(idx, 1);
+    var next = state.items[Math.min(idx, state.items.length - 1)];
+    state.activeId = next ? next.itemId : null;
+    state.selectedLot = null;
+    renderSignals();
+    renderSidebar();
+    renderMain();
+  }
+
+  /* ---------- Поиск ---------- */
+  el('#q').addEventListener('input', function(e){
+    state.query = e.target.value;
+    renderSidebar();
+  });
+
+  /* ---------- Часы телеметрии ---------- */
+  function tick(){
+    el('#clock').textContent = new Date().toLocaleTimeString('ru-RU', { hour12: false, timeZone: 'Europe/Moscow' });
+  }
+  setInterval(tick, 1000); tick();
+
+  /* ---------- Ресайз: перерисовать график ---------- */
+  var rT;
+  window.addEventListener('resize', function(){
+    clearTimeout(rT); rT = setTimeout(renderChart, 150);
+  });
+
+  /* ---------- Старт: Гелий или первый предмет с данными ---------- */
+  (function init(){
+    var start = null;
+    for (var i = 0; i < state.items.length; i++){
+      if (state.items[i].itemId === 'kqr0'){ start = state.items[i]; break; }
+    }
+    if (!start){
+      for (var j = 0; j < state.items.length; j++){
+        if (state.items[j].market && state.items[j].market.lots && state.items[j].market.lots.length){ start = state.items[j]; break; }
+      }
+    }
+    if (!start && state.items.length) start = state.items[0];
+    state.activeId = start ? start.itemId : null;
+    renderSignals();
+    renderSidebar();
+    renderMain();
+  })();
+})();
+</script>
+</body>
+</html>

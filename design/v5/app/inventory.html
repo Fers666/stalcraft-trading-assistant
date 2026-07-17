@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC Trading — Склад</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/tokens.css">
+<link rel="stylesheet" href="../assets/base.css">
+<style>
+/* ============================================================
+   Страничные стили «Склада». Только то, чего нет в base.css.
+   Цвета — только var(--…): хекс здесь = дефект.
+   ============================================================ */
+
+/* кнопка добавления в шапке */
+.gbtn.add{display:inline-flex;align-items:center;gap:7px;height:32px}
+
+/* итоговая статус-строка на 4 ячейки (.v.gold/.v.r — в base.css) */
+.statusline.s4{grid-template-columns:repeat(4,1fr)}
+
+/* таблица склада: строки не кликабельны, текстовые колонки — слева */
+.wtbl tbody tr{cursor:default}
+.wtbl tbody tr:hover{background:var(--s2)}
+.wtbl td.tl{text-align:left}
+.wtbl .w-item{width:24%}
+.wtbl .w-act{width:110px}
+.wtbl td.ta{padding:4px 10px}
+.wtbl td.dt{color:var(--faint)}
+.wtbl .pp{font-size:var(--fs-105)}
+.ti-id{display:block;font-family:var(--mono);font-size:var(--fs-105);color:var(--faint)}
+
+/* пустое состояние */
+.inv-empty{
+  min-height:320px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;text-align:center;padding:40px;
+}
+.inv-empty .big{font-family:var(--head);font-weight:700;font-size:var(--fs-16);letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+.inv-empty .note{font-size:var(--fs-12);color:var(--faint);max-width:48ch}
+
+/* модалка добавления */
+.modal-b .frow{margin-bottom:12px}
+.modal-b .frow:last-child{margin-bottom:0}
+.m-src .search{margin:0}
+.mres{
+  margin-top:6px;background:var(--s2);border:1px solid var(--line);border-radius:var(--r);
+  max-height:196px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--gold-1) transparent;
+}
+.mri{display:flex;align-items:center;gap:9px;width:100%;padding:6px 9px;text-align:left;transition:background-color var(--fast) var(--ease)}
+.mri:hover{background:var(--gold-dim)}
+.mri .an{flex:1;min-width:0;font-size:var(--fs-125);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m-src .aid{font-family:var(--mono);font-size:var(--fs-105);color:var(--faint)}
+.mres .none{padding:10px;color:var(--faint);font-size:var(--fs-12);text-align:center}
+.msel{display:flex;align-items:center;gap:9px;padding:6px 9px;background:var(--gold-dim);border:1px solid var(--gold-line);border-radius:var(--r)}
+.msel[hidden]{display:none}
+.msel .an{flex:1;min-width:0;font-size:var(--fs-125);font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msel .qbtn{height:24px;padding:0 9px}
+.m2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.m2 .frow{margin-bottom:0}
+</style>
+</head>
+<body>
+
+<!-- оболочка: навбар + лента сигналов (футер добавит shell.js) -->
+<div id="shell"></div>
+
+<main class="pagecol">
+  <section class="panel" aria-label="Склад">
+    <div class="pg-h">
+      <div class="tt">
+        <span class="kick">СКЛАД // PURCHASE LEDGER</span>
+        <h1>Учёт купленного</h1>
+        <div class="sub">Считай реальную прибыль: закупочная цена против текущей медианы рынка — по каждой позиции и по складу целиком.</div>
+      </div>
+      <div class="pr">
+        <button type="button" class="gbtn add" id="addbtn">
+          <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true"><path d="M5.5 1v9M1 5.5h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Добавить товар
+        </button>
+      </div>
+    </div>
+    <div id="invbody"></div>
+  </section>
+</main>
+
+<script src="../assets/data.js"></script>
+<script src="../assets/app.js"></script>
+<script src="../assets/shell.js"></script>
+<script>
+/* ============================================================
+   Страница «Склад»: таблица покупок с P&L против текущей медианы,
+   добавление через модалку (поиск + select региона), двухшаговое
+   удаление SC_APP.armConfirm, итоговая статус-строка.
+   ============================================================ */
+(function(){
+"use strict";
+var D = window.SC_DATA, A = window.SC_APP, S = window.SC_SHELL;
+var esc = A.esc, fmtN = A.fmtN, fmtP = A.fmtP;
+var DAY = 86400000;
+
+/* --- оболочка --- */
+S.render("inventory");
+
+/* --- пул предметов для поиска: избранное + добор каталога --- */
+var POOL = (D.favorites || []).map(function(f){
+  return {itemId:f.itemId, nameRu:f.nameRu, nameEn:f.nameEn, color:f.color, icon:f.icon};
+}).concat((D.catalogExtra || []).map(function(c){
+  return {itemId:c.itemId, nameRu:c.nameRu, nameEn:c.nameEn, color:c.color, icon:c.icon};
+}));
+POOL.sort(function(a, b){ return a.nameRu.localeCompare(b.nameRu, "ru"); });
+function poolById(id){
+  for (var i=0;i<POOL.length;i++) if (POOL[i].itemId === id) return POOL[i];
+  return null;
+}
+/* текущая медиана 7д — только у предметов с рыночной статистикой (избранное) */
+function medOf(id){
+  var f = A.favById(id);
+  return f && f.stats && f.stats.medianPrice7d ? f.stats.medianPrice7d : null;
+}
+
+/* --- позиции склада (демо-набор) --- */
+var UID = 1;
+function seed(id, region, qty, buy, daysAgo){
+  return {uid: UID++, it: poolById(id), region: region, qty: qty, buy: buy, added: A.NOW - daysAgo*DAY};
+}
+var ITEMS = [
+  seed("kqr0",  "RU", 2,   590000, 1),
+  seed("jkq7",  "RU", 1,   355000, 2),
+  seed("96z7y", "RU", 40,  4200,   3),
+  seed("m22k",  "EU", 200, 240,    5),
+  seed("dm6l2", "RU", 25,  1850,   8),
+  seed("qoq6",  "RU", 1,   452000, 12),
+  seed("wjo6z", "RU", 3,   128500, 16)
+];
+
+/* --- форматтеры --- */
+function fmtPct(p){
+  return (p >= 0 ? "+" : "−") +
+    Math.abs(p).toLocaleString("ru-RU", {minimumFractionDigits:1, maximumFractionDigits:1}) + " %";
+}
+function signP(v){ return (v >= 0 ? "+" : "−") + fmtP(Math.abs(v)); }
+
+/* ============ ТАБЛИЦА + ИТОГ ============ */
+function stCell(k, v, cls){
+  return '<div class="st"><span class="k">' + k + '</span><span class="v' + (cls ? " " + cls : "") + '">' + v + '</span></div>';
+}
+function rowHtml(r){
+  var med = medOf(r.it.itemId);
+  var sum = r.buy != null ? r.buy * r.qty : null;
+  var pnl = null, pct = null;
+  if (med != null && r.buy != null && r.buy > 0){
+    pnl = Math.round((med - r.buy) * r.qty);
+    pct = (med / r.buy - 1) * 100;
+  }
+  return '<tr>' +
+    '<td class="tl"><span class="t-item">' + A.iconHtml(r.it, "t-ico") +
+      '<span class="ti-t"><span class="ti-nm">' + esc(r.it.nameRu) + '</span>' +
+      '<span class="ti-id">' + esc(r.it.itemId) + '</span></span></span></td>' +
+    '<td class="tl"><span class="chip mono">' + esc(r.region) + '</span></td>' +
+    '<td>' + fmtN(r.qty) + '</td>' +
+    '<td' + (r.buy == null ? ' class="dim"' : '') + '>' + (r.buy == null ? "—" : fmtP(r.buy)) + '</td>' +
+    '<td' + (sum == null ? ' class="dim"' : '') + '>' + (sum == null ? "—" : fmtP(sum)) + '</td>' +
+    '<td class="dt">' + A.fmtDM(r.added) + '</td>' +
+    '<td' + (med == null ? ' class="dim"' : '') + '>' + (med == null ? "н/д" : fmtP(med)) + '</td>' +
+    (pnl == null
+      ? '<td class="dim">—</td>'
+      : '<td class="' + (pnl >= 0 ? "pos" : "neg") + '">' + signP(pnl) +
+        ' <span class="pp">· ' + fmtPct(pct) + '</span></td>') +
+    '<td class="ta"><button type="button" class="dbtn" data-uid="' + r.uid + '" aria-label="Удалить «' + esc(r.it.nameRu) + '» со склада">' +
+      '<svg width="13" height="14" viewBox="0 0 13 14" fill="none" aria-hidden="true"><path d="M1.5 3.5h10M5 3.5V2a.5.5 0 0 1 .5-.5h2A.5.5 0 0 1 8 2v1.5M2.8 3.5l.6 8.6a.5.5 0 0 0 .5.4h5.2a.5.5 0 0 0 .5-.4l.6-8.6M5.2 6v4M7.8 6v4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Удалить' +
+    '</button></td>' +
+    '</tr>';
+}
+function renderAll(){
+  var box = document.getElementById("invbody");
+
+  if (!ITEMS.length){
+    box.innerHTML =
+      '<div class="inv-empty">' +
+        '<span class="big">Склад пуст</span>' +
+        '<span class="note">Добавь купленные товары — терминал сравнит закупку с текущей медианой рынка и посчитает прибыль по каждой позиции.</span>' +
+        '<button type="button" class="gbtn" id="empty-add">Добавить первый товар</button>' +
+      '</div>';
+    document.getElementById("empty-add").addEventListener("click", openAdd);
+    return;
+  }
+
+  /* итоги: вложено — по позициям с ценой; оценка — медиана (или закупка, если медианы нет) */
+  var invested = 0, value = 0, inv2 = 0, val2 = 0;
+  ITEMS.forEach(function(r){
+    var med = medOf(r.it.itemId);
+    if (r.buy != null){
+      invested += r.buy * r.qty;
+      value += (med != null ? med : r.buy) * r.qty;
+      if (med != null){ inv2 += r.buy * r.qty; val2 += med * r.qty; }
+    }
+  });
+  var pnl = Math.round(val2 - inv2);
+  var pct = inv2 > 0 ? (val2 / inv2 - 1) * 100 : 0;
+
+  box.innerHTML =
+    '<div class="statusline s4">' +
+      stCell("Позиций", fmtN(ITEMS.length), "") +
+      stCell("Вложено", fmtP(Math.round(invested)), "") +
+      stCell("Текущая оценка", fmtP(Math.round(value)), "gold") +
+      stCell("P&amp;L по складу", signP(pnl) + ' <span class="u">' + fmtPct(pct) + '</span>', pnl >= 0 ? "g" : "r") +
+    '</div>' +
+    '<table class="wtbl" aria-label="Позиции склада"><thead><tr>' +
+      '<th class="w-item"><span class="thx">Товар</span></th>' +
+      '<th><span class="thx">Регион</span></th>' +
+      '<th><span class="thx r">Кол-во</span></th>' +
+      '<th><span class="thx r">Цена покупки /шт</span></th>' +
+      '<th><span class="thx r">Сумма</span></th>' +
+      '<th><span class="thx r">Добавлен</span></th>' +
+      '<th><span class="thx r">Медиана /шт</span></th>' +
+      '<th><span class="thx r">P&amp;L</span></th>' +
+      '<th class="w-act"><span class="thx r" aria-hidden="true"></span></th>' +
+    '</tr></thead><tbody>' + ITEMS.map(rowHtml).join("") + '</tbody></table>';
+
+  /* удаление — только двухшаговое (armConfirm), никакого confirm() */
+  Array.prototype.forEach.call(box.querySelectorAll(".dbtn[data-uid]"), function(b){
+    var uid = Number(b.getAttribute("data-uid"));
+    A.armConfirm(b, function(){
+      for (var i=0;i<ITEMS.length;i++) if (ITEMS[i].uid === uid){ ITEMS.splice(i, 1); break; }
+      renderAll();
+      A.toast("Позиция удалена со склада");
+    });
+  });
+}
+
+/* ============ МОДАЛКА ДОБАВЛЕНИЯ ============ */
+function openAdd(){
+  var selCur = null;
+  var body =
+    '<div class="frow"><label class="kick" for="am-q">Предмет</label>' +
+      '<div class="m-src">' +
+        '<div id="am-srch">' +
+          '<div class="search">' +
+            '<svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true"><circle cx="5.5" cy="5.5" r="4.2" stroke="currentColor" stroke-width="1.5"/><path d="m9 9 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>' +
+            '<input id="am-q" type="search" placeholder="Поиск по названию — от 2 символов…" aria-label="Поиск предмета" autocomplete="off">' +
+          '</div>' +
+          '<div class="mres" id="am-res" hidden></div>' +
+        '</div>' +
+        '<div class="msel" id="am-sel" hidden></div>' +
+      '</div></div>' +
+    '<div class="m2">' +
+      '<div class="frow"><label class="kick" for="am-qty">Количество</label>' +
+        '<input class="input mono" id="am-qty" type="number" min="1" step="1" value="1"></div>' +
+      '<div class="frow"><label class="kick" for="am-price">Цена покупки /шт</label>' +
+        '<input class="input mono" id="am-price" type="number" min="0" placeholder="для расчёта P&amp;L"></div>' +
+    '</div>' +
+    '<div class="frow"><label class="kick" for="am-reg">Регион</label>' +
+      '<select class="input" id="am-reg"><option>RU</option><option>EU</option><option>NA</option><option>SEA</option></select></div>';
+
+  var ov = A.openModal({
+    title: "Добавить на склад",
+    body: body,
+    actions: [
+      {label: "Отмена"},
+      {label: "Добавить", primary: true, onClick: function(){
+        if (!selCur) return;
+        var qn = Math.round(Number(ov.querySelector("#am-qty").value));
+        var qty = isFinite(qn) && qn >= 1 ? qn : 1;
+        var pv = ov.querySelector("#am-price").value.trim();
+        var pn = Math.round(Number(pv));
+        var buy = pv !== "" && isFinite(pn) && pn > 0 ? pn : null;
+        ITEMS.unshift({uid: UID++, it: selCur, region: ov.querySelector("#am-reg").value, qty: qty, buy: buy, added: A.NOW});
+        renderAll();
+        A.toast("«" + selCur.nameRu + "» добавлен на склад");
+      }}
+    ]
+  });
+
+  var qEl = ov.querySelector("#am-q");
+  var srch = ov.querySelector("#am-srch");
+  var res = ov.querySelector("#am-res");
+  var sel = ov.querySelector("#am-sel");
+  var addBtn = ov.querySelector(".modal-f .gbtn");
+
+  function sync(){ addBtn.disabled = !selCur; }
+  function renderRes(){
+    var q = qEl.value.trim().toLowerCase();
+    if (q.length < 2){ res.hidden = true; res.innerHTML = ""; return; }
+    var hits = POOL.filter(function(it){
+      return (it.nameRu || "").toLowerCase().indexOf(q) >= 0 ||
+             (it.nameEn || "").toLowerCase().indexOf(q) >= 0;
+    }).slice(0, 8);
+    res.hidden = false;
+    if (!hits.length){
+      res.innerHTML = '<div class="none">Ничего не найдено по запросу «' + esc(qEl.value.trim()) + '»</div>';
+      return;
+    }
+    res.innerHTML = hits.map(function(it){
+      return '<button type="button" class="mri" data-id="' + esc(it.itemId) + '">' +
+        A.iconHtml(it, "t-ico") +
+        '<span class="an">' + esc(it.nameRu) + '</span>' +
+        '<span class="aid">' + esc(it.itemId) + '</span></button>';
+    }).join("");
+    Array.prototype.forEach.call(res.querySelectorAll(".mri"), function(b){
+      b.addEventListener("click", function(){ select(poolById(b.getAttribute("data-id"))); });
+    });
+  }
+  function select(it){
+    selCur = it;
+    srch.hidden = true;
+    sel.hidden = false;
+    sel.innerHTML =
+      A.iconHtml(it, "t-ico") +
+      '<span class="an">' + esc(it.nameRu) + '</span>' +
+      '<span class="aid">' + esc(it.itemId) + '</span>' +
+      '<button type="button" class="qbtn" id="am-chg">Изменить</button>';
+    sel.querySelector("#am-chg").addEventListener("click", function(){
+      selCur = null;
+      sel.hidden = true;
+      srch.hidden = false;
+      sync();
+      qEl.focus();
+      qEl.select();
+    });
+    sync();
+    ov.querySelector("#am-qty").focus();
+  }
+
+  qEl.addEventListener("input", renderRes);
+  sync();
+  qEl.focus();
+}
+
+document.getElementById("addbtn").addEventListener("click", openAdd);
+renderAll();
+})();
+</script>
+</body>
+</html>

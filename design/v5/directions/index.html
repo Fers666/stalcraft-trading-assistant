@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC Trading — выбор дизайн-направления v5</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0C0C0E; --panel:#141417; --panel2:#1A1A1F;
+    --border:rgba(255,255,255,.08); --border-hover:rgba(255,255,255,.18);
+    --text:#EDEDF0; --muted:#9A9AA3; --gold:#D9AF37;
+    --a:#FFB800; --b:#8FD974; --c:#7FA7E6;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font:15px/1.55 Inter,system-ui,sans-serif;min-height:100vh;padding:56px 32px}
+  .wrap{max-width:1180px;margin:0 auto}
+  .kicker{font-family:Rajdhani,sans-serif;font-weight:600;letter-spacing:.18em;text-transform:uppercase;font-size:13px;color:var(--gold)}
+  h1{font-family:Rajdhani,sans-serif;font-weight:700;font-size:42px;letter-spacing:.02em;margin:8px 0 12px}
+  .sub{color:var(--muted);max-width:720px;margin-bottom:12px}
+  .sub b{color:var(--text);font-weight:600}
+  .note{font-size:13px;color:var(--muted);margin-bottom:40px}
+  .note code{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:2px 7px;font-size:12px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  @media(max-width:980px){.grid{grid-template-columns:1fr}}
+  a.card{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--border);border-radius:14px;
+    padding:26px 24px;text-decoration:none;color:inherit;transition:border-color .2s ease,transform .2s ease}
+  a.card:hover{border-color:var(--border-hover);transform:translateY(-3px)}
+  a.card:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+  .tag{display:inline-flex;align-self:flex-start;font-family:Rajdhani,sans-serif;font-weight:700;font-size:13px;
+    letter-spacing:.14em;padding:4px 12px;border-radius:999px;margin-bottom:16px}
+  .card-a .tag{color:var(--a);border:1px solid color-mix(in srgb,var(--a) 45%,transparent);background:color-mix(in srgb,var(--a) 10%,transparent)}
+  .card-b .tag{color:var(--b);border:1px solid color-mix(in srgb,var(--b) 45%,transparent);background:color-mix(in srgb,var(--b) 10%,transparent)}
+  .card-c .tag{color:var(--c);border:1px solid color-mix(in srgb,var(--c) 45%,transparent);background:color-mix(in srgb,var(--c) 10%,transparent)}
+  .card h2{font-family:Rajdhani,sans-serif;font-weight:700;font-size:24px;margin-bottom:10px}
+  .card p{color:var(--muted);font-size:14px;margin-bottom:14px}
+  .swatches{display:flex;gap:6px;margin-bottom:18px}
+  .sw{width:26px;height:26px;border-radius:7px;border:1px solid var(--border)}
+  dl{font-size:13px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin-bottom:20px}
+  dt{color:var(--muted)}
+  dd{color:var(--text)}
+  .open{margin-top:auto;font-family:Rajdhani,sans-serif;font-weight:600;letter-spacing:.1em;text-transform:uppercase;font-size:13px;color:var(--gold)}
+  .open::after{content:" →"}
+  footer{margin-top:44px;font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">SC Trading · Design v5 · этап A</div>
+  <h1>Три направления редизайна</h1>
+  <p class="sub">Одна и та же страница «Избранное» — <b>реальные данные из БД</b>, полный функционал
+    (переключение предметов, сортировка лотов, табы графиков, гейтинг тарифа, двухшаговое удаление) —
+    в трёх разных визуальных языках. Инварианты общие для всех: единая шкала качества предметов,
+    tabular-nums для цен, контраст ≥ 4.5:1, фокус-кольца, сетка 4px.</p>
+  <p class="note">Открывай каждую карточку и работай со страницей как с живым приложением.
+    Отчёт аудита текущего дизайна — <code>design/v5/AUDIT.md</code>.</p>
+
+  <div class="grid">
+    <a class="card card-a" href="a-terminal/favorites.html">
+      <span class="tag">A · ТЕРМИНАЛ</span>
+      <h2>Bloomberg для Зоны</h2>
+      <p>Максимальная плотность данных: железная сетка на 1px-щелях, компартменты вместо карточек,
+         радиусы 2px, без теней. Амбер — сигнальный цвет, JetBrains Mono для всех цифр.
+         Лог-шкала графиков, точки-«аномалии» ниже медианы подсвечены зелёным.</p>
+      <div class="swatches">
+        <span class="sw" style="background:#0B0B0C"></span><span class="sw" style="background:#131417"></span>
+        <span class="sw" style="background:#FFB800"></span><span class="sw" style="background:#3ED598"></span>
+      </div>
+      <dl>
+        <dt>Сильное</dt><dd>скорость чтения, максимум на экране, «pro-инструмент»</dd>
+        <dt>Риск</dt><dd>сурово для новичка 14–17 лет, требователен к дисциплине контента</dd>
+      </dl>
+      <span class="open">Открыть направление A</span>
+    </a>
+
+    <a class="card card-b" href="b-hud/favorites.html">
+      <span class="tag">B · ТАКТИЧЕСКИЙ HUD</span>
+      <h2>Боевой терминал сталкера</h2>
+      <p>Атмосфера Зоны в «раме» интерфейса: скобки-уголки, статусные лампы, телеметрия по углам,
+         индикатор выброса как шкала угрозы, едва заметный сканлайн. Фосфорный янтарный + ночной
+         зелёный на оливковом. Данные — на спокойных панелях, цифры моно.</p>
+      <div class="swatches">
+        <span class="sw" style="background:#0A0E0A"></span><span class="sw" style="background:#151B14"></span>
+        <span class="sw" style="background:#E8A33D"></span><span class="sw" style="background:#8FD974"></span>
+      </div>
+      <dl>
+        <dt>Сильное</dt><dd>уникальный характер, идеально в лор игры, «хочется показать друзьям»</dd>
+        <dt>Риск</dt><dd>декор надо держать в узде, дальше всех от текущей «Магмы»</dd>
+      </dl>
+      <span class="open">Открыть направление B</span>
+    </a>
+
+    <a class="card card-c" href="c-analytics/favorites.html">
+      <span class="tag">C · PRO-АНАЛИТИКА</span>
+      <h2>Soft-dark, калибр Linear</h2>
+      <p>Спокойные тёплые слои, иерархия воздухом и весом шрифта, без визуального шума.
+         Золото сжато до бренда (~5% экрана), семантика — пастельные профит-зелёный и риск-красный.
+         Фирменные микро-интеракции: flash обновлённых цифр, crosshair на графиках.</p>
+      <div class="swatches">
+        <span class="sw" style="background:#0A0A0B"></span><span class="sw" style="background:#17171A"></span>
+        <span class="sw" style="background:#D9AF37"></span><span class="sw" style="background:#45D48F"></span>
+      </div>
+      <dl>
+        <dt>Сильное</dt><dd>современный SaaS-калибр, комфорт при часах за экраном, легче всех масштабируется</dd>
+        <dt>Риск</dt><dd>наименее «игровой» — атмосферы Зоны почти нет</dd>
+      </dl>
+      <span class="open">Открыть направление C</span>
+    </a>
+  </div>
+
+  <footer>Этап B: выбранное направление становится дизайн-системой (tokens.css + base.css + shell.js),
+    на которой собираются все 9 страниц кликабельного прототипа.</footer>
+</div>
+</body>
+</html>
