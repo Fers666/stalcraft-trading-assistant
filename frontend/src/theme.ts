@@ -585,6 +585,9 @@ export const tokens = {
   warning: WARNING, warningDim: WARNING_DIM, warningLine: WARNING_LINE,
   danger: DANGER, dangerDim: DANGER_DIM, dangerLine: DANGER_LINE,
   info: INFO,
+  // Единственное допустимое внеплановое цветовое исключение (§5.6): Telegram-синий
+  // для брендовых акцентов на странице «Настройки». Больше нигде не использовать.
+  brandTelegram: '#229ED9',
   // Overlays
   overlay: OVERLAY, overlayHi: OVERLAY_HI,
   // Fonts

@@ -7,6 +7,7 @@ import {
 } from '@mui/material'
 import api from '../api/client'
 import { useAuthStore } from '../store/authStore'
+import ArmDeleteButton from '../components/ui/ArmDeleteButton'
 
 const G2 = '#D9AF37'
 const BG2 = '#1A1F26'
@@ -68,21 +69,6 @@ interface NewsCardProps {
 }
 
 function NewsCard({ item, isAdmin, onEdit, onDelete }: NewsCardProps) {
-  const [deleteConfirm, setDeleteConfirm] = useState(false)
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  function handleDeleteClick() {
-    if (!deleteConfirm) {
-      setDeleteConfirm(true)
-      timerRef.current = setTimeout(() => setDeleteConfirm(false), 3000)
-    } else {
-      if (timerRef.current) clearTimeout(timerRef.current)
-      onDelete(item.id)
-    }
-  }
-
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
-
   const showEdited = isEditedSignificantly(item.created_at, item.updated_at)
 
   return (
@@ -163,23 +149,11 @@ function NewsCard({ item, isAdmin, onEdit, onDelete }: NewsCardProps) {
               >
                 Редактировать
               </Button>
-              <Button
-                size="small"
-                onClick={handleDeleteClick}
-                sx={{
-                  fontSize: '0.68rem', py: 0.2, px: 1, minWidth: 0,
-                  color: deleteConfirm ? '#FF5A5A' : T2,
-                  border: deleteConfirm ? '1px solid rgba(255,90,90,0.5)' : `1px solid ${BORDER}`,
-                  borderRadius: '6px',
-                  '&:hover': {
-                    color: '#FF5A5A',
-                    borderColor: 'rgba(255,90,90,0.5)',
-                  },
-                  transition: 'all 0.2s',
-                }}
-              >
-                {deleteConfirm ? 'Точно удалить?' : 'Удалить'}
-              </Button>
+              <ArmDeleteButton
+                onConfirm={() => onDelete(item.id)}
+                armedLabel="Точно удалить?"
+                aria-label={`Удалить новость «${item.title}»`}
+              />
             </Box>
           )}
         </Box>

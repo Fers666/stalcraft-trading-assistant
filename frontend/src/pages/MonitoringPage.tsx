@@ -82,12 +82,26 @@ export default function MonitoringPage() {
     if (!initialized) loadWatchlistAndStats()
   }, [initialized, loadWatchlistAndStats])
 
-  // Начальный выбор: товар из сигнала ленты (scrollTo) или первый в списке
+  // Начальный выбор: товар из сигнала ленты (scrollTo, по watchlist-id),
+  // либо предмет из Радара «Карточка» (item_id + quality/enchant), либо первый.
   useEffect(() => {
     if (sortedWatchlist.length === 0 || selectedId !== null) return
-    const scrollTo = (location.state as { scrollTo?: number } | null)?.scrollTo
-    const target = scrollTo != null && sortedWatchlist.some(e => e.id === scrollTo) ? scrollTo : sortedWatchlist[0].id
-    setSelectedId(target)
+    const state = location.state as {
+      scrollTo?: number; item_id?: string; quality_filter?: number | null; enchant_filter?: number | null
+    } | null
+    const scrollTo = state?.scrollTo
+    let target: number | null = null
+    if (scrollTo != null && sortedWatchlist.some(e => e.id === scrollTo)) {
+      target = scrollTo
+    } else if (state?.item_id) {
+      const byId = sortedWatchlist.filter(e => e.item_id === state.item_id)
+      const exact = byId.find(e =>
+        (state.quality_filter == null || e.quality_filter === state.quality_filter) &&
+        (state.enchant_filter == null || e.enchant_filter === state.enchant_filter),
+      )
+      target = (exact ?? byId[0])?.id ?? null
+    }
+    setSelectedId(target ?? sortedWatchlist[0].id)
   }, [sortedWatchlist, location.state, selectedId])
 
   // Клик по сигналу из ленты, когда страница уже открыта — переключаем выбор.
