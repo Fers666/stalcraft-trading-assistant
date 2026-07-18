@@ -1,9 +1,7 @@
 import { useEffect } from 'react'
+import { Box } from '@mui/material'
 import { useEmissionStore } from '../store/emissionStore'
-import { tokens } from '../theme'
-
-const G2 = tokens.gold      // #D9AF37
-const T2 = tokens.text2     // #7C7C7C
+import { tokens, fs } from '../theme'
 
 function formatTimeSince(seconds: number | null): string {
   if (seconds === null) return '—'
@@ -15,6 +13,8 @@ function formatTimeSince(seconds: number | null): string {
   return rem > 0 ? `${hrs}ч ${rem}мин назад` : `${hrs}ч назад`
 }
 
+// Виджет выброса в навбаре — контракт .emis (base.css:78-81).
+// COL-03: активное состояние → danger-токены, покой → amber (warning).
 export function EmissionWidget() {
   const { isActive, durationMin, secondsSinceLast, loading, fetch } = useEmissionStore()
 
@@ -27,44 +27,57 @@ export function EmissionWidget() {
   }, [isActive])
 
   const noData = loading && durationMin === null && secondsSinceLast === null
-
-  const containerStyle: React.CSSProperties = {
-    margin: '0 8px',
-    padding: '4px 10px',
-    borderRadius: 4,
-    fontSize: 11,
-    lineHeight: 1.4,
-    color: T2,
-    flexShrink: 0,
-    whiteSpace: 'nowrap',
-    ...(isActive
-      ? {
-          background: 'rgba(220, 38, 38, 0.15)',
-          borderLeft: '2px solid #DC2626',
-        }
-      : {
-          background: 'rgba(217, 175, 55, 0.08)',
-          borderLeft: `2px solid ${G2}`,
-        }),
-  }
+  const accent = isActive ? tokens.danger : tokens.warning
 
   return (
-    <div style={containerStyle}>
-      {noData ? (
-        <span style={{ opacity: 0.5 }}>Выброс: нет данных</span>
-      ) : isActive ? (
-        <>
-          <span style={{ color: '#EF4444', fontWeight: 600 }}>Выброс идёт</span>
-          {durationMin !== null && (
-            <span style={{ marginLeft: 4, opacity: 0.8 }}>{durationMin} мин</span>
-          )}
-        </>
-      ) : (
-        <>
-          <span style={{ color: G2, opacity: 0.7 }}>Последний: </span>
-          <span>{formatTimeSince(secondsSinceLast)}</span>
-        </>
-      )}
-    </div>
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        flexShrink: 0,
+        whiteSpace: 'nowrap',
+        padding: '5px 10px',
+        borderRadius: '2px',
+        background: isActive ? tokens.dangerDim : tokens.bg2,
+        border: `1px solid ${isActive ? tokens.dangerLine : tokens.border}`,
+      }}
+    >
+      <Box
+        aria-hidden
+        sx={{
+          width: 6,
+          height: 6,
+          flexShrink: 0,
+          background: accent,
+          boxShadow: `0 0 8px ${accent}`,
+          animation: 'anomaly-pulse 2.4s infinite',
+        }}
+      />
+      <Box
+        component="span"
+        sx={{
+          fontFamily: tokens.fontHead,
+          fontWeight: 600,
+          fontSize: fs.f10,
+          letterSpacing: '0.14em',
+          textTransform: 'uppercase',
+          color: tokens.text2,
+        }}
+      >
+        Выброс
+      </Box>
+      <Box
+        component="span"
+        className="mono"
+        sx={{ fontSize: fs.f12, color: accent }}
+      >
+        {noData
+          ? 'нет данных'
+          : isActive
+            ? `идёт${durationMin !== null ? ` · ${durationMin} мин` : ''}`
+            : formatTimeSince(secondsSinceLast)}
+      </Box>
+    </Box>
   )
 }

@@ -1,248 +1,232 @@
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { Box, IconButton, Tooltip, Typography, alpha } from '@mui/material'
-import SettingsIcon from '@mui/icons-material/Settings'
-import LogoutIcon from '@mui/icons-material/Logout'
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { Box, IconButton, Tooltip } from '@mui/material'
 import { useAuthStore } from '../store/authStore'
 import { useFeedStore } from '../store/feedStore'
-import { tokens } from '../theme'
-import { TIER_LABELS, TIER_COLORS, type Tier } from '../constants/tiers'
+import { tokens, fs } from '../theme'
+import { TIER_LABELS, type Tier } from '../constants/tiers'
+import DiamondLogo from './ui/DiamondLogo'
+import LockIcon from './ui/LockIcon'
+import SysBar from './ui/SysBar'
 import GlobalFeed, { FEED_HEIGHT } from './GlobalFeed'
 import { EmissionWidget } from './EmissionWidget'
 
-const { gold: G2, goldAccent: G3, text2: T2, border: BORDER } = tokens
+const NAV_H = tokens.navH // 48
 
-const NAV_ITEMS = [
-  {
-    label: 'Избранное', to: '/app/monitoring',
-    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M6 12h3l2 4 4-8 2 4h2"/></svg>,
-  },
-  {
-    label: 'Каталог', to: '/app/catalog',
-    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M4 4h7v16H4z"/><path d="M13 4h7v16h-7z"/></svg>,
-  },
-  {
-    label: 'Лоты', to: '/app/lots', gated: true, gateKey: 'auction_access' as const,
-    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>,
-    lockSvg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>,
-  },
-  {
-    label: 'Лента', to: '/app/feed',
-    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><path d="M5 9l4 4-4 4M5 5h2l9 14h3"/></svg>,
-  },
-  {
-    label: 'Склад', to: '/app/inventory',
-    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="3" y="7" width="18" height="13" rx="1"/><path d="M3 7l2-3h14l2 3"/></svg>,
-  },
-  {
-    label: 'Новости', to: '/app/news',
-    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-              style={{ width: 14, height: 14 }}>
-      <path d="M4 4h16v12H4z"/><path d="M4 8h16M8 12h4"/>
-    </svg>,
-  },
-  {
-    label: 'Радар рынка', to: '/app/market-radar', gated: true, gateKey: 'market_radar' as const,
-    svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><circle cx="12" cy="12" r="2"/><path d="M12 12 L12 4 M12 12 L18 17"/><circle cx="12" cy="12" r="9"/></svg>,
-    lockSvg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>,
-  },
-]
+type GateKey = 'auction_access' | 'market_radar'
 
-const GATE_TOOLTIP: Record<string, string> = {
-  auction_access: 'Доступно на тарифах Продвинутая Плюс/Макс',
-  market_radar: 'Доступно как отдельный аддон — обратитесь к администратору',
+interface NavItem {
+  label: string
+  to: string
+  gateKey?: GateKey
 }
 
+const NAV_ITEMS: NavItem[] = [
+  { label: 'Избранное',   to: '/app/monitoring' },
+  { label: 'Каталог',     to: '/app/catalog' },
+  { label: 'Лоты',        to: '/app/lots', gateKey: 'auction_access' },
+  { label: 'Лента',       to: '/app/feed' },
+  { label: 'Склад',       to: '/app/inventory' },
+  { label: 'Новости',     to: '/app/news' },
+  { label: 'Радар рынка', to: '/app/market-radar', gateKey: 'market_radar' },
+]
+
+const GATE_TOOLTIP: Record<GateKey, string> = {
+  auction_access: `Доступно на тарифе ${TIER_LABELS.advanced_plus}`,
+  market_radar:   'Доступно как отдельный аддон «Радар рынка»',
+}
+
+// stroke-иконки .ibtn (shell.js:101-106)
+const ICON_SX = { width: 15, height: 15 } as const
+
+const HelpSvg = (
+  <Box component="svg" viewBox="0 0 15 15" fill="none" aria-hidden="true" sx={ICON_SX}>
+    <circle cx="7.5" cy="7.5" r="6.4" stroke="currentColor" strokeWidth="1.4" />
+    <path d="M5.7 5.8a1.8 1.8 0 1 1 2.6 1.7c-.5.3-.8.6-.8 1.2v.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    <circle cx="7.5" cy="11" r=".9" fill="currentColor" />
+  </Box>
+)
+const GearSvg = (
+  <Box component="svg" viewBox="0 0 15 15" fill="none" aria-hidden="true" sx={ICON_SX}>
+    <circle cx="7.5" cy="7.5" r="2.2" stroke="currentColor" strokeWidth="1.4" />
+    <path d="M7.5 1v2M7.5 12v2M1 7.5h2M12 7.5h2M2.9 2.9l1.4 1.4M10.7 10.7l1.4 1.4M12.1 2.9l-1.4 1.4M4.3 10.7l-1.4 1.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+  </Box>
+)
+const LogoutSvg = (
+  <Box component="svg" viewBox="0 0 15 15" fill="none" aria-hidden="true" sx={ICON_SX}>
+    <path d="M9.5 1.5H13a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-.5.5H9.5" stroke="currentColor" strokeWidth="1.4" />
+    <path d="M6.5 4.5 3.5 7.5l3 3M3.5 7.5H10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+  </Box>
+)
+
+// общий стиль nav-ссылки (.nav a) — активная = золотое подчёркивание, НЕ pill
+const navLinkSx = (active: boolean) => ({
+  position: 'relative' as const,
+  display: 'flex',
+  alignItems: 'center',
+  gap: '6px',
+  height: '100%',
+  padding: '0 13px',
+  fontFamily: tokens.fontHead,
+  fontWeight: 600,
+  fontSize: fs.f125,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase' as const,
+  textDecoration: 'none',
+  borderBottom: '2px solid transparent',
+  transition: `color ${tokens.motion.fast}ms ${tokens.motion.ease}, background-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
+  color: active ? tokens.goldAccent : tokens.text1,
+  borderBottomColor: active ? tokens.goldHighlight : 'transparent',
+  textShadow: active ? `0 0 14px ${tokens.goldGlow}` : 'none',
+  '&:hover': active ? {} : { color: tokens.text0, background: tokens.bg2 },
+  '&:active': { background: tokens.bg3 },
+})
+
 function AppNav() {
-  const navigate   = useNavigate()
+  const navigate = useNavigate()
+  const location = useLocation()
   const { user, logout } = useAuthStore()
 
-  return (
-    <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, height: 56,
-      background: 'rgba(17,21,26,0.92)',
-      backdropFilter: 'blur(24px)',
-      WebkitBackdropFilter: 'blur(24px)',
-      borderBottom: `1px solid ${BORDER}`,
-      display: 'flex', alignItems: 'center',
-      padding: '0 24px', gap: 8,
-      zIndex: 1300,
-    }}>
+  const settingsActive = location.pathname === '/app/settings'
 
-      {/* Логотип */}
-      <div
+  return (
+    <Box
+      component="header"
+      sx={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: `${NAV_H}px`,
+        zIndex: 1300,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '20px',
+        px: '16px',
+        background: tokens.bg1,
+        borderBottom: `1px solid ${tokens.border}`,
+      }}
+    >
+      {/* Бренд */}
+      <Box
         onClick={() => navigate('/app/monitoring')}
-        style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flexShrink: 0, marginRight: 4 }}
+        sx={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', flex: 'none' }}
       >
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-          <defs>
-            <linearGradient id="nav-g" x1="0" y1="1" x2="1" y2="0">
-              <stop offset="0%" stopColor="#B78A2A" />
-              <stop offset="55%" stopColor="#D9AF37" />
-              <stop offset="100%" stopColor="#F2C94C" />
-            </linearGradient>
-            <clipPath id="nav-c">
-              <polygon points="16,1 31,16 16,31 1,16" />
-            </clipPath>
-          </defs>
-          <polygon points="16,1 31,16 16,31 1,16" stroke="url(#nav-g)" strokeWidth="1.5" fill="none" />
-          <g clipPath="url(#nav-c)">
-            <rect x="5"  y="21" width="4" height="9"  fill="url(#nav-g)" opacity="0.55" />
-            <rect x="11" y="17" width="4" height="13" fill="url(#nav-g)" opacity="0.7"  />
-            <rect x="16" y="12" width="4" height="18" fill="url(#nav-g)" opacity="0.85" />
-            <rect x="21" y="7"  width="4" height="23" fill="url(#nav-g)" />
-          </g>
-        </svg>
-        <div>
-          <div style={{
-            fontFamily: '"Rajdhani", sans-serif', fontWeight: 700,
-            fontSize: 16, color: '#F5F5F5', letterSpacing: '0.08em', lineHeight: 1,
+        <DiamondLogo size={26} />
+        <Box sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1.02 }}>
+          <Box component="b" sx={{
+            fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f15,
+            letterSpacing: '0.08em', color: tokens.text0,
           }}>
             SC TRADING
-          </div>
-          <div style={{ fontSize: 8, color: '#7C7C7C', letterSpacing: '0.14em', lineHeight: 1 }}>
-            ZONE MARKET TERMINAL
-          </div>
-        </div>
-      </div>
+          </Box>
+          <Box component="span" sx={{
+            fontFamily: tokens.fontHead, fontWeight: 600, fontSize: fs.f10,
+            letterSpacing: '0.24em', textTransform: 'uppercase', color: tokens.text2,
+          }}>
+            Zone Terminal
+          </Box>
+        </Box>
+      </Box>
 
-      {/* Разделитель */}
-      <div style={{ width: 1, height: 24, background: BORDER, flexShrink: 0, marginRight: 4 }} />
-
-      {/* Навигационные ссылки */}
-      <div style={{ display: 'flex', flexGrow: 1, gap: 4 }}>
-        {NAV_ITEMS.map(({ label, to, svg, gated, gateKey, lockSvg }) => {
-          const locked = !!gated && !user?.is_admin && (
+      {/* Навигация */}
+      <Box component="nav" aria-label="Основная навигация" sx={{ display: 'flex', alignItems: 'stretch', height: '100%' }}>
+        {NAV_ITEMS.map(({ label, to, gateKey }) => {
+          const locked = !!gateKey && !user?.is_admin && (
             gateKey === 'market_radar'
               ? !user?.has_market_radar_addon
               : user?.auction_access === false
           )
+
           if (locked) {
             return (
-              <Tooltip key={to} title={GATE_TOOLTIP[gateKey ?? ''] ?? ''}>
-                <div
-                  onClick={(e) => e.preventDefault()}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 4,
-                    fontFamily: '"Rajdhani", sans-serif',
-                    fontWeight: 500,
-                    fontSize: 13, letterSpacing: '0.06em',
-                    color: T2,
-                    cursor: 'not-allowed',
-                    padding: '0 12px', height: 34, borderRadius: 8,
-                    border: '1px solid transparent',
-                    flexShrink: 0,
-                  }}
+              <Tooltip key={to} title={GATE_TOOLTIP[gateKey!]}>
+                <Box
+                  aria-disabled="true"
+                  sx={{ ...navLinkSx(false), color: tokens.text2, cursor: 'not-allowed', '&:hover': { color: tokens.text1 } }}
                 >
-                  <span style={{ color: T2, display: 'flex', alignItems: 'center' }}>{lockSvg ?? svg}</span>
                   {label}
-                </div>
+                  <Box component="span" sx={{ display: 'flex', color: tokens.text2, opacity: 0.8 }}>
+                    <LockIcon size={12} />
+                  </Box>
+                </Box>
               </Tooltip>
             )
           }
+
           return (
-            <NavLink
-              key={to}
-              to={to}
-              style={({ isActive }) => ({
-                display: 'flex', alignItems: 'center', gap: 4,
-                fontFamily: '"Rajdhani", sans-serif',
-                fontWeight: isActive ? 700 : 500,
-                fontSize: 13, letterSpacing: '0.06em',
-                color: isActive ? G3 : '#B8B8B8',
-                textDecoration: 'none',
-                padding: '0 12px', height: 34, borderRadius: 8,
-                background: isActive ? alpha(G2, 0.12) : 'transparent',
-                border: isActive
-                  ? `1px solid ${alpha(G2, 0.3)}`
-                  : '1px solid transparent',
-                transition: 'all 0.2s',
-                flexShrink: 0,
-              })}
-            >
-              {({ isActive }) => (
-                <>
-                  <span style={{ color: isActive ? G3 : '#B8B8B8', display: 'flex', alignItems: 'center' }}>{svg}</span>
-                  {label}
-                </>
-              )}
+            <NavLink key={to} to={to} style={{ height: '100%', textDecoration: 'none', color: 'inherit' }}>
+              {({ isActive }) => <Box sx={navLinkSx(isActive)}>{label}</Box>}
             </NavLink>
           )
         })}
-      </div>
 
-      {/* Виджет выброса */}
-      <EmissionWidget />
+        {user?.is_admin && (
+          <NavLink to="/app/admin" style={{ height: '100%', textDecoration: 'none', color: 'inherit' }}>
+            {({ isActive }) => <Box sx={navLinkSx(isActive)}>Админ</Box>}
+          </NavLink>
+        )}
+      </Box>
 
-      {/* Кнопка Админ — только для is_admin */}
-      {user?.is_admin && (
-        <NavLink
-          to="/app/admin"
-          style={({ isActive }) => ({
-            display: 'flex', alignItems: 'center', gap: 4,
-            fontFamily: '"Rajdhani", sans-serif',
-            fontWeight: isActive ? 700 : 500,
-            fontSize: 13, letterSpacing: '0.06em',
-            color: isActive ? G3 : G2,
-            textDecoration: 'none',
-            padding: '0 12px', height: 34, borderRadius: 8,
-            background: isActive ? alpha(G2, 0.12) : 'transparent',
-            border: `1px solid ${alpha(G2, 0.3)}`,
-            transition: 'all 0.2s',
-            flexShrink: 0,
-          })}
-        >
-          {() => 'Админ'}
-        </NavLink>
-      )}
+      {/* Правый блок (.tb-r) */}
+      <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: '14px' }}>
+        <EmissionWidget />
 
-      {/* Пользователь */}
-      {user && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '3px 10px',
-            border: `1px solid ${BORDER}`,
-            borderRadius: 8,
-            background: 'rgba(255,255,255,0.02)',
-            marginRight: 4,
-          }}>
-            <Typography sx={{ fontSize: '0.72rem', color: T2, letterSpacing: '0.05em' }}>
+        {user && (
+          <>
+            <Box component="span" className="mono" sx={{ fontSize: fs.f12, color: tokens.text1 }}>
               {user.username}
-            </Typography>
+            </Box>
+
             {!user.is_admin && TIER_LABELS[user.tier as Tier] && (
-              <Typography sx={{
-                fontSize: '0.62rem', fontWeight: 600, letterSpacing: '0.04em',
-                color: TIER_COLORS[user.tier as Tier],
-                padding: '1px 6px', borderRadius: 6,
-                background: alpha(TIER_COLORS[user.tier as Tier], 0.12),
-                border: `1px solid ${alpha(TIER_COLORS[user.tier as Tier], 0.3)}`,
-              }}>
+              <Box
+                component="span"
+                sx={{
+                  fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f11,
+                  letterSpacing: '0.1em', whiteSpace: 'nowrap',
+                  color: tokens.goldAccent,
+                  border: `1px solid ${tokens.goldLine}`,
+                  background: tokens.goldDim,
+                  padding: '3px 9px', borderRadius: '2px',
+                }}
+              >
                 {TIER_LABELS[user.tier as Tier]}
-              </Typography>
+              </Box>
             )}
-          </div>
-          <Tooltip title="Помощь">
-            <IconButton size="small" onClick={() => navigate('/faq')}
-              sx={{ color: T2, borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.1) } }}>
-              <HelpOutlineIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Настройки">
-            <IconButton size="small" onClick={() => navigate('/app/settings')}
-              sx={{ color: T2, borderRadius: '8px', '&:hover': { color: G3, background: alpha(G2, 0.1) } }}>
-              <SettingsIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="Выйти">
-            <IconButton size="small" onClick={() => { logout(); navigate('/') }}
-              sx={{ color: T2, borderRadius: '8px', '&:hover': { color: '#FF5A5A', background: alpha('#FF5A5A', 0.1) } }}>
-              <LogoutIcon sx={{ fontSize: 16 }} />
-            </IconButton>
-          </Tooltip>
-        </div>
-      )}
-    </div>
+
+            <Box sx={{ display: 'flex', gap: '2px' }}>
+              <Tooltip title="Помощь">
+                <IconButton aria-label="Помощь" onClick={() => navigate('/faq')}>
+                  {HelpSvg}
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Настройки">
+                <IconButton
+                  aria-label="Настройки"
+                  aria-current={settingsActive ? 'page' : undefined}
+                  onClick={() => navigate('/app/settings')}
+                  sx={settingsActive ? {
+                    color: tokens.goldAccent,
+                    borderColor: tokens.goldLine,
+                    background: tokens.goldDim,
+                  } : undefined}
+                >
+                  {GearSvg}
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Выйти">
+                <IconButton
+                  aria-label="Выход"
+                  onClick={() => { logout(); navigate('/') }}
+                  sx={{ '&:hover': { color: tokens.danger, borderColor: tokens.dangerLine, background: tokens.dangerDim } }}
+                >
+                  {LogoutSvg}
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </>
+        )}
+      </Box>
+    </Box>
   )
 }
 
@@ -250,14 +234,36 @@ export default function Layout() {
   const { watchlist, initialized, feedItems, lastLotRefresh } = useFeedStore()
   const feedShown = initialized && watchlist.length > 0 &&
     (lastLotRefresh === null || feedItems.length > 0)
-  const topOffset   = 56 + (feedShown ? FEED_HEIGHT : 0)
+  const topOffset = NAV_H + (feedShown ? FEED_HEIGHT : 0)
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+        bgcolor: 'background.default',
+        // LAY-01 — страницы читают отсюда вместо магических 156px
+        '--sc-top-offset': `${topOffset}px`,
+      }}
+    >
       <AppNav />
       <GlobalFeed />
-      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: `${topOffset}px`, transition: 'margin-top 0.2s' }}>
-        <Outlet />
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          p: 3,
+          mt: `${topOffset}px`,
+          transition: `margin-top ${tokens.motion.fast}ms ${tokens.motion.ease}`,
+        }}
+      >
+        <Box sx={{ flexGrow: 1 }}>
+          <Outlet />
+        </Box>
+        <SysBar />
       </Box>
     </Box>
   )

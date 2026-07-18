@@ -1,23 +1,37 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   Box, Typography, List, ListItemButton, ListItemText, ListItemAvatar,
-  Avatar, Chip, CircularProgress, Divider, Button, TextField, InputAdornment, IconButton,
+  Chip, Skeleton, Divider, Button, TextField, InputAdornment, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions, Tooltip,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
 import LotStatCard from '../components/LotStatCard'
-import SalesHistoryCharts from '../components/SalesHistoryCharts'
+import ItemIcon from '../components/ui/ItemIcon'
+import Kick from '../components/ui/Kick'
 import api from '../api/client'
 import { useFeedStore, type FeedWatchlistEntry } from '../store/feedStore'
 import { useAuthStore } from '../store/authStore'
-import { qualityColor } from '../utils/i18n'
-import { tokens } from '../theme'
+import { qualityColor, iconUrl } from '../utils/i18n'
+import { tokens, fs } from '../theme'
 
 const QLT_NAMES: Record<number, string> = {
   0: 'Обычный', 1: 'Необычный', 2: 'Особый',
   3: 'Ветеран', 4: 'Мастер', 5: 'Легендарный',
+}
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+
+const matchesSearch = (entry: FeedWatchlistEntry, query: string) => {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return (
+    (entry.name_ru?.toLowerCase().includes(q) ?? false) ||
+    (entry.name_en?.toLowerCase().includes(q) ?? false) ||
+    entry.item_id.toLowerCase().includes(q)
+  )
 }
 
 export default function MonitoringPage() {
@@ -26,8 +40,17 @@ export default function MonitoringPage() {
 
   const {
     watchlist, initialized, loadWatchlistAndStats, removeEntry,
-    minProfitMarginPercent, profitableItemIds,
+    minProfitMarginPercent, profitableItemIds, feedItems,
   } = useFeedStore()
+
+  // Число выгодных лотов на предмет (для бейджа .f-sig «+N» в сайдбаре).
+  // feedItems наполняется поллингом GlobalFeed (loadAllLots) из того же
+  // источника signals, что и profitableItemIds — счётчики согласованы.
+  const goodCountById = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const fi of feedItems) m.set(fi.entry.id, fi.count)
+    return m
+  }, [feedItems])
   const watchlistLimit = useAuthStore(s => s.user?.watchlist_limit ?? null)
   const hasFavoritesOverride = useAuthStore(s => s.user?.favorites_limit_override != null)
   const isAtWatchlistLimit = watchlistLimit !== null && watchlist.length >= watchlistLimit
@@ -38,31 +61,22 @@ export default function MonitoringPage() {
   const itemRefs = useRef(new Map<number, HTMLElement>())
   const handledScrollKeyRef = useRef<string | null>(null)
 
-  // Рекомендованные (выгодные) лоты — в начало списка
-  const sortedWatchlist = [...watchlist].sort((a, b) => {
-    const aRec = profitableItemIds.includes(a.id) ? 0 : 1
-    const bRec = profitableItemIds.includes(b.id) ? 0 : 1
-    return aRec - bRec
-  })
+  // Рекомендованные (выгодные) — наверх. Порядок пересчитывается только при
+  // изменении состава избранного (явное действие), НЕ при 30-сек поллинге
+  // profitableItemIds — иначе список тасуется под рукой (§5.1).
+  const sortedWatchlist = useMemo(() => {
+    return [...watchlist].sort((a, b) => {
+      const aRec = profitableItemIds.includes(a.id) ? 0 : 1
+      const bRec = profitableItemIds.includes(b.id) ? 0 : 1
+      return aRec - bRec
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchlist])
 
-  const matchesSearch = (entry: FeedWatchlistEntry, query: string) => {
-    const q = query.trim().toLowerCase()
-    if (!q) return false
-    return (
-      (entry.name_ru?.toLowerCase().includes(q) ?? false) ||
-      (entry.name_en?.toLowerCase().includes(q) ?? false) ||
-      entry.item_id.toLowerCase().includes(q)
-    )
-  }
-
-  // При вводе поиска — скроллим к первому совпадению
-  useEffect(() => {
-    if (!searchQuery.trim()) return
-    const match = sortedWatchlist.find(e => matchesSearch(e, searchQuery))
-    if (match) {
-      itemRefs.current.get(match.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  }, [searchQuery])
+  const visibleWatchlist = useMemo(
+    () => sortedWatchlist.filter(e => matchesSearch(e, searchQuery)),
+    [sortedWatchlist, searchQuery],
+  )
 
   useEffect(() => {
     if (!initialized) loadWatchlistAndStats()
@@ -77,9 +91,6 @@ export default function MonitoringPage() {
   }, [sortedWatchlist, location.state, selectedId])
 
   // Клик по сигналу из ленты, когда страница уже открыта — переключаем выбор.
-  // Привязано к location.key (уникален на каждую навигацию), а не к watchlist —
-  // иначе периодическое обновление watchlist (каждые 5 мин из GlobalFeed) повторно
-  // срабатывало на старый scrollTo и сбрасывало выбор пользователя обратно на сигнал.
   useEffect(() => {
     const scrollTo = (location.state as { scrollTo?: number } | null)?.scrollTo
     if (scrollTo == null || location.key === handledScrollKeyRef.current) return
@@ -88,6 +99,13 @@ export default function MonitoringPage() {
       setSelectedId(scrollTo)
     }
   }, [location, watchlist])
+
+  // scroll-к-выбранному предмету (напр. переход из ленты) — уважая reduced-motion (§3.4)
+  useEffect(() => {
+    if (selectedId == null) return
+    const el = itemRefs.current.get(selectedId)
+    el?.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'nearest' })
+  }, [selectedId])
 
   const selected = watchlist.find(e => e.id === selectedId) ?? null
 
@@ -122,100 +140,67 @@ export default function MonitoringPage() {
 
       {/* ── Центральная часть ───────────────────────────────────── */}
       <Box sx={{ flex: 1, minWidth: 0 }}>
-
-        {/* Заголовок */}
-        <Box sx={{ mb: 2.5 }}>
-          <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.14em', fontWeight: 600, lineHeight: 1, mb: 0.4 }}>
-            ИЗБРАННОЕ
-          </Typography>
-          <Typography variant="h5" fontWeight={700} noWrap>
-            {selected
-              ? (selected.name_ru ?? selected.name_en ?? selected.item_id)
-              : 'Избранное'}
-          </Typography>
-        </Box>
-
         {!initialized ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
-            <CircularProgress />
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <Skeleton variant="rectangular" height={220} sx={{ bgcolor: tokens.bg2 }} />
+            <Skeleton variant="rectangular" height={280} sx={{ bgcolor: tokens.bg2 }} />
           </Box>
         ) : watchlist.length === 0 ? (
           <Box sx={{ textAlign: 'center', mt: 8 }}>
             <Typography variant="h6" color="text.secondary">Избранное пусто</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Добавьте товары в разделе «Каталог», чтобы видеть статистику и историю продаж
+              Добавь товары в разделе «Каталог», чтобы видеть статистику и историю продаж
             </Typography>
-            <Button
-              variant="contained" sx={{ mt: 2 }}
-              onClick={() => navigate('/app/catalog')}
-            >
+            <Button variant="contained" sx={{ mt: 2 }} onClick={() => navigate('/app/catalog')}>
               Перейти в Каталог
             </Button>
           </Box>
         ) : !selected ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
-            <CircularProgress />
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <Skeleton variant="rectangular" height={220} sx={{ bgcolor: tokens.bg2 }} />
+            <Skeleton variant="rectangular" height={280} sx={{ bgcolor: tokens.bg2 }} />
           </Box>
         ) : (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {/* Карточка статистики — на всю ширину центральной области */}
-            <LotStatCard
-              itemId={selected.item_id}
-              region={selected.region}
-              qualityFilter={selected.quality_filter}
-              enchantFilter={selected.enchant_filter}
-              itemName={selected.name_ru ?? selected.name_en ?? selected.item_id}
-              iconPath={selected.icon_path}
-              minProfitMarginPercent={minProfitMarginPercent}
-              fullWidth
-              onViewLots={handleViewLots}
-              onDelete={() => setDeleteEntry(selected)}
-            />
-
-            {/* 4 графика истории продаж */}
-            <Box>
-              <SalesHistoryCharts
-                itemId={selected.item_id}
-                region={selected.region}
-                qualityFilter={selected.quality_filter}
-                enchantFilter={selected.enchant_filter}
-              />
-            </Box>
-          </Box>
+          <LotStatCard
+            itemId={selected.item_id}
+            region={selected.region}
+            qualityFilter={selected.quality_filter}
+            enchantFilter={selected.enchant_filter}
+            itemName={selected.name_ru ?? selected.name_en ?? selected.item_id}
+            iconPath={selected.icon_path}
+            minProfitMarginPercent={minProfitMarginPercent}
+            fullWidth
+            onViewLots={handleViewLots}
+            onDelete={() => setDeleteEntry(selected)}
+          />
         )}
       </Box>
 
       {/* ── Правый sidebar — список избранного ──────────────────── */}
       <Box sx={{
-        width: 260, flexShrink: 0,
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: '12px',
-        bgcolor: 'rgba(255,255,255,0.02)',
+        width: 272, flexShrink: 0,
+        border: `1px solid ${tokens.border}`,
+        borderRadius: `${tokens.radiusLg / 2}px`,
+        background: tokens.bg1,
         overflow: 'hidden',
         position: 'sticky',
-        top: '156px',
+        top: 'var(--sc-top-offset, 156px)',
+        maxHeight: 'calc(100vh - var(--sc-top-offset, 156px) - 16px)',
+        display: 'flex',
+        flexDirection: 'column',
       }}>
-        <Box sx={{ p: 1.5, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, mb: 1 }}>
-            <Typography sx={{
-              fontSize: '0.6rem',
-              color: isAtWatchlistLimit ? tokens.danger : (watchlistLimit !== null ? tokens.gold : 'text.disabled'),
-              fontWeight: 600, letterSpacing: '0.1em',
-            }}>
-              ИЗБРАННОЕ · {watchlist.length}{watchlistLimit !== null ? `/${watchlistLimit}` : ''}
-            </Typography>
+        <Box sx={{ p: 1.5, borderBottom: `1px solid ${tokens.border}` }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+            <Kick sx={{ color: isAtWatchlistLimit ? tokens.danger : (watchlistLimit !== null ? tokens.goldAccent : tokens.text2) }}>
+              Избранное · {watchlist.length}{watchlistLimit !== null ? `/${watchlistLimit}` : ''}
+            </Kick>
             {hasFavoritesOverride && (
-              <Tooltip title="Администратор установил для вас индивидуальный лимит избранного">
+              <Tooltip title="Администратор установил индивидуальный лимит избранного">
                 <Chip
                   label="Расширенный лимит"
                   size="small"
-                  sx={{
-                    height: 16, fontSize: '0.55rem', fontWeight: 700,
-                    letterSpacing: '0.03em', color: tokens.gold,
-                    background: 'rgba(217,175,55,0.12)',
-                    border: `1px solid ${tokens.gold}`,
-                    '& .MuiChip-label': { px: 0.6 },
-                  }}
+                  color="primary"
+                  sx={{ height: 18, fontSize: fs.f10, '& .MuiChip-label': { px: 0.75 } }}
                 />
               </Tooltip>
             )}
@@ -223,54 +208,56 @@ export default function MonitoringPage() {
           <TextField
             size="small"
             fullWidth
-            placeholder="Поиск..."
+            placeholder="Поиск по имени…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             slotProps={{
               input: {
-                sx: { fontSize: '0.75rem', height: 32 },
+                sx: { fontSize: fs.f125, height: 34 },
                 startAdornment: (
                   <InputAdornment position="start">
-                    <SearchIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
+                    <SearchIcon sx={{ fontSize: 16, color: tokens.text2 }} />
                   </InputAdornment>
                 ),
-                endAdornment: searchQuery && (
+                endAdornment: searchQuery ? (
                   <InputAdornment position="end">
-                    <IconButton size="small" onClick={() => setSearchQuery('')} sx={{ p: 0.25 }}>
+                    <IconButton size="small" onClick={() => setSearchQuery('')} sx={{ p: 0.25 }} aria-label="Очистить поиск">
                       <ClearIcon sx={{ fontSize: 14 }} />
                     </IconButton>
                   </InputAdornment>
-                ),
+                ) : undefined,
               },
             }}
           />
         </Box>
 
         {!initialized ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-            <CircularProgress size={20} />
+          <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} variant="rectangular" height={42} sx={{ bgcolor: tokens.bg2 }} />
+            ))}
+          </Box>
+        ) : visibleWatchlist.length === 0 ? (
+          <Box sx={{ p: '18px 12px', textAlign: 'center', color: tokens.text2, fontSize: fs.f12 }}>
+            {searchQuery.trim()
+              ? <>Ничего не найдено по запросу «{searchQuery.trim()}». Проверь написание или сбрось поиск.</>
+              : 'Список пуст.'}
           </Box>
         ) : (
           <List dense disablePadding sx={{
-            maxHeight: 'calc(100vh - 200px)', overflowY: 'auto',
-            scrollbarWidth: 'thin', scrollbarColor: 'rgba(217,175,55,0.45) transparent',
+            overflowY: 'auto',
+            scrollbarWidth: 'thin', scrollbarColor: `${tokens.goldSoft} transparent`,
             '&::-webkit-scrollbar': { width: 8 },
             '&::-webkit-scrollbar-track': { background: 'transparent' },
             '&::-webkit-scrollbar-thumb': {
               background: `linear-gradient(180deg, ${tokens.goldSoft}, ${tokens.gold})`,
-              borderRadius: '8px',
               border: `2px solid ${tokens.bg2}`,
               backgroundClip: 'padding-box',
             },
-            '&::-webkit-scrollbar-thumb:hover': {
-              background: tokens.goldAccent,
-              backgroundClip: 'padding-box',
-            },
           }}>
-            {sortedWatchlist.map((entry, idx) => {
-              const isSelected  = entry.id === selectedId
-              const isProfitable = profitableItemIds.includes(entry.id)
-              const isMatch = matchesSearch(entry, searchQuery)
+            {visibleWatchlist.map((entry, idx) => {
+              const isSelected = entry.id === selectedId
+              const goodCount  = goodCountById.get(entry.id) ?? 0
               return (
                 <Box
                   key={entry.id}
@@ -279,72 +266,73 @@ export default function MonitoringPage() {
                     else itemRefs.current.delete(entry.id)
                   }}
                 >
-                  {idx > 0 && <Divider sx={{ opacity: 0.3 }} />}
+                  {idx > 0 && <Divider sx={{ opacity: 0.4 }} />}
                   <ListItemButton
                     selected={isSelected}
                     onClick={() => setSelectedId(entry.id)}
                     sx={{
-                      py: 0.75, px: 1.5,
-                      borderLeft: isProfitable && !isSelected ? '2px solid #4caf50' : '2px solid transparent',
-                      bgcolor: isProfitable && !isSelected ? 'rgba(76,175,80,0.04)' : undefined,
-                      outline: isMatch ? '1px solid #D9AF37' : 'none',
-                      outlineOffset: '-1px',
-                      ...(isMatch ? { bgcolor: 'rgba(217,175,55,0.12)' } : {}),
-                      '&.Mui-selected': {
-                        bgcolor: 'rgba(217,175,55,0.08)',
-                        borderLeft: '2px solid #D9AF37',
-                      },
-                      '&.Mui-selected:hover': { bgcolor: 'rgba(217,175,55,0.12)' },
-                      '&:hover': isProfitable && !isSelected ? { bgcolor: 'rgba(76,175,80,0.08)' } : {},
+                      py: 0.75, px: 1.25,
+                      borderLeft: '2px solid transparent',
+                      transition: `background-color ${tokens.motion.fast}ms ${tokens.motion.ease}, border-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
+                      '&:hover': { background: tokens.bg2 },
+                      '&:active': { background: tokens.bg3 },
+                      '&.Mui-selected': { background: tokens.goldDim, borderLeftColor: tokens.goldHighlight },
+                      '&.Mui-selected:hover': { background: tokens.goldDim },
                     }}
                   >
                     <ListItemAvatar sx={{ minWidth: 36 }}>
-                      <Avatar
-                        variant="rounded"
-                        sx={{
-                          width: 28, height: 28, borderRadius: '5px',
-                          bgcolor: 'rgba(255,255,255,0.04)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          fontSize: '0.7rem', color: '#7C7C7C',
-                          fontFamily: '"Rajdhani", sans-serif', fontWeight: 700,
-                        }}
-                      >
-                        {(entry.name_ru ?? entry.name_en ?? String(entry.item_id))?.[0]?.toUpperCase() ?? '?'}
-                      </Avatar>
+                      <ItemIcon
+                        src={iconUrl(entry.icon_path) ?? undefined}
+                        name={entry.name_ru ?? entry.name_en ?? String(entry.item_id)}
+                        size={28}
+                      />
                     </ListItemAvatar>
                     <ListItemText
                       primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          {isProfitable && (
-                            <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#4caf50', flexShrink: 0 }} />
-                          )}
-                        <Typography sx={{ fontSize: '0.72rem', fontWeight: isSelected ? 700 : 400, color: isSelected ? 'primary.main' : isProfitable ? '#4caf50' : 'text.primary' }} noWrap>
-                          {entry.name_ru ?? entry.name_en ?? entry.item_id}
-                          {entry.enchant_filter != null && entry.enchant_filter > 0 && (
-                            <Typography component="span" sx={{ ml: 0.5, fontSize: '0.65rem', color: 'primary.main', fontWeight: 700 }}>
-                              +{entry.enchant_filter}
-                            </Typography>
-                          )}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+                          <Typography noWrap sx={{
+                            fontSize: fs.f125,
+                            fontWeight: isSelected ? 700 : 500,
+                            color: isSelected ? tokens.goldAccent : tokens.text0,
+                          }}>
+                            {entry.name_ru ?? entry.name_en ?? entry.item_id}
+                            {entry.enchant_filter != null && entry.enchant_filter > 0 && (
+                              <Box component="span" className="mono" sx={{ ml: 0.5, fontSize: fs.f105, color: tokens.goldAccent, fontWeight: 700 }}>
+                                +{entry.enchant_filter}
+                              </Box>
+                            )}
+                          </Typography>
                         </Box>
                       }
                       secondary={
-                        <Box sx={{ display: 'flex', gap: 0.4, flexWrap: 'wrap', mt: 0.2 }}>
-                          <Chip label={entry.region} size="small" variant="outlined" sx={{ height: 13, fontSize: 9 }} />
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.25 }}>
+                          <Box component="span" className="mono" sx={{ fontSize: fs.f105, color: tokens.text2 }}>{entry.region}</Box>
                           {entry.quality_filter !== null && (
-                            <Chip
-                              label={QLT_NAMES[entry.quality_filter] ?? `qlt${entry.quality_filter}`}
-                              size="small" variant="outlined"
-                              sx={{
-                                height: 13, fontSize: 9,
-                                borderColor: qualityColor(QLT_NAMES[entry.quality_filter]) ?? undefined,
-                                color: qualityColor(QLT_NAMES[entry.quality_filter]) ?? undefined,
-                              }}
-                            />
+                            <Box component="span" sx={{ fontSize: fs.f105, fontWeight: 600, color: qualityColor(QLT_NAMES[entry.quality_filter]) ?? tokens.text2 }}>
+                              {QLT_NAMES[entry.quality_filter] ?? `кач. ${entry.quality_filter}`}
+                            </Box>
                           )}
                         </Box>
                       }
                     />
+                    {/* .f-right — выгодность показывается только здесь (не красит строку) */}
+                    {goodCount > 0 && (
+                      <Box sx={{ flex: 'none', textAlign: 'right', ml: 1 }}>
+                        <Box
+                          component="span"
+                          className="mono"
+                          title="Выгодных лотов"
+                          sx={{
+                            display: 'inline-block', fontSize: fs.f105, fontWeight: 700,
+                            color: tokens.success, background: tokens.successDim,
+                            border: `1px solid ${tokens.successLine}`,
+                            px: '5px', borderRadius: `${tokens.radiusLg / 2}px`,
+                          }}
+                        >
+                          +{goodCount}
+                        </Box>
+                      </Box>
+                    )}
                   </ListItemButton>
                 </Box>
               )
@@ -353,36 +341,26 @@ export default function MonitoringPage() {
         )}
       </Box>
 
-      {/* Диалог удаления из Избранного */}
-      <Dialog
-        open={!!deleteEntry}
-        onClose={() => setDeleteEntry(null)}
-        maxWidth="xs"
-        fullWidth
-      >
+      {/* Диалог удаления из Избранного — единственный допустимый случай модалки
+          (потеря истории наблюдения невосстановима, §5.1) */}
+      <Dialog open={!!deleteEntry} onClose={() => setDeleteEntry(null)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ pb: 1 }}>
-          <Typography fontWeight={700}>Удалить из Избранного?</Typography>
+          <Typography fontWeight={700}>Убрать из Избранного?</Typography>
           <Typography variant="caption" color="text.secondary">
             {deleteEntry?.name_ru || deleteEntry?.item_id}
-            {deleteEntry?.quality_filter != null ? ` · кач. ${deleteEntry.quality_filter}` : ''}
+            {deleteEntry?.quality_filter != null ? ` · ${QLT_NAMES[deleteEntry.quality_filter] ?? `кач. ${deleteEntry.quality_filter}`}` : ''}
             {deleteEntry?.enchant_filter != null ? ` · +${deleteEntry.enchant_filter}` : ''}
             {deleteEntry ? ` · ${deleteEntry.region}` : ''}
           </Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: '8px !important' }}>
           <Typography variant="body2" color="text.secondary">
-            Товар будет удалён из мониторинга. Вы сможете добавить его снова из Каталога.
+            Товар и его история наблюдения будут удалены из мониторинга. Ты сможешь добавить его снова из Каталога.
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setDeleteEntry(null)} color="inherit">Отмена</Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={handleDeleteConfirm}
-          >
-            Удалить
-          </Button>
+          <Button variant="contained" color="error" onClick={handleDeleteConfirm}>Убрать</Button>
         </DialogActions>
       </Dialog>
     </Box>

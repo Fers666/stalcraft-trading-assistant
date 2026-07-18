@@ -1,19 +1,25 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import {
-  Box, Typography, TextField, InputAdornment, Card,
+  Box, Typography, TextField, InputAdornment, Button,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Button, Chip, CircularProgress, MenuItem, Select, FormControl,
-  InputLabel, Alert, Avatar, Dialog, DialogTitle, DialogContent,
-  DialogActions, List, ListItemButton, ListItemText, Collapse,
-  Pagination, Divider,
+  MenuItem, Select, FormControl, InputLabel, Alert, Dialog, DialogTitle,
+  DialogContent, DialogActions, Skeleton, Tooltip,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
-import AddIcon from '@mui/icons-material/Add'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import api from '../api/client'
-import { translateCategory, iconUrl } from '../utils/i18n'
+import { translateCategory, iconUrl, qualityKeyFromColor } from '../utils/i18n'
 import { CATEGORY_TREE } from '../utils/categories'
+import { useFeedStore } from '../store/feedStore'
+import { tokens, fs } from '../theme'
+import { Region } from '../constants/regions'
+import CategoryTree from '../components/ui/CategoryTree'
+import QualityChip from '../components/ui/QualityChip'
+import RegionSelect from '../components/ui/RegionSelect'
+import ItemIcon from '../components/ui/ItemIcon'
+import Kick from '../components/ui/Kick'
+import StatusLine from '../components/ui/StatusLine'
+import Pager from '../components/ui/Pager'
+import { useToast } from '../components/ui/Toast'
 
 const PAGE_SIZE = 50
 
@@ -28,8 +34,6 @@ interface Item {
   icon_path: string | null
   can_be_batch_traded: boolean
 }
-
-const REGIONS = ['RU', 'EU', 'NA', 'SEA']
 
 const QUALITY_OPTIONS = [
   { value: null,  label: 'Любое' },
@@ -47,51 +51,62 @@ const ENCHANT_OPTIONS = [
   ...Array.from({ length: 15 }, (_, i) => ({ value: i + 1, label: `+${i + 1}` })),
 ]
 
-// Цвет чипа качества по color из БД
-const QUALITY_CHIP_COLOR: Record<string, string> = {
-  default:      '#555',
-  rank_newbie:  '#4caf50',
-  rank_stalker: '#2196f3',
-  rank_veteran: '#9c27b0',
-  rank_master:  '#ff9800',
-  rank_legend:  '#f44336',
-  quest_item:   '#f44336',
-  gray:         '#555',
-  grey:         '#555',
-  white:        '#555',
-  green:        '#4caf50',
-  blue:         '#2196f3',
-  violet:       '#9c27b0',
-  purple:       '#9c27b0',
-  yellow:       '#ff9800',
-  black:        '#ff9800',
-  red:          '#f44336',
-}
-
 // Quality/enchant фильтры имеют смысл только для артефактов — у них additional.qlt/ptn
 function isArtefact(category: string | null): boolean {
   return !!category && category.startsWith('artefact')
 }
 
+function categoryLabel(id: string | null): string {
+  if (id == null) return 'Все предметы'
+  for (const g of CATEGORY_TREE) {
+    if (g.id === id) return g.label
+    for (const c of g.children ?? []) if (c.id === id) return c.label
+  }
+  return id
+}
+
+// Иконка-закладка (stroke) — эталон catalog.html BM_ADD / BM_OK
+const BookmarkAdd = () => (
+  <Box component="svg" width="13" height="15" viewBox="0 0 12 14" fill="none" aria-hidden="true" sx={{ display: 'block' }}>
+    <path d="M2 1.5h8a.5.5 0 0 1 .5.5v10.6L6 9.6l-4.5 3V2a.5.5 0 0 1 .5-.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    <path d="M6 3.8v3M4.5 5.3h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </Box>
+)
+const BookmarkOk = () => (
+  <Box component="svg" width="13" height="15" viewBox="0 0 12 14" fill="none" aria-hidden="true" sx={{ display: 'block' }}>
+    <path d="M2 1.5h8a.5.5 0 0 1 .5.5v10.6L6 9.6l-4.5 3V2a.5.5 0 0 1 .5-.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    <path d="m3.9 5.4 1.6 1.6 2.8-2.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+  </Box>
+)
 
 export default function CatalogPage() {
+  const { showToast } = useToast()
+  const watchlist = useFeedStore((s) => s.watchlist)
+
   const [search, setSearch]             = useState('')
   const [activeSearch, setActiveSearch] = useState('')
   const [category, setCategory]         = useState<string | null>(null)
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [items, setItems]               = useState<Item[]>([])
   const [total, setTotal]               = useState(0)
   const [page, setPage]                 = useState(1)
   const [loading, setLoading]           = useState(false)
   const [error, setError]               = useState<string | null>(null)
-  const [success, setSuccess]           = useState<string | null>(null)
 
   // Диалог добавления в watchlist
   const [dialogItem, setDialogItem]       = useState<Item | null>(null)
-  const [region, setRegion]               = useState('RU')
+  const [region, setRegion]               = useState<Region>('RU')
   const [qualityFilter, setQualityFilter] = useState<number | null>(null)
   const [enchantFilter, setEnchantFilter] = useState<number | null>(null)
   const [adding, setAdding]               = useState(false)
+  const [addError, setAddError]           = useState<string | null>(null)
+
+  // Предметы, уже отслеживаемые (по item_id): из избранного + добавленные в сессии
+  const [sessionAdded, setSessionAdded] = useState<Set<string>>(new Set())
+  const addedIds = useMemo(() => {
+    const s = new Set(sessionAdded)
+    watchlist.forEach((w) => s.add(w.item_id))
+    return s
+  }, [watchlist, sessionAdded])
 
   const loadItems = useCallback(async (cat: string | null, sq: string, p: number) => {
     setLoading(true)
@@ -119,21 +134,15 @@ export default function CatalogPage() {
     setActiveSearch(search)
   }
 
+  const handleReset = () => { setSearch(''); setActiveSearch(''); setPage(1) }
+
   const handleCategorySelect = (cat: string | null) => {
     setCategory(cat)
     setPage(1)
   }
 
-  const toggleGroup = (id: string) => {
-    setExpandedGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
   const openDialog = (item: Item) => {
+    setAddError(null)
     setDialogItem(item)
     setQualityFilter(null)
     setEnchantFilter(null)
@@ -142,8 +151,7 @@ export default function CatalogPage() {
   const handleAdd = async () => {
     if (!dialogItem) return
     setAdding(true)
-    setSuccess(null)
-    setError(null)
+    setAddError(null)
     try {
       const payload: Record<string, unknown> = { item_id: dialogItem.item_id, region }
       if (isArtefact(dialogItem.category)) {
@@ -160,264 +168,208 @@ export default function CatalogPage() {
       } else if (dialogItem.quality_name) {
         suffix = ` [${dialogItem.quality_name}]`
       }
-      setSuccess(`${dialogItem.name_ru || dialogItem.item_id}${suffix} добавлен в избранное (${region})`)
+      setSessionAdded((prev) => new Set(prev).add(dialogItem.item_id))
+      showToast(`«${dialogItem.name_ru || dialogItem.item_id}»${suffix} добавлен в избранное (${region})`)
       setDialogItem(null)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-      setError(msg || 'Ошибка добавления')
+      setAddError(msg || 'Ошибка добавления')
     } finally {
       setAdding(false)
     }
   }
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const tcellText = { textAlign: 'left', fontFamily: tokens.fontUi } as const
 
   return (
-    <Box>
-      {/* Header */}
-      <Box sx={{ mb: 3 }}>
-        <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', letterSpacing: '0.14em', fontWeight: 600, mb: 0.5 }}>
-          ITEM DATABASE // {total > 0 ? `${total} ITEMS` : '2 236+ ENTRIES'}
-        </Typography>
-        <Typography variant="h5" fontWeight={700}>Каталог предметов</Typography>
-      </Box>
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: '272px minmax(0, 1fr)',
+        gap: '12px',
+        alignItems: 'start',
+        '@media (max-width:1360px)': { gridTemplateColumns: '256px minmax(0, 1fr)' },
+      }}
+    >
+      <CategoryTree selected={category} onSelect={handleCategorySelect} ariaLabel="Категории каталога" />
 
-      {/* Search bar */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-        <TextField
-          placeholder="Поиск по названию..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-          size="small"
-          sx={{ flexGrow: 1 }}
-          slotProps={{
-            input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> },
-          }}
+      {/* .panel */}
+      <Box sx={{ background: tokens.bg1, border: `1px solid ${tokens.border}`, borderRadius: 1, minWidth: 0 }}>
+        {/* .pg-h */}
+        <Box sx={{ padding: '14px 18px 12px' }}>
+          <Kick>Каталог // Item Database</Kick>
+          <Typography component="h1" sx={{ fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f26, letterSpacing: '0.03em', lineHeight: 1.05, mt: '3px' }}>
+            Каталог предметов
+          </Typography>
+          <Typography sx={{ fontSize: fs.f12, color: tokens.text2, mt: '4px', maxWidth: '72ch' }}>
+            База предметов аукциона STALZONE: поиск по имени, фильтр по категории, добавление в избранное для отслеживания цен.
+          </Typography>
+        </Box>
+
+        {/* .toolrow */}
+        <Box sx={{ display: 'flex', gap: '8px', padding: '0 18px 14px' }}>
+          <TextField
+            placeholder="Поиск по названию или английскому имени…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            size="small"
+            type="search"
+            sx={{ flex: 1, minWidth: 0 }}
+            slotProps={{
+              input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> },
+            }}
+          />
+          <Button variant="contained" size="small" onClick={handleSearch} disabled={loading}>Найти</Button>
+          {activeSearch && <Button variant="outlined" size="small" onClick={handleReset}>Сбросить</Button>}
+        </Box>
+
+        {/* .statusline */}
+        <StatusLine
+          columns={4}
+          metrics={[
+            { label: 'Найдено',   value: total.toLocaleString('ru-RU'), tone: 'gold' },
+            { label: 'Категория', value: categoryLabel(category) },
+            { label: 'Поиск',     value: activeSearch ? `«${activeSearch}»` : '—' },
+            { label: 'Страница',  value: `${page} / ${totalPages}` },
+          ]}
         />
-        <Button variant="contained" onClick={handleSearch} disabled={loading}>
-          {loading ? <CircularProgress size={20} /> : 'Найти'}
-        </Button>
-        {activeSearch && (
-          <Button variant="outlined" color="inherit" onClick={() => { setSearch(''); setActiveSearch(''); setPage(1) }}>
-            Сбросить
-          </Button>
-        )}
-      </Box>
 
-      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
-      {error   && <Alert severity="error"   sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+        {error && <Alert severity="error" sx={{ m: '12px 18px' }} onClose={() => setError(null)}>{error}</Alert>}
 
-      {/* Двухколоночный layout */}
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-
-        {/* Левый сайдбар — дерево категорий */}
-        <Box sx={{
-          width: 230,
-          flexShrink: 0,
-          bgcolor: 'background.paper',
-          borderRadius: 1,
-          border: '1px solid',
-          borderColor: 'divider',
-          maxHeight: '72vh',
-          overflowY: 'auto',
-        }}>
-          <List dense disablePadding>
-            {CATEGORY_TREE.map((group, idx) => {
-              const isSelected  = category === group.id
-              const hasChildren = !!group.children?.length
-              const isExpanded  = hasChildren && group.id != null && expandedGroups.has(group.id)
-
-              return (
-                <Box key={String(group.id)}>
-                  {idx === 1 && <Divider />}
-                  <ListItemButton
-                    selected={isSelected}
-                    onClick={() => {
-                      handleCategorySelect(group.id)
-                      if (hasChildren && group.id != null) toggleGroup(group.id)
-                    }}
-                    sx={{ pl: 2, pr: 1 }}
-                  >
-                    <ListItemText
-                      primary={group.label}
-                      primaryTypographyProps={{
-                        variant: 'body2',
-                        sx: { fontWeight: isSelected ? 700 : 400, color: isSelected ? 'primary.main' : 'text.primary' },
-                      }}
-                    />
-                    {hasChildren && group.id != null && (
-                      isExpanded
-                        ? <ExpandLessIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                        : <ExpandMoreIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                    )}
-                  </ListItemButton>
-
-                  {hasChildren && group.id != null && (
-                    <Collapse in={isExpanded} unmountOnExit>
-                      <List dense disablePadding>
-                        {group.children!.map((child) => {
-                          const childSelected = category === child.id
-                          return (
-                            <ListItemButton
-                              key={child.id}
-                              selected={childSelected}
-                              onClick={() => handleCategorySelect(child.id)}
-                              sx={{ pl: 4, pr: 1 }}
+        {/* Таблица */}
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ ...tcellText, width: '37%' }}>Название</TableCell>
+                <TableCell sx={tcellText}>Категория</TableCell>
+                <TableCell sx={tcellText}>Качество</TableCell>
+                <TableCell sx={tcellText}>Пачки</TableCell>
+                <TableCell sx={{ width: 56 }} />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {loading ? (
+                Array.from({ length: 8 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell colSpan={5} sx={{ p: '6px 10px' }}>
+                      <Skeleton variant="rectangular" height={28} sx={{ bgcolor: tokens.bg2 }} />
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : items.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} sx={{ textAlign: 'center', fontFamily: tokens.fontUi, color: tokens.text2, py: '22px' }}>
+                    {activeSearch
+                      ? <>Ничего не найдено по запросу «{activeSearch}»{category ? ` в категории «${categoryLabel(category)}»` : ''}.</>
+                      : <>В категории «{categoryLabel(category)}» пока нет предметов.</>}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                items.map((item) => {
+                  const added = addedIds.has(item.item_id)
+                  return (
+                    <TableRow key={item.id} hover>
+                      <TableCell sx={tcellText}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0 }}>
+                          <ItemIcon
+                            src={iconUrl(item.icon_path) ?? undefined}
+                            name={item.name_ru ?? item.name_en ?? item.item_id}
+                            quality={qualityKeyFromColor(item.color)}
+                          />
+                          <Box sx={{ minWidth: 0, lineHeight: 1.25 }}>
+                            <Typography noWrap sx={{ fontSize: fs.f125, fontWeight: 500, color: tokens.text0 }}>
+                              {item.name_ru || item.name_en}
+                            </Typography>
+                            {item.name_en && item.name_ru && (
+                              <Typography noWrap sx={{ fontSize: fs.f105, color: tokens.text2 }}>{item.name_en}</Typography>
+                            )}
+                          </Box>
+                        </Box>
+                      </TableCell>
+                      <TableCell sx={{ ...tcellText, fontSize: fs.f11, color: tokens.text2 }}>
+                        {translateCategory(item.category)}
+                      </TableCell>
+                      <TableCell sx={tcellText}>
+                        {item.quality_name
+                          ? <QualityChip color={qualityKeyFromColor(item.color)} label={item.quality_name} />
+                          : <Box component="span" sx={{ color: tokens.text2 }}>—</Box>}
+                      </TableCell>
+                      <TableCell sx={{ ...tcellText, color: item.can_be_batch_traded ? tokens.text0 : tokens.text2 }}>
+                        {item.can_be_batch_traded ? 'да' : '—'}
+                      </TableCell>
+                      <TableCell sx={{ textAlign: 'right', p: '4px 10px' }}>
+                        {added ? (
+                          <Tooltip title="Уже в избранном">
+                            <Box
+                              component="span"
+                              aria-label="Уже в избранном"
+                              sx={{ width: 30, height: 30, display: 'inline-grid', placeItems: 'center', color: tokens.goldAccent }}
                             >
-                              <ListItemText
-                                primary={child.label}
-                                primaryTypographyProps={{
-                                  variant: 'body2',
-                                  sx: { color: childSelected ? 'primary.main' : 'text.secondary', fontWeight: childSelected ? 600 : 400 },
-                                }}
-                              />
-                            </ListItemButton>
-                          )
-                        })}
-                      </List>
-                    </Collapse>
-                  )}
-                </Box>
-              )
-            })}
-          </List>
-        </Box>
-
-        {/* Правая часть — список предметов */}
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          {loading && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-              <CircularProgress />
-            </Box>
-          )}
-
-          {!loading && items.length === 0 && (
-            <Box sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
-              <Typography>Ничего не найдено</Typography>
-            </Box>
-          )}
-
-          {!loading && items.length > 0 && (
-            <>
-              <Card>
-                <Box sx={{ px: 2, pt: 1.5, pb: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    Найдено: {total}
-                    {totalPages > 1 && ` · стр. ${page} из ${totalPages}`}
-                    {activeSearch && ` · поиск: «${activeSearch}»`}
-                  </Typography>
-                </Box>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Название</TableCell>
-                        <TableCell>Категория</TableCell>
-                        <TableCell>Качество</TableCell>
-                        <TableCell>Пачки</TableCell>
-                        <TableCell align="right"></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {items.map((item) => {
-                        const chipColor = item.color ? (QUALITY_CHIP_COLOR[item.color.toLowerCase()] ?? '#555') : null
-                        return (
-                          <TableRow key={item.id} hover>
-                            <TableCell>
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Avatar
-                                  src={iconUrl(item.icon_path) ?? undefined}
-                                  variant="rounded"
-                                  sx={{ width: 28, height: 28, bgcolor: 'background.default', flexShrink: 0 }}
-                                >
-                                  {!item.icon_path && (item.name_ru?.[0] ?? '?')}
-                                </Avatar>
-                                <Box>
-                                  <Typography variant="body2" fontWeight={500}>
-                                    {item.name_ru || item.name_en}
-                                  </Typography>
-                                  {item.name_en && item.name_ru && (
-                                    <Typography variant="caption" color="text.secondary">{item.name_en}</Typography>
-                                  )}
-                                </Box>
-                              </Box>
-                            </TableCell>
-                            <TableCell>
-                              <Typography variant="caption" color="text.secondary">
-                                {translateCategory(item.category)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              {item.quality_name && chipColor && (
-                                <Chip
-                                  label={item.quality_name}
-                                  size="small"
-                                  sx={{
-                                    fontSize: '0.65rem',
-                                    height: 18,
-                                    borderColor: chipColor,
-                                    color: chipColor,
-                                  }}
-                                  variant="outlined"
-                                />
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {item.can_be_batch_traded
-                                ? <Chip label="Да"  size="small" color="success" variant="outlined" />
-                                : <Chip label="Нет" size="small" variant="outlined" />}
-                            </TableCell>
-                            <TableCell align="right">
-                              <Button
-                                size="small"
-                                startIcon={<AddIcon />}
-                                onClick={() => openDialog(item)}
-                                variant="outlined"
-                              >
-                                Избранное
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Card>
-
-              {totalPages > 1 && (
-                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-                  <Pagination
-                    count={totalPages}
-                    page={page}
-                    onChange={(_, p) => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-                    color="primary"
-                    size="small"
-                  />
-                </Box>
+                              <BookmarkOk />
+                            </Box>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip title="В избранное">
+                            <Box
+                              component="button"
+                              type="button"
+                              aria-label="В избранное"
+                              onClick={() => openDialog(item)}
+                              sx={{
+                                width: 30, height: 30, display: 'inline-grid', placeItems: 'center',
+                                background: 'none', border: '1px solid transparent', borderRadius: 1, cursor: 'pointer',
+                                color: tokens.text2,
+                                transition: `color ${tokens.motion.fast}ms ${tokens.motion.ease}, background-color ${tokens.motion.fast}ms ${tokens.motion.ease}, border-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
+                                '&:hover': { color: tokens.goldAccent, background: tokens.bg2, borderColor: tokens.borderHi },
+                              }}
+                            >
+                              <BookmarkAdd />
+                            </Box>
+                          </Tooltip>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
               )}
-            </>
-          )}
-        </Box>
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        {!loading && items.length > 0 && (
+          <Pager
+            page={page}
+            count={totalPages}
+            onChange={(p) => {
+              setPage(p)
+              window.scrollTo({ top: 0, behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+            }}
+          />
+        )}
       </Box>
 
       {/* Диалог добавления в watchlist */}
       <Dialog open={!!dialogItem} onClose={() => setDialogItem(null)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ pb: 1 }}>
-          <Typography fontWeight={700}>{dialogItem?.name_ru || dialogItem?.item_id}</Typography>
-          <Typography variant="caption" color="text.secondary">{dialogItem?.item_id}</Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+            <Box component="span">{dialogItem?.name_ru || dialogItem?.item_id}</Box>
+            <Box component="span" className="mono" sx={{ fontSize: fs.f11, color: tokens.text2, fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
+              {dialogItem?.item_id}
+            </Box>
+          </Box>
         </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '12px !important' }}>
+          {addError && <Alert severity="error" onClose={() => setAddError(null)}>{addError}</Alert>}
 
-          <FormControl size="small" fullWidth>
-            <InputLabel>Регион</InputLabel>
-            <Select value={region} label="Регион" onChange={(e) => setRegion(e.target.value)}>
-              {REGIONS.map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
-            </Select>
-          </FormControl>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            <Kick component="label">Регион</Kick>
+            <RegionSelect value={region} onChange={setRegion} sx={{ width: '100%' }} />
+          </Box>
 
-          {/* Quality/enchant — только для артефактов (у них additional.qlt/ptn в API) */}
+          {/* Quality/enchant — только для артефактов */}
           {isArtefact(dialogItem?.category ?? null) && (
             <>
               <FormControl size="small" fullWidth>
@@ -428,9 +380,7 @@ export default function CatalogPage() {
                   onChange={(e) => setQualityFilter(e.target.value === '' ? null : Number(e.target.value))}
                 >
                   {QUALITY_OPTIONS.map((o) => (
-                    <MenuItem key={String(o.value)} value={o.value ?? ''}>
-                      {o.label}
-                    </MenuItem>
+                    <MenuItem key={String(o.value)} value={o.value ?? ''}>{o.label}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
@@ -443,26 +393,16 @@ export default function CatalogPage() {
                   onChange={(e) => setEnchantFilter(e.target.value === '' ? null : Number(e.target.value))}
                 >
                   {ENCHANT_OPTIONS.map((o) => (
-                    <MenuItem key={String(o.value)} value={o.value ?? ''}>
-                      {o.label}
-                    </MenuItem>
+                    <MenuItem key={String(o.value)} value={o.value ?? ''}>{o.label}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
             </>
           )}
-
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setDialogItem(null)} color="inherit">Отмена</Button>
-          <Button
-            variant="contained"
-            onClick={handleAdd}
-            disabled={adding}
-            startIcon={adding ? <CircularProgress size={16} /> : <AddIcon />}
-          >
-            Добавить
-          </Button>
+          <Button onClick={() => setDialogItem(null)} variant="outlined" size="small">Отмена</Button>
+          <Button variant="contained" size="small" onClick={handleAdd} disabled={adding}>Добавить</Button>
         </DialogActions>
       </Dialog>
     </Box>

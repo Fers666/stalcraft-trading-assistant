@@ -1,21 +1,22 @@
 import { useState, useMemo, useEffect } from 'react'
 import {
-  Box, Typography, Card, CardContent, Chip, CircularProgress,
-  Tooltip, Divider, Avatar, ToggleButtonGroup, ToggleButton, IconButton, alpha,
+  Box, Typography, Card, Chip, Skeleton, Tooltip, IconButton,
+  ToggleButtonGroup, ToggleButton, Table, TableHead, TableBody, TableRow, TableCell,
 } from '@mui/material'
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import SearchIcon from '@mui/icons-material/Search'
 import DeleteIcon from '@mui/icons-material/Delete'
 import api from '../api/client'
-import { formatPrice, formatLastUpdate, qualityColor, iconUrl } from '../utils/i18n'
-import { tokens } from '../theme'
+import { formatLastUpdate, qualityColor, iconUrl } from '../utils/i18n'
+import { fmtN, fmtP } from '../utils/format'
+import { tokens, fs } from '../theme'
 import { useAuthStore } from '../store/authStore'
-
-const LockIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
-    <rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
-  </svg>
-)
+import Kick from './ui/Kick'
+import LockIcon from './ui/LockIcon'
+import ItemIcon from './ui/ItemIcon'
+import StatusLine, { type StatusMetric } from './ui/StatusLine'
+import SortHeader from './ui/SortHeader'
+import SalesHistoryCharts from './SalesHistoryCharts'
 
 const COMMISSION = 0.05
 const MAX_PROFITABLE_LOTS = 10
@@ -30,20 +31,16 @@ const DAYS_RU: Record<string, string> = {
   Friday: 'Пт', Saturday: 'Сб', Sunday: 'Вс',
 }
 
-const RISK_LABELS: Record<string, { label: string; color: 'success' | 'warning' | 'error' }> = {
-  low:    { label: 'низкий риск',    color: 'success' },
-  medium: { label: 'умеренный риск', color: 'warning' },
-  high:   { label: 'высокий риск',   color: 'error'   },
+const RISK_LABELS: Record<string, { label: string; tone: 'success' | 'warning' | 'error' }> = {
+  low:    { label: 'низкий риск',    tone: 'success' },
+  medium: { label: 'умеренный риск', tone: 'warning' },
+  high:   { label: 'высокий риск',   tone: 'error'   },
 }
 
-const RISK_DOT_COLOR: Record<'success' | 'warning' | 'error', string> = {
-  success: tokens.success, warning: tokens.warning, error: tokens.danger,
-}
-
-const CONFIDENCE_TOOLTIPS: Record<string, string> = {
-  low:    'Мало данных — прогноз приблизительный.',
-  medium: 'Данных достаточно для базового прогноза.',
-  high:   'Много данных — прогноз надёжный.',
+const RISK_TONE: Record<'success' | 'warning' | 'error', { color: string; dim: string; line: string }> = {
+  success: { color: tokens.success, dim: tokens.successDim, line: tokens.successLine },
+  warning: { color: tokens.warning, dim: tokens.warningDim, line: tokens.warningLine },
+  error:   { color: tokens.danger,  dim: tokens.dangerDim,  line: tokens.dangerLine  },
 }
 
 const SELL_OPTION_TOOLTIPS: Record<string, string> = {
@@ -52,8 +49,11 @@ const SELL_OPTION_TOOLTIPS: Record<string, string> = {
   premium: 'Цена выше медианы. Придётся подождать.',
 }
 
-const sellOptionColor = (label: string) =>
-  ({ fast: '#3ED598', normal: '#F5B74F', premium: '#F2C94C' }[label] ?? '#F5F5F5')
+// цвет названия стратегии в карточке .sell (прототип favorites.html: .sell.f/.n/.p .name)
+const sellOptionNameColor = (label: string) =>
+  ({ fast: tokens.text1, normal: tokens.goldAccent, premium: tokens.goldHighlight }[label] ?? tokens.text0)
+
+const CONF_LABELS: Record<string, string> = { low: 'низкая', medium: 'средняя', high: 'высокая' }
 
 const SORT_DEFAULT_DIR: Record<string, 'asc' | 'desc'> = { price: 'asc', fast: 'desc', normal: 'desc', premium: 'desc' }
 
@@ -65,6 +65,15 @@ function volatilityRisk(v: number | null): keyof typeof RISK_LABELS | null {
 }
 
 const TODAY_EN = new Date().toLocaleDateString('en-US', { weekday: 'long' })
+
+// .sec-h h2 — единый заголовок компартмент-ячейки (Rajdhani, uppercase, ls .14em)
+const SEC_H_SX = {
+  m: 0, fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f12,
+  letterSpacing: '0.14em', textTransform: 'uppercase', color: tokens.text1,
+} as const
+
+// содержимое каждой .cell компартмент-сетки .grid-2 (непрозрачный bg1 → 1px-щели)
+const CELL_SX = { background: tokens.bg1, p: '12px 16px 16px', minWidth: 0 } as const
 
 interface SellOption {
   label: 'fast' | 'normal' | 'premium'
@@ -299,9 +308,6 @@ export default function LotStatCard({
   const singleQuality = hasQuality && profitableLots.every(l => l.quality_name === firstLot.quality_name && l.enchant_level === firstLot.enchant_level)
     ? { quality: firstLot.quality_name, enchant: firstLot.enchant_level }
     : null
-  const showQualityColumn = hasQuality && !singleQuality
-  const lotGridCols = showQualityColumn ? '1fr auto 86px 86px 86px' : '1fr 86px 86px 86px'
-  const hasRight = !!((stats?.sell_options?.length ?? 0) > 0 || stats?.batch_stats || sellOptionsLocked)
 
   const cheapestBuy = lots
     .filter(l => !l.is_expiring && l.buyout_price > 0)
@@ -322,438 +328,392 @@ export default function LotStatCard({
   const sellDay = timeMode === 'week' ? stats?.best_sell_day : null
   const buyDay  = timeMode === 'week' ? stats?.best_buy_day  : null
 
+  const qColor = qualityFilter !== null ? (qualityColor(QLT_NAMES[qualityFilter]) ?? tokens.gold) : tokens.gold
+
+  const statusMetrics = useMemo<StatusMetric[]>(() => {
+    if (!stats) return []
+    const m: StatusMetric[] = []
+    if (stats.sales_volume_7d != null) m.push({ label: 'Продаж 7д', value: fmtN(stats.sales_volume_7d), unit: 'шт' })
+    m.push({ label: 'Лотов на рынке', value: fmtN(totalFilteredLots) })
+    if (sellHour != null) m.push({ label: 'Продавать', value: `${sellDay ? `${DAYS_RU[sellDay] ?? sellDay} ` : ''}${String(sellHour).padStart(2, '0')}:00`, tone: 'g' })
+    if (buyHour != null) m.push({ label: 'Покупать', value: `${buyDay ? `${DAYS_RU[buyDay] ?? buyDay} ` : ''}${String(buyHour).padStart(2, '0')}:00`, tone: 'a' })
+    if (stats.avg_sell_time_hours != null) m.push({ label: 'Ср. время продажи', value: `~${(Math.round(stats.avg_sell_time_hours * 10) / 10).toLocaleString('ru-RU')}`, unit: 'ч' })
+    const upd = formatLastUpdate(lastUpdated)
+    if (upd) m.push({ label: 'Обновлено', value: upd })
+    return m
+  }, [stats, totalFilteredLots, sellHour, buyHour, sellDay, buyDay, lastUpdated])
+
   if (loading) return (
-    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300, width: fullWidth ? '100%' : 520 }}>
-      <CircularProgress />
-    </Box>
+    <Card sx={{ width: fullWidth ? '100%' : 520 }}>
+      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        <Skeleton variant="rectangular" height={72} sx={{ bgcolor: tokens.bg2 }} />
+        <Skeleton variant="rectangular" height={52} sx={{ bgcolor: tokens.bg2 }} />
+        <Skeleton variant="rectangular" height={200} sx={{ bgcolor: tokens.bg2 }} />
+      </Box>
+    </Card>
   )
 
   return (
     <Card sx={{ width: fullWidth ? '100%' : 520, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* Золотая полоска */}
-      <Box sx={{ height: 3, background: 'linear-gradient(90deg, #D9AF37 0%, #F5B74F 100%)', flexShrink: 0 }} />
-      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
 
-        {/* Хедер: иконка + имя + ключевые статы */}
-        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-          <Avatar
-            src={iconUrl(iconPath) ?? undefined}
-            variant="rounded"
-            sx={{ width: 64, height: 64, bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', flexShrink: 0 }}
+      {/* ── Шапка .pg-h ─────────────────────────────────────────── */}
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2, p: '14px 18px 12px' }}>
+        <ItemIcon src={iconUrl(iconPath) ?? undefined} name={itemName} size={56} sx={{ mt: '2px' }} />
+
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Kick>Избранное · {region}</Kick>
+          <Typography
+            component="h1"
+            noWrap
+            sx={{ fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f26, letterSpacing: '0.03em', lineHeight: 1.05, mt: '3px' }}
           >
-            {!iconPath && (itemName?.[0] ?? '?')}
-          </Avatar>
-
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="subtitle1" fontWeight={700} noWrap>
-              {itemName}
-              {enchantFilter != null && enchantFilter > 0 && (
-                <Typography component="span" sx={{ ml: 0.75, fontSize: '0.75rem', color: 'primary.main', fontWeight: 700 }}>
-                  +{enchantFilter}
-                </Typography>
-              )}
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
-              <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', fontFamily: 'monospace' }}>
-                {itemId}
-              </Typography>
-              <Chip label={region} size="small" variant="outlined" sx={{ height: 18, fontSize: 10 }} />
-              {qualityFilter !== null && (
-                <Chip
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: qualityColor(QLT_NAMES[qualityFilter]) ?? 'primary.main', flexShrink: 0 }} />
-                      {QLT_NAMES[qualityFilter] ?? `qlt${qualityFilter}`}
-                    </Box>
-                  }
-                  size="small" variant="outlined"
-                  sx={{
-                    height: 18, fontSize: 10,
-                    borderColor: qualityColor(QLT_NAMES[qualityFilter]) ?? 'primary.main',
-                    color: qualityColor(QLT_NAMES[qualityFilter]) ?? 'primary.main',
-                  }}
-                />
-              )}
-              {risk && (
-                <Tooltip title={`7д: ${stats?.price_volatility_7d?.toFixed(1)}%`}>
-                  <Box sx={{
-                    display: 'inline-flex', alignItems: 'center', gap: 0.6, height: 20, px: 1, borderRadius: '8px',
-                    bgcolor: tokens.bg1, border: `1px solid ${tokens.border}`, color: tokens.text1, fontSize: '0.625rem', cursor: 'help',
-                  }}>
-                    <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: RISK_DOT_COLOR[risk.color], boxShadow: `0 0 6px ${RISK_DOT_COLOR[risk.color]}`, flexShrink: 0 }} />
-                    7д · {risk.label}
-                  </Box>
-                </Tooltip>
-              )}
-              {risk30Locked ? (
-                <Tooltip title="Доступно на тарифе Продвинутая Макс">
-                  <Box sx={{
-                    display: 'inline-flex', alignItems: 'center', gap: 0.6, height: 20, px: 1, borderRadius: '8px',
-                    bgcolor: tokens.bg1, border: `1px solid ${tokens.border}`, color: tokens.text2, fontSize: '0.625rem', cursor: 'not-allowed',
-                  }}>
-                    <LockIcon />
-                    30д
-                  </Box>
-                </Tooltip>
-              ) : risk30 && (
-                <Tooltip title={`30д: ${stats?.price_volatility_30d?.toFixed(1)}%`}>
-                  <Box sx={{
-                    display: 'inline-flex', alignItems: 'center', gap: 0.6, height: 20, px: 1, borderRadius: '8px',
-                    bgcolor: tokens.bg1, border: `1px solid ${tokens.border}`, color: tokens.text1, fontSize: '0.625rem', cursor: 'help',
-                  }}>
-                    <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: RISK_DOT_COLOR[risk30.color], boxShadow: `0 0 6px ${RISK_DOT_COLOR[risk30.color]}`, flexShrink: 0 }} />
-                    30д · {risk30.label}
-                  </Box>
-                </Tooltip>
-              )}
-            </Box>
-          </Box>
-
-          {/* Медиана 7д — отдельный блок между info и кнопками */}
-          {stats?.median_price_7d != null && (
-            <Box sx={{ textAlign: 'right', flexShrink: 0 }}>
-              <Typography sx={{ fontSize: '0.55rem', color: 'text.disabled', letterSpacing: '0.08em' }}>МЕДИАНА 7Д</Typography>
-              <Typography sx={{ fontSize: '1.05rem', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                {formatPrice(stats.median_price_7d)}
-              </Typography>
-            </Box>
-          )}
-
-          {(onViewLots || onDelete) && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.75, flexShrink: 0 }}>
-              <Box sx={{ display: 'flex', gap: 0.5 }}>
-                {onViewLots && (
-                  <Tooltip title="Все лоты этого предмета">
-                    <IconButton size="small" onClick={onViewLots} sx={{ color: 'text.secondary' }}>
-                      <SearchIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-                {onDelete && (
-                  <Tooltip title="Удалить из Избранного">
-                    <IconButton size="small" onClick={onDelete} sx={{ color: 'error.main' }}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
+            {itemName}
+            {enchantFilter != null && enchantFilter > 0 && (
+              <Box component="span" className="mono" sx={{ ml: 1, fontSize: fs.f16, color: tokens.goldAccent, fontWeight: 700 }}>
+                +{enchantFilter}
               </Box>
+            )}
+          </Typography>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 1, flexWrap: 'wrap' }}>
+            <Box component="span" className="mono" sx={{ fontSize: fs.f11, color: tokens.text2, border: `1px solid ${tokens.border}`, px: 0.75, py: '1px', borderRadius: `${tokens.radiusLg / 2}px` }}>
+              {itemId}
             </Box>
-          )}
+            {qualityFilter !== null && (
+              <Chip label={QLT_NAMES[qualityFilter] ?? `кач. ${qualityFilter}`} size="small" variant="outlined"
+                sx={{ height: 20, fontSize: fs.f11, borderColor: qColor, color: qColor }} />
+            )}
+            {risk && (
+              <Tooltip title={`7д: ${stats?.price_volatility_7d?.toFixed(1)}%`}>
+                <Box className="mono" sx={{
+                  display: 'inline-flex', alignItems: 'center', gap: 0.75, height: 20, px: 1, borderRadius: `${tokens.radiusLg / 2}px`, cursor: 'help',
+                  color: RISK_TONE[risk.tone].color, background: RISK_TONE[risk.tone].dim, border: `1px solid ${RISK_TONE[risk.tone].line}`, fontSize: fs.f11,
+                }}>
+                  <Box component="span" sx={{ fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f10, letterSpacing: '0.1em' }}>7Д</Box>
+                  {risk.label}
+                </Box>
+              </Tooltip>
+            )}
+            {risk30Locked ? (
+              <Tooltip title="Доступно на тарифе Макс">
+                <Box className="mono" sx={{
+                  display: 'inline-flex', alignItems: 'center', gap: 0.6, height: 20, px: 1, borderRadius: `${tokens.radiusLg / 2}px`, cursor: 'not-allowed',
+                  color: tokens.text2, border: `1px solid ${tokens.border}`, fontSize: fs.f11,
+                }}>
+                  <LockIcon size={11} />
+                  30Д
+                </Box>
+              </Tooltip>
+            ) : risk30 && (
+              <Tooltip title={`30д: ${stats?.price_volatility_30d?.toFixed(1)}%`}>
+                <Box className="mono" sx={{
+                  display: 'inline-flex', alignItems: 'center', gap: 0.75, height: 20, px: 1, borderRadius: `${tokens.radiusLg / 2}px`, cursor: 'help',
+                  color: RISK_TONE[risk30.tone].color, background: RISK_TONE[risk30.tone].dim, border: `1px solid ${RISK_TONE[risk30.tone].line}`, fontSize: fs.f11,
+                }}>
+                  <Box component="span" sx={{ fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f10, letterSpacing: '0.1em' }}>30Д</Box>
+                  {risk30.label}
+                </Box>
+              </Tooltip>
+            )}
+          </Box>
         </Box>
 
-        {/* Статус-бар: продаж 7д + лучшее время продажи/покупки + lastUpdated */}
-        {stats && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mt: 1, pt: 1, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            {stats.sales_volume_7d != null && (
-              <Box sx={{ mr: 0.5 }}>
-                <Typography sx={{ fontSize: '0.55rem', color: 'text.disabled', letterSpacing: '0.08em' }}>ПРОДАЖ 7Д</Typography>
-                <Typography sx={{ fontSize: '0.82rem', fontWeight: 700 }}>{stats.sales_volume_7d}</Typography>
-              </Box>
-            )}
-            {(sellHour != null || buyHour != null) && (
-              <>
-                <ToggleButtonGroup value={timeMode} exclusive onChange={(_, v) => v && setTimeMode(v)} size="small">
-                  <ToggleButton value="today" sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>Сегодня</ToggleButton>
-                  <ToggleButton value="week"  sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>Неделя</ToggleButton>
-                </ToggleButtonGroup>
-                {sellHour != null && (
-                  <Tooltip title="Лучшее время выставлять лот">
-                    <Chip label={`▲ ${sellHour}:00${sellDay ? ` · ${DAYS_RU[sellDay] ?? sellDay}` : ''}`} size="small" color="success" variant="outlined" sx={{ height: 20, fontSize: 10 }} />
-                  </Tooltip>
-                )}
-                {buyHour != null && (
-                  <Tooltip title="Лучшее время покупать">
-                    <Chip label={`▼ ${buyHour}:00${buyDay ? ` · ${DAYS_RU[buyDay] ?? buyDay}` : ''}`} size="small" color="info" variant="outlined" sx={{ height: 20, fontSize: 10 }} />
-                  </Tooltip>
-                )}
-              </>
-            )}
-            {lastUpdated && (
-              <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 10, height: 10, opacity: 0.4 }}>
-                  <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>
-                </svg>
-                <Tooltip title={`Данные обновлены: ${new Date(lastUpdated).toLocaleString('ru-RU')}`}>
-                  <Typography sx={{ fontSize: '0.55rem', color: 'text.disabled', whiteSpace: 'nowrap', cursor: 'help' }}>
-                    обновлено {formatLastUpdate(lastUpdated)}
-                  </Typography>
+        {/* Правая колонка: действия + медиана (единственный goldHighlight-пик) */}
+        <Box sx={{ flex: 'none', textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
+          {(onViewLots || onDelete) && (
+            <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5 }}>
+              {onViewLots && (
+                <Tooltip title="Все лоты этого предмета">
+                  <IconButton size="small" onClick={onViewLots} aria-label="Все лоты этого предмета">
+                    <SearchIcon fontSize="small" />
+                  </IconButton>
                 </Tooltip>
+              )}
+              {onDelete && (
+                <Tooltip title="Убрать из Избранного">
+                  <IconButton size="small" onClick={onDelete} aria-label="Убрать из Избранного" sx={{ '&:hover': { color: tokens.danger, borderColor: tokens.dangerLine } }}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )}
+          {stats?.median_price_7d != null && (
+            <>
+              <Kick>Медиана 7Д</Kick>
+              <Box className="mono" sx={{ fontSize: fs.f28, fontWeight: 700, lineHeight: 1.05, color: tokens.goldHighlight, textShadow: `0 0 22px ${tokens.goldGlow}`, whiteSpace: 'nowrap' }}>
+                {fmtP(stats.median_price_7d)}
               </Box>
-            )}
-          </Box>
-        )}
+            </>
+          )}
+        </Box>
+      </Box>
 
-        {/* Выгодные лоты / Варианты продажи / Пачки */}
-        {stats && (
-          <Box>
-            <Divider sx={{ my: 1.5 }} />
-            <Box sx={{ display: 'grid', gridTemplateColumns: fullWidth && hasRight ? '1.6fr 1fr' : '1fr', gap: 2 }}>
+      {/* переключатель окна лучшего времени */}
+      {stats && (sellHour != null || buyHour != null) && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: '18px', pb: '8px' }}>
+          <ToggleButtonGroup value={timeMode} exclusive size="small" onChange={(_, v) => v && setTimeMode(v)}>
+            <ToggleButton value="today" sx={{ py: 0.2, px: 1.2 }}>Сегодня</ToggleButton>
+            <ToggleButton value="week"  sx={{ py: 0.2, px: 1.2 }}>Неделя</ToggleButton>
+          </ToggleButtonGroup>
+        </Box>
+      )}
 
-              {/* Выгодные лоты */}
-              <Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                  <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
-                    ВЫГОДНЫЕ ЛОТЫ
-                  </Typography>
-                  {profitableLots.length > 0
-                    ? <Chip label={`${profitableLots.length} / ${totalFilteredLots}`} size="small" color="success" sx={{ height: 18, fontSize: 10 }} />
-                    : <Chip label={`нет / ${totalFilteredLots}`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'text.disabled' }} />
-                  }
-                </Box>
+      {/* ── StatusLine ──────────────────────────────────────────── */}
+      {statusMetrics.length > 0 && <StatusLine metrics={statusMetrics} />}
 
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 1 }}>
-                  {singleQuality && (
-                    <Typography sx={{ fontSize: '0.62rem', color: 'text.secondary' }}>
-                      Фильтр качества:{' '}
-                      <Typography component="span" sx={{ fontSize: 'inherit', fontWeight: 700, color: 'text.primary' }}>
-                        {singleQuality.quality}
-                        {singleQuality.enchant != null && (
-                          <Typography component="span" sx={{ fontSize: 'inherit', fontWeight: 700, color: singleQuality.enchant === 0 ? 'text.disabled' : 'primary.main' }}>
-                            {' · '}{singleQuality.enchant === 0 ? 'не точёный' : `+${singleQuality.enchant}`}
-                          </Typography>
-                        )}
-                      </Typography>
-                    </Typography>
-                  )}
-                  <ToggleButtonGroup value={lotMode} exclusive onChange={(_, v) => v && setLotMode(v)} size="small">
-                    <ToggleButton value="current" sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>Сейчас</ToggleButton>
-                    <ToggleButton value="median"  sx={{ py: 0, px: 1, fontSize: '0.6rem', height: 20 }}>Неделя</ToggleButton>
-                  </ToggleButtonGroup>
-                </Box>
+      {/* ── Компартмент-сетка .grid-2: 4 ячейки 2×2 ─────────────────
+           [①Выгодные лоты | ②Динамика цен] / [③Варианты продажи | ④Пачки]
+           1px-щели: контейнер bg=border, ячейки — непрозрачный bg1 */}
+      {stats && (
+        <Box sx={{
+          display: 'grid',
+          gridTemplateColumns: fullWidth ? { xs: '1fr', md: 'minmax(0,1.15fr) minmax(0,1fr)' } : '1fr',
+          gap: '1px', background: tokens.border, borderTop: `1px solid ${tokens.border}`,
+        }}>
 
-                {profitableLots.length === 0 ? (
-                  <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'center', py: 1 }}>
-                    Нет выгодных лотов
-                  </Typography>
-                ) : (
-                  <>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: lotGridCols, gap: 0.5, mb: 0.5, px: 0.5, py: 0.4, borderRadius: '6px', bgcolor: tokens.bg1 }}>
-                      <Typography
-                        onClick={() => toggleSort('price')}
-                        sx={{
-                          fontSize: '0.58rem', letterSpacing: '0.06em', cursor: 'pointer', userSelect: 'none',
-                          display: 'flex', alignItems: 'center', gap: 0.4,
-                          color: sortState.col === 'price' ? tokens.goldAccent : 'text.disabled',
-                          fontWeight: sortState.col === 'price' ? 700 : 400,
-                        }}
-                      >
-                        ЦЕНА / ШТ{sortState.col === 'price' && (sortState.dir === 'asc' ? ' ▲' : ' ▼')}
-                      </Typography>
-                      {showQualityColumn && <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', letterSpacing: '0.06em', textAlign: 'right' }}>КАЧЕСТВО</Typography>}
-                      {sellPrices?.map(sp => {
-                        const active = sortState.col === sp.label
-                        const hoursDisplay = stats.sell_options?.find(o => o.label === sp.label)?.estimated_hours_display
-                        return (
-                          <Box key={sp.label} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                            <Typography
-                              onClick={() => toggleSort(sp.label)}
-                              sx={{
-                                fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.06em', textAlign: 'right', cursor: 'pointer', userSelect: 'none',
-                                display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.4,
-                                color: active ? tokens.goldAccent : sellOptionColor(sp.label),
-                              }}
-                            >
-                              {sp.label_ru.toUpperCase()}{active && (sortState.dir === 'asc' ? ' ▲' : ' ▼')}
-                            </Typography>
-                            {hoursDisplay && (
-                              <Typography sx={{ fontSize: '0.52rem', color: 'text.disabled', lineHeight: 1.2 }}>
-                                {hoursDisplay}
-                              </Typography>
-                            )}
-                          </Box>
-                        )
-                      })}
+          {/* ── ① Выгодные лоты ──────────────────────────────────── */}
+          <Box sx={CELL_SX}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', minHeight: 24, mb: '10px' }}>
+              <Box component="h2" sx={SEC_H_SX}>Выгодные лоты</Box>
+              <Box component="span" className="mono" sx={{
+                fontSize: fs.f11, color: profitableLots.length ? tokens.success : tokens.text2,
+                background: profitableLots.length ? tokens.successDim : 'transparent',
+                border: `1px solid ${profitableLots.length ? tokens.successLine : tokens.border}`,
+                px: 0.875, py: '1px', borderRadius: `${tokens.radiusLg / 2}px`,
+              }}>
+                {profitableLots.length} / {totalFilteredLots}
+              </Box>
+              <Box component="span" sx={{ ml: 'auto' }}>
+                <ToggleButtonGroup value={lotMode} exclusive onChange={(_, v) => v && setLotMode(v)} size="small">
+                  <ToggleButton value="current" sx={{ py: 0.2, px: 1 }}>Сейчас</ToggleButton>
+                  <ToggleButton value="median"  sx={{ py: 0.2, px: 1 }}>Неделя</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+            </Box>
+
+            {singleQuality && (
+              <Typography sx={{ fontSize: fs.f12, color: tokens.text1, mb: 1 }}>
+                Фильтр качества:{' '}
+                <Box component="span" sx={{ fontWeight: 700, color: tokens.text0 }}>
+                  {singleQuality.quality}
+                  {singleQuality.enchant != null && (
+                    <Box component="span" sx={{ fontWeight: 700, color: singleQuality.enchant === 0 ? tokens.text2 : tokens.goldAccent }}>
+                      {' · '}{singleQuality.enchant === 0 ? 'не точёный' : `+${singleQuality.enchant}`}
                     </Box>
+                  )}
+                </Box>
+              </Typography>
+            )}
+
+            {profitableLots.length === 0 ? (
+              <Box sx={{ p: '22px 10px', textAlign: 'center', color: tokens.text2, fontSize: fs.f12 }}>
+                Нет выгодных лотов
+              </Box>
+            ) : (
+              <>
+                <Table size="small" aria-label="Выгодные лоты">
+                  <TableHead>
+                    <TableRow>
+                      <SortHeader label="Цена / шт" align="left" active={sortState.col === 'price'} direction={sortState.dir} onSort={() => toggleSort('price')} />
+                      <TableCell component="th" sx={{ textAlign: 'right' }}>Кол-во</TableCell>
+                      <TableCell component="th" sx={{ textAlign: 'right' }}>Заточка</TableCell>
+                      {sellPrices?.map(sp => (
+                        <SortHeader key={sp.label} label={sp.label_ru} active={sortState.col === sp.label} direction={sortState.dir} onSort={() => toggleSort(sp.label)} />
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {displayLots.map((lot, i) => {
                       const isSelected = profitableLots[selectedLotIdx] === lot
                       return (
-                        <Box
+                        <TableRow
                           key={i}
+                          hover
+                          selected={isSelected}
+                          aria-selected={isSelected}
                           onClick={() => setSelectedLotIdx(profitableLots.indexOf(lot))}
-                          sx={{
-                            display: 'grid', gridTemplateColumns: lotGridCols, gap: 0.5, py: 0.5, px: 0.5, borderRadius: '6px',
-                            cursor: 'pointer',
-                            borderLeft: '3px solid',
-                            borderLeftColor: isSelected ? tokens.gold : 'transparent',
-                            bgcolor: isSelected ? alpha(tokens.gold, 0.08) : 'transparent',
-                            '&:hover': { bgcolor: isSelected ? alpha(tokens.gold, 0.08) : alpha(tokens.gold, 0.04) },
-                          }}
+                          sx={{ cursor: 'pointer' }}
                         >
-                          <Box>
-                            <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.primary' }}>{formatPrice(lot.buyPerUnit)}</Typography>
-                            {lot.amount > 1 && <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled' }}>{lot.amount} шт · {formatPrice(lot.buyout_price)}</Typography>}
-                          </Box>
-                          {showQualityColumn && (
-                            <Box sx={{ textAlign: 'right', alignSelf: 'center' }}>
-                              {lot.quality_name && <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', lineHeight: 1.3 }}>{lot.quality_name}</Typography>}
-                              {lot.enchant_level != null && (
-                                <Typography sx={{ fontSize: '0.6rem', color: lot.enchant_level === 0 ? 'text.disabled' : 'primary.main', fontWeight: 600, lineHeight: 1.3 }}>
-                                  {lot.enchant_level === 0 ? 'Не точёный' : `+${lot.enchant_level}`}
-                                </Typography>
-                              )}
-                            </Box>
-                          )}
+                          <TableCell sx={{ textAlign: 'left' }}>
+                            {fmtP(lot.buyPerUnit)}
+                            {lot.amount > 1 && (
+                              <Box component="span" sx={{ display: 'block', color: tokens.text2, fontSize: fs.f11 }}>
+                                выкуп {fmtP(lot.buyout_price)}
+                              </Box>
+                            )}
+                          </TableCell>
+                          <TableCell className="mono" sx={{ textAlign: 'right', color: tokens.text1 }}>{fmtN(lot.amount)}</TableCell>
+                          <TableCell sx={{ textAlign: 'right' }}>
+                            {lot.enchant_level != null && lot.enchant_level > 0 ? (
+                              <Box component="span" className="mono" sx={{ color: tokens.goldAccent, fontWeight: 600 }}>+{lot.enchant_level}</Box>
+                            ) : (
+                              <Box component="span" sx={{ color: tokens.text2 }}>—</Box>
+                            )}
+                          </TableCell>
                           {lot.profits.map(p => (
-                            <Box key={p.label} sx={{ textAlign: 'right' }}>
-                              <Typography variant="caption" sx={{ fontWeight: 600, color: p.perUnit > 0 ? 'success.main' : 'error.main' }}>
-                                {p.perUnit > 0 ? '+' : ''}{formatPrice(p.perUnit)}
-                              </Typography>
-                              {lot.amount > 1 && <Typography sx={{ fontSize: '0.6rem', color: 'text.disabled', display: 'block' }}>итого {p.total > 0 ? '+' : ''}{formatPrice(p.total)}</Typography>}
-                            </Box>
+                            <TableCell key={p.label} sx={{ color: p.perUnit > 0 ? tokens.success : tokens.danger }}>
+                              {p.perUnit > 0 ? '+' : '−'}{fmtP(Math.abs(p.perUnit))}
+                              {lot.amount > 1 && (
+                                <Box component="span" sx={{ display: 'block', color: tokens.text2, fontSize: fs.f11 }}>
+                                  итого {p.total > 0 ? '+' : '−'}{fmtP(Math.abs(p.total))}
+                                </Box>
+                              )}
+                            </TableCell>
                           ))}
-                        </Box>
+                        </TableRow>
                       )
                     })}
-                    {profitableLots.length > 1 && (
-                      <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', mt: 0.75 }}>
-                        ↳ Кликните лот — «Варианты продажи» пересчитаются от его цены покупки.
-                      </Typography>
-                    )}
-                  </>
+                  </TableBody>
+                </Table>
+                {profitableLots.length > 1 && (
+                  <Typography sx={{ fontSize: fs.f11, color: tokens.text2, mt: 1 }}>
+                    ↳ Кликни строку — «Варианты продажи» пересчитаются от её цены покупки.
+                  </Typography>
                 )}
-              </Box>
-
-              {/* Варианты продажи + Пачки */}
-              {hasRight && (
-                <Box sx={fullWidth ? { borderLeft: '1px solid rgba(255,255,255,0.06)', pl: 2 } : {}}>
-                  {!fullWidth && <Divider sx={{ mb: 1.5 }} />}
-
-                  {sellOptionsLocked ? (
-                    <Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                        <TrendingUpIcon sx={{ fontSize: 13, color: 'primary.main' }} />
-                        <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>ВАРИАНТЫ ПРОДАЖИ</Typography>
-                      </Box>
-                      <Tooltip title="Доступно на тарифах Продвинутая Плюс и выше">
-                        <Box sx={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1,
-                          py: 2, color: tokens.text2, cursor: 'not-allowed',
-                        }}>
-                          <LockIcon />
-                          <Typography sx={{ fontSize: '0.7rem', color: tokens.text2 }}>Недоступно на тарифе</Typography>
-                        </Box>
-                      </Tooltip>
-                    </Box>
-                  ) : stats.sell_options && stats.sell_options.length > 0 && (
-                    <Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                        <TrendingUpIcon sx={{ fontSize: 13, color: 'primary.main' }} />
-                        <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>ВАРИАНТЫ ПРОДАЖИ</Typography>
-                        <Tooltip title={CONFIDENCE_TOOLTIPS[stats.sell_options[0].confidence]}>
-                          <Chip
-                            label={{ low: 'Мало данных', medium: 'Средняя точность', high: 'Высокая точность' }[stats.sell_options[0].confidence]}
-                            size="small"
-                            color={{ low: 'warning', medium: 'info', high: 'success' }[stats.sell_options[0].confidence] as 'warning' | 'info' | 'success'}
-                            sx={{ ml: 'auto', height: 18, fontSize: 10 }}
-                          />
-                        </Tooltip>
-                      </Box>
-                      {baseBuy !== null && (
-                        <Typography sx={{ fontSize: '0.62rem', color: 'text.disabled', mb: 1 }}>
-                          Расчёт для лота{' '}
-                          <Typography component="span" sx={{ fontSize: 'inherit', fontWeight: 700, color: tokens.goldAccent }}>
-                            {formatPrice(baseBuy)}
-                          </Typography>
-                        </Typography>
-                      )}
-                      <Box sx={{ display: 'grid', gridTemplateColumns: `1fr repeat(${stats.sell_options.length}, 86px)`, gap: 0.5, alignItems: 'center' }}>
-                        <Box />
-                        {stats.sell_options.map(opt => (
-                          <Tooltip key={opt.label} title={SELL_OPTION_TOOLTIPS[opt.label]}>
-                            <Typography sx={{ fontSize: '0.58rem', color: sellOptionColor(opt.label), fontWeight: 700, letterSpacing: '0.06em', textAlign: 'right', cursor: 'help' }}>
-                              {opt.label_ru.toUpperCase()}
-                            </Typography>
-                          </Tooltip>
-                        ))}
-
-                        <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled' }}>Выставить за</Typography>
-                        {stats.sell_options.map(opt => (
-                          <Typography key={opt.label} variant="body2" fontWeight={700} sx={{ textAlign: 'right' }}>
-                            {formatPrice(opt.price_per_unit)}
-                          </Typography>
-                        ))}
-
-                        <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled' }}>Получишь (−5%)</Typography>
-                        {stats.sell_options.map(opt => (
-                          <Typography key={opt.label} variant="body2" fontWeight={700} sx={{ textAlign: 'right', color: sellOptionColor(opt.label) }}>
-                            {formatPrice(opt.net_price_per_unit)}
-                          </Typography>
-                        ))}
-
-                        {baseBuy !== null && (
-                          <>
-                            <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled' }}>Прибыль</Typography>
-                            {stats.sell_options.map(opt => {
-                              const profit = opt.net_price_per_unit - baseBuy
-                              const isProfitable = profit > 0
-                              return (
-                                <Typography key={opt.label} sx={{ fontSize: '0.8rem', fontWeight: 700, textAlign: 'right', color: isProfitable ? 'success.main' : 'error.main' }}>
-                                  {isProfitable ? '+' : ''}{formatPrice(profit)}
-                                </Typography>
-                              )
-                            })}
-                          </>
-                        )}
-
-                        <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled' }}>Срок</Typography>
-                        {stats.sell_options.map(opt => (
-                          <Typography key={opt.label} variant="caption" sx={{ textAlign: 'right', color: 'text.secondary' }}>
-                            {opt.estimated_hours_display}
-                          </Typography>
-                        ))}
-                      </Box>
-                    </Box>
-                  )}
-
-                  {/* Пачки */}
-                  {stats.batch_stats && (
-                    <>
-                      <Divider sx={{ my: 1.5 }} />
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                        <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>ПАЧКИ</Typography>
-                        <Chip label={`${stats.batch_stats.batch_ratio_pct}% сделок`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'text.secondary' }} />
-                        <Chip label={`~${stats.batch_stats.median_amount} шт`} size="small" variant="outlined" sx={{ height: 18, fontSize: 10, color: 'primary.main', borderColor: 'primary.main' }} />
-                      </Box>
-                      {Object.entries(stats.batch_stats.by_size).map(([key, bucket]) => {
-                        const isPopular = key === stats.batch_stats!.most_popular_bucket
-                        return (
-                          <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                            <Typography sx={{ fontSize: '0.6rem', color: isPopular ? 'primary.main' : 'text.secondary', minWidth: 52, fontWeight: isPopular ? 700 : 400 }}>{bucket.label}</Typography>
-                            <Box sx={{ flex: 1, height: 4, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.06)', position: 'relative', overflow: 'hidden' }}>
-                              <Box sx={{
-                                width: `${bucket.share_pct}%`, height: '100%', borderRadius: 2, transition: 'width 0.3s',
-                                background: isPopular ? `linear-gradient(90deg, ${tokens.goldSoft}, ${tokens.gold}, ${tokens.goldAccent})` : 'rgba(255,255,255,0.18)',
-                              }} />
-                            </Box>
-                            <Typography sx={{ fontSize: '0.58rem', color: 'text.disabled', minWidth: 28, textAlign: 'right' }}>{bucket.share_pct}%</Typography>
-                            <Typography sx={{ fontSize: '0.6rem', color: 'text.primary', minWidth: 68, textAlign: 'right', fontFamily: 'monospace', fontWeight: isPopular ? 600 : 400 }}>{formatPrice(bucket.avg_price_per_unit)}/шт</Typography>
-                          </Box>
-                        )
-                      })}
-                      {stats.batch_stats.bulk_discount_pct !== null && (
-                        <Typography sx={{ fontSize: '0.62rem', mt: 0.75, color: stats.batch_stats.bulk_discount_pct > 0 ? 'success.main' : 'warning.main' }}>
-                          {stats.batch_stats.bulk_discount_pct > 0
-                            ? `Оптом дешевле на ${stats.batch_stats.bulk_discount_pct}% — выгоднее покупать пачкой`
-                            : `Оптом дороже на ${Math.abs(stats.batch_stats.bulk_discount_pct)}% — выгоднее покупать поштучно`}
-                        </Typography>
-                      )}
-                    </>
-                  )}
-                </Box>
-              )}
-
-            </Box>
+              </>
+            )}
           </Box>
-        )}
 
-        {!stats && lots.length > 0 && (
-          <>
-            <Divider sx={{ my: 1.5 }} />
-            <Typography variant="caption" color="text.disabled">Нет данных о продажах за последние 30 дней</Typography>
-          </>
-        )}
+          {/* ── ② Динамика цен (графики + табы окон) ──────────────── */}
+          <Box sx={CELL_SX}>
+            <SalesHistoryCharts
+              itemId={itemId}
+              region={region}
+              qualityFilter={qualityFilter}
+              enchantFilter={enchantFilter}
+              median={stats.median_price_7d ?? undefined}
+            />
+          </Box>
 
-      </CardContent>
+          {/* ── ③ Варианты продажи ───────────────────────────────── */}
+          <Box sx={CELL_SX}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minHeight: 24, mb: 1 }}>
+              <TrendingUpIcon sx={{ fontSize: 14, color: tokens.gold }} />
+              <Box component="h2" sx={SEC_H_SX}>Варианты продажи</Box>
+            </Box>
+
+            {sellOptionsLocked ? (
+              <Tooltip title="Доступно на тарифах Продвинутая+ и выше">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, py: 2, color: tokens.text2, cursor: 'not-allowed' }}>
+                  <LockIcon size={16} />
+                  <Typography sx={{ fontSize: fs.f12, color: tokens.text2 }}>Недоступно на тарифе</Typography>
+                </Box>
+              </Tooltip>
+            ) : stats.sell_options && stats.sell_options.length > 0 ? (
+              <>
+                {baseBuy !== null && (
+                  <Typography sx={{ fontSize: fs.f12, color: tokens.text2, mb: 1 }}>
+                    Расчёт для лота{' '}
+                    <Box component="span" className="mono" sx={{ fontWeight: 700, color: tokens.goldAccent }}>
+                      {fmtP(baseBuy)}
+                    </Box>
+                  </Typography>
+                )}
+                {/* .sellgrid — 3 равные колонки, 1px-щели через border-контейнер (прототип favorites.html) */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: tokens.border, border: `1px solid ${tokens.border}` }}>
+                  {stats.sell_options.map(opt => {
+                    const profit = baseBuy !== null ? opt.net_price_per_unit - baseBuy : null
+                    const isProfitable = profit !== null && profit > 0
+                    const ddSx = { m: 0, fontSize: fs.f125, fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: tokens.text0, whiteSpace: 'nowrap' } as const
+                    const dtSx = { fontSize: fs.f11, color: tokens.text2, whiteSpace: 'nowrap' } as const
+                    return (
+                      <Box key={opt.label} sx={{ background: tokens.bg2, p: '10px 14px 12px' }}>
+                        <Tooltip title={SELL_OPTION_TOOLTIPS[opt.label]}>
+                          <Box sx={{ fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f11, letterSpacing: '0.14em', textTransform: 'uppercase', mb: 1, color: sellOptionNameColor(opt.label), cursor: 'help' }}>
+                            {opt.label_ru}
+                          </Box>
+                        </Tooltip>
+                        <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 10px' }}>
+                          <Box component="dt" sx={dtSx}>выставить за</Box>
+                          <Box component="dd" className="mono" sx={ddSx}>{fmtP(opt.price_per_unit)}</Box>
+
+                          <Box component="dt" sx={dtSx}>получишь (−5 %)</Box>
+                          <Box component="dd" className="mono" sx={ddSx}>{fmtP(opt.net_price_per_unit)}</Box>
+
+                          {profit !== null && (
+                            <>
+                              <Box component="dt" sx={dtSx}>прибыль</Box>
+                              <Box component="dd" className="mono" sx={{ ...ddSx, color: isProfitable ? tokens.success : tokens.danger, fontWeight: isProfitable ? 500 : 400 }}>
+                                {isProfitable ? '+' : '−'}{fmtP(Math.abs(profit))}
+                              </Box>
+                            </>
+                          )}
+
+                          <Box component="dt" sx={dtSx}>срок</Box>
+                          <Box component="dd" className="mono" sx={ddSx}>{opt.estimated_hours_display}</Box>
+                        </Box>
+                        {opt.data_points != null && (
+                          <Box className="mono" sx={{ mt: 1, pt: '7px', borderTop: `1px solid ${tokens.border}`, fontSize: fs.f105, color: tokens.text2, fontVariantNumeric: 'tabular-nums' }}>
+                            уверенность: {CONF_LABELS[opt.confidence] ?? opt.confidence} · {fmtN(opt.data_points)} сделок
+                          </Box>
+                        )}
+                      </Box>
+                    )
+                  })}
+                </Box>
+              </>
+            ) : (
+              <Box sx={{ p: '22px 10px', textAlign: 'center', color: tokens.text2, fontSize: fs.f12 }}>
+                Недостаточно данных для расчёта
+              </Box>
+            )}
+          </Box>
+
+          {/* ── ④ Пачки · распределение ──────────────────────────── */}
+          <Box sx={CELL_SX}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minHeight: 24, mb: 1, flexWrap: 'wrap' }}>
+              <Box component="h2" sx={SEC_H_SX}>Пачки · распределение</Box>
+              {stats.batch_stats && (
+                <>
+                  <Chip label={`${stats.batch_stats.batch_ratio_pct}% сделок`} size="small" variant="outlined" sx={{ height: 20, fontSize: fs.f11 }} />
+                  <Chip label={`~${stats.batch_stats.median_amount} шт`} size="small" color="primary" sx={{ height: 20, fontSize: fs.f11 }} />
+                </>
+              )}
+            </Box>
+
+            {stats.batch_stats ? (
+              <>
+                {Object.entries(stats.batch_stats.by_size).map(([key, bucket]) => {
+                  const isPopular = key === stats.batch_stats!.most_popular_bucket
+                  return (
+                    <Box key={key} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                      <Box component="span" className="mono" sx={{ fontSize: fs.f115, color: isPopular ? tokens.goldAccent : tokens.text1, minWidth: 56, fontWeight: isPopular ? 700 : 500, whiteSpace: 'nowrap' }}>{bucket.label}</Box>
+                      <Box sx={{ flex: 1, height: 14, background: tokens.bg2, border: `1px solid ${tokens.border}`, position: 'relative', overflow: 'hidden' }}>
+                        <Box sx={{
+                          position: 'absolute', inset: '1px auto 1px 1px', width: `${bucket.share_pct}%`, minWidth: 2, transition: `width ${tokens.motion.mid}ms ${tokens.motion.ease}`,
+                          background: isPopular ? `linear-gradient(90deg, ${tokens.gold}, ${tokens.goldAccent})` : `linear-gradient(90deg, ${tokens.goldSoft}, ${tokens.gold})`,
+                        }} />
+                      </Box>
+                      <Box component="span" className="mono" sx={{ fontSize: fs.f115, color: tokens.text2, minWidth: 96, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <Box component="span" sx={{ color: tokens.text0, fontWeight: 500 }}>{bucket.share_pct}%</Box> · {fmtP(bucket.avg_price_per_unit)}
+                      </Box>
+                    </Box>
+                  )
+                })}
+                {stats.batch_stats.bulk_discount_pct !== null && (
+                  <Typography sx={{ fontSize: fs.f12, mt: 1, color: stats.batch_stats.bulk_discount_pct > 0 ? tokens.success : tokens.warning }}>
+                    {stats.batch_stats.bulk_discount_pct > 0
+                      ? `Оптом дешевле на ${stats.batch_stats.bulk_discount_pct}% — выгоднее покупать пачкой`
+                      : `Оптом дороже на ${Math.abs(stats.batch_stats.bulk_discount_pct)}% — выгоднее покупать поштучно`}
+                  </Typography>
+                )}
+              </>
+            ) : (
+              <Box sx={{ p: '22px 10px', textAlign: 'center', color: tokens.text2, fontSize: fs.f12 }}>
+                Данных о пачках нет
+              </Box>
+            )}
+          </Box>
+
+        </Box>
+      )}
+
+      {!stats && lots.length > 0 && (
+        <Box sx={{ p: '16px 18px' }}>
+          <Typography sx={{ fontSize: fs.f12, color: tokens.text2 }}>Нет данных о продажах за последние 30 дней</Typography>
+        </Box>
+      )}
     </Card>
   )
 }

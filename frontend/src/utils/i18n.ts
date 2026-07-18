@@ -1,3 +1,5 @@
+import { QUALITY_COLORS } from '../theme'
+
 /** Перевод категорий предметов с английского на русский */
 const CATEGORY_MAP: Record<string, string> = {
   // Топ-уровень
@@ -70,14 +72,46 @@ export function formatPrice(n: number | null | undefined): string {
   return n.toLocaleString('ru-RU') + ' ₽'
 }
 
+// ─── Единая шкала качества (COL-01) ──────────────────────────────────────────
+// Ключи — из QUALITY_COLORS (theme.ts). Цвета нигде не хардкодятся: имя качества
+// / DB-color / числовой уровень нормализуются к одному ключу.
+
+/** Русское имя качества → ключ QUALITY_COLORS */
+const QUALITY_KEY_BY_NAME: Record<string, string> = {
+  'Обычный': 'default', 'Необычный': 'newbie', 'Особый': 'stalker',
+  'Ветеран': 'veteran', 'Мастер': 'master', 'Легендарный': 'legend',
+}
+
+/** Числовой уровень качества (0–5) → ключ QUALITY_COLORS */
+const QUALITY_KEY_BY_VALUE = ['default', 'newbie', 'stalker', 'veteran', 'master', 'legend']
+
+/** Поле `color` предмета из БД → ключ QUALITY_COLORS */
+export function qualityKeyFromColor(color: string | null | undefined): string {
+  if (!color) return 'default'
+  const c = color.toLowerCase()
+  const map: Record<string, string> = {
+    default: 'default',
+    rank_newbie: 'newbie', rank_stalker: 'stalker', rank_veteran: 'veteran',
+    rank_master: 'master', rank_legend: 'legend',
+    // легаси-алиасы цветовых имён
+    gray: 'default', grey: 'default', white: 'default',
+    green: 'newbie', blue: 'stalker', violet: 'veteran', purple: 'veteran',
+    yellow: 'master', black: 'master', red: 'legend', quest_item: 'legend',
+  }
+  return map[c] ?? 'default'
+}
+
+/** Числовой уровень качества (0–5) → ключ QUALITY_COLORS */
+export function qualityKeyByValue(value: number | null | undefined): string {
+  if (value == null) return 'default'
+  return QUALITY_KEY_BY_VALUE[value] ?? 'default'
+}
+
 /** Цвет по названию качества предмета (Обычный/Необычный/.../Легендарный) */
 export function qualityColor(quality: string | null): string | null {
   if (!quality) return null
-  const colors: Record<string, string> = {
-    'Обычный': '#7C7C7C', 'Необычный': '#3ED598', 'Особый': '#53B7FF',
-    'Ветеран': '#F5B74F', 'Мастер': '#D9AF37', 'Легендарный': '#FFB800',
-  }
-  return colors[quality] ?? null
+  const key = QUALITY_KEY_BY_NAME[quality]
+  return key ? QUALITY_COLORS[key] : null
 }
 
 /** Форматирует ISO-дату как "HH:MM" (сегодня), "вчера, HH:MM" или "DD.MM, HH:MM" */

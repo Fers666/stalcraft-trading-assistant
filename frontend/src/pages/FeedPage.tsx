@@ -1,7 +1,9 @@
-import { Box, Typography } from '@mui/material'
+import { Box, Typography, Button } from '@mui/material'
+import { useNavigate } from 'react-router-dom'
 import ConstructionIcon from '@mui/icons-material/Construction'
 
 export default function FeedPage() {
+  const navigate = useNavigate()
   return (
     <Box sx={{
       display: 'flex', flexDirection: 'column',
@@ -16,6 +18,9 @@ export default function FeedPage() {
         Прежний подход к оценке выгоды оказался ненадёжным — переделываем метрику
         на более честную основу. Скоро вернёмся с обновлённой версией.
       </Typography>
+      <Button variant="contained" onClick={() => navigate('/app/monitoring')} sx={{ mt: 1 }}>
+        Пока смотри Избранное
+      </Button>
     </Box>
   )
 }

@@ -7,33 +7,17 @@
     <title>SC Trading — Аукцион STALZONE</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
     <style>
+      /* Design tokens live in src/theme.ts (tokens/QUALITY_COLORS/fs).
+         Keep only the pre-React base paint here so the page has no flash
+         before the MUI theme mounts. */
       *, *::before, *::after { box-sizing: border-box; }
-
-      :root {
-        --bg-primary:    #080808;
-        --bg-secondary:  #11151A;
-        --bg-card:       #1A1F26;
-        --bg-elevated:   #202633;
-        --gold:          #D9AF37;
-        --gold-accent:   #F2C94C;
-        --gold-highlight:#FFB800;
-        --gold-soft:     #B78A2A;
-        --success:       #3ED598;
-        --warning:       #F5B74F;
-        --danger:        #FF5A5A;
-        --info:          #53B7FF;
-        --text-primary:  #F5F5F5;
-        --text-secondary:#B8B8B8;
-        --text-muted:    #7C7C7C;
-        --border:        rgba(255,255,255,0.08);
-      }
 
       html, body, #root {
         margin: 0; padding: 0;
-        background: var(--bg-primary);
-        color: var(--text-primary);
+        background: #080808;
+        color: #F2F4F6;
         min-height: 100vh;
         font-family: 'Inter', sans-serif;
       }

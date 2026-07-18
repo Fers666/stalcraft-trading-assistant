@@ -1,58 +1,88 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Box, Avatar, Typography, Skeleton, alpha } from '@mui/material'
+import { Box, Skeleton } from '@mui/material'
 import { useFeedStore, QLT_NAMES } from '../store/feedStore'
 import { iconUrl, qualityColor } from '../utils/i18n'
-import { tokens } from '../theme'
+import { tokens, fs } from '../theme'
 
-export const FEED_HEIGHT = 84
+// Лента сигналов — контракт .signals (base.css:104-136).
+// Панель bg1 в 12px от навбара, боковые поля 16px.
+export const FEED_GAP = 12       // отступ панели от навбара
+export const FEED_PANEL_H = 54   // высота самой панели
+export const FEED_HEIGHT = FEED_GAP + FEED_PANEL_H  // вертикальный след ниже навбара
+
+const hhmm = (d: Date | string | null): string => {
+  if (!d) return '—'
+  const date = typeof d === 'string' ? new Date(d) : d
+  return date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+}
 
 const feedBarSx = {
-  position:             'fixed',
-  top:                  '56px',
-  left:                 0,
-  right:                0,
-  height:               `${FEED_HEIGHT}px`,
-  zIndex:               1200,
-  bgcolor:              'rgba(9, 12, 16, 0.97)',
-  borderBottom:         '1px solid rgba(255,255,255,0.055)',
-  backdropFilter:       'blur(16px)',
-  WebkitBackdropFilter: 'blur(16px)',
-  display:              'flex',
-  alignItems:           'center',
-  px:                   3,
-  gap:                  2,
-  '&::before': {
-    content:    '""',
-    position:   'absolute',
-    top:        0,
-    left:       0,
-    right:      0,
-    height:     '2px',
-    background: 'linear-gradient(90deg, transparent 0%, rgba(183,138,42,0.5) 15%, rgba(217,175,55,0.7) 50%, rgba(183,138,42,0.5) 85%, transparent 100%)',
-  },
+  position:      'fixed',
+  top:           `${tokens.navH + FEED_GAP}px`,
+  left:          '16px',
+  right:         '16px',
+  height:        `${FEED_PANEL_H}px`,
+  zIndex:        1200, // ниже навбара (1300), выше контента
+  display:       'flex',
+  alignItems:    'stretch',
+  background:    tokens.bg1,
+  border:        `1px solid ${tokens.border}`,
+  borderRadius:  '2px',
+  overflow:      'hidden',
 } as const
 
+// .sig-label
 function FeedLabel({ lastRefresh, hasItems }: { lastRefresh: Date | null; hasItems: boolean }) {
   return (
-    <Box sx={{ flexShrink: 0, width: 64 }}>
-      <Typography sx={{
-        fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.16em',
-        color: 'rgba(217,175,55,0.65)', lineHeight: 1, mb: 0.75,
-      }}>
-        СИГНАЛЫ
-      </Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Box sx={{
-          width: 5, height: 5, borderRadius: '50%',
-          bgcolor: hasItems ? 'success.main' : 'text.disabled',
-          flexShrink: 0,
-        }} />
-        <Typography sx={{ fontSize: '0.52rem', color: 'text.disabled', letterSpacing: '0.08em', lineHeight: 1 }}>
-          {lastRefresh
-            ? lastRefresh.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-            : '…'}
-        </Typography>
+    <Box
+      sx={{
+        flexShrink: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        gap: '3px',
+        padding: '0 16px',
+        minWidth: 132,
+        borderRight: `1px solid ${tokens.border}`,
+      }}
+    >
+      <Box
+        sx={{
+          fontFamily: tokens.fontHead,
+          fontWeight: 700,
+          fontSize: fs.f11,
+          letterSpacing: '0.2em',
+          textTransform: 'uppercase',
+          color: tokens.text2,
+          lineHeight: 1,
+        }}
+      >
+        Сигналы
+      </Box>
+      <Box
+        className="mono"
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          fontSize: fs.f11,
+          color: tokens.success,
+          lineHeight: 1,
+        }}
+      >
+        <Box
+          aria-hidden
+          sx={{
+            width: 6,
+            height: 6,
+            flexShrink: 0,
+            background: hasItems ? tokens.success : tokens.text2,
+            boxShadow: hasItems ? `0 0 8px ${tokens.success}` : 'none',
+            animation: hasItems ? 'anomaly-pulse 2s infinite' : 'none',
+          }}
+        />
+        срез {hhmm(lastRefresh)}
       </Box>
     </Box>
   )
@@ -96,19 +126,29 @@ export default function GlobalFeed() {
     navigate('/app/monitoring', { state: { scrollTo: id } })
   }
 
+  const trackSx = {
+    display:    'flex',
+    gap:        '1px',
+    flex:       1,
+    background: tokens.border, // 1px-щели между карточками
+    overflowX:  'auto',
+    overflowY:  'hidden',
+    '&::-webkit-scrollbar': { height: '3px' },
+    '&::-webkit-scrollbar-thumb': { background: tokens.goldLineSoft, borderRadius: '2px' },
+  } as const
+
   if (lastLotRefresh === null) {
     return (
       <Box sx={feedBarSx}>
         <FeedLabel lastRefresh={null} hasItems={false} />
-        <Box sx={{ width: '1px', height: 52, bgcolor: 'rgba(255,255,255,0.07)', flexShrink: 0 }} />
-        <Box sx={{ display: 'flex', gap: 1.25, flex: 1, alignItems: 'center', overflow: 'hidden' }}>
+        <Box sx={trackSx}>
           {[0, 1, 2, 3].map(i => (
             <Skeleton
               key={i}
-              variant="rounded"
-              width={172}
-              height={62}
-              sx={{ flexShrink: 0, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}
+              variant="rectangular"
+              width={196}
+              height="100%"
+              sx={{ flexShrink: 0, background: tokens.bg2 }}
             />
           ))}
         </Box>
@@ -122,84 +162,112 @@ export default function GlobalFeed() {
     <Box sx={feedBarSx}>
       <FeedLabel lastRefresh={lastLotRefresh} hasItems={true} />
 
-      <Box sx={{ width: '1px', height: 52, bgcolor: 'rgba(255,255,255,0.07)', flexShrink: 0 }} />
-
-      <Box sx={{
-        display: 'flex',
-        alignItems: 'center',
-        alignSelf: 'stretch',
-        gap: 1.25,
-        overflowX: 'auto',
-        overflowY: 'hidden',
-        flex: 1,
-        height: `${FEED_HEIGHT}px`,
-        pb: 0.25,
-        '&::-webkit-scrollbar': { height: '3px' },
-        '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.09)', borderRadius: '2px' },
-      }}>
+      <Box sx={trackSx}>
         {feedItems.map(({ entry, count, latest_lot_time }) => {
-          const qColor = entry.quality_filter !== null ? qualityColor(QLT_NAMES[entry.quality_filter]) : null
+          const qColor = entry.quality_filter !== null
+            ? qualityColor(QLT_NAMES[entry.quality_filter])
+            : tokens.text2
+          const label = entry.name_ru || entry.name_en || entry.item_id
           return (
-          <Box
-            key={entry.id}
-            onClick={() => handleClick(entry.id)}
-            sx={{
-              flexShrink: 0,
-              width: 172,
-              p: '10px 10px 8px',
-              borderRadius: '10px',
-              border: '1px solid rgba(62,213,152,0.3)',
-              background: 'rgba(62,213,152,0.035)',
-              cursor: 'pointer',
-              transition: 'background 0.15s, border-color 0.15s, transform 0.1s',
-              '&:hover': {
-                background: 'rgba(62,213,152,0.09)',
-                borderColor: alpha(tokens.gold, 0.25),
-                transform: 'translateY(-1px)',
-              },
-              '&:active': { transform: 'translateY(0)' },
-            }}
-          >
-            <Box sx={{ display: 'flex', gap: 0.875, alignItems: 'flex-start', mb: 0.625 }}>
-              <Avatar
-                src={iconUrl(entry.icon_path) ?? undefined}
-                variant="rounded"
+            <Box
+              key={entry.id}
+              component="button"
+              type="button"
+              onClick={() => handleClick(entry.id)}
+              aria-label={`${label} — ${count} выгодных лотов, открыть карточку`}
+              sx={{
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '9px',
+                minWidth: 196,
+                padding: '7px 12px',
+                background: tokens.bg1,
+                border: 'none',
+                textAlign: 'left',
+                cursor: 'pointer',
+                font: 'inherit',
+                transition: `background-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
+                '&:hover': { background: tokens.bg2 },
+                '&:active': { background: tokens.bg3 },
+              }}
+            >
+              {/* .sig-ico */}
+              <Box
                 sx={{
-                  width: 30, height: 30, flexShrink: 0,
-                  bgcolor: qColor ? alpha(qColor, 0.12) : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${qColor ? alpha(qColor, 0.3) : 'rgba(255,255,255,0.08)'}`,
-                  borderRadius: '5px', mt: 0.125,
+                  width: 28,
+                  height: 28,
+                  flexShrink: 0,
+                  position: 'relative',
+                  display: 'grid',
+                  placeItems: 'center',
+                  background: tokens.bg2,
+                  border: `1px solid ${tokens.border}`,
                 }}
               >
-                {!entry.icon_path && (entry.name_ru?.[0] ?? '?')}
-              </Avatar>
-              <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, lineHeight: 1.3, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', flex: 1 }}>
-                {entry.name_ru || entry.name_en || entry.item_id}
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              {entry.quality_filter !== null && (
-                <Typography sx={{ fontSize: '0.6rem', color: 'primary.main', fontWeight: 600, lineHeight: 1 }}>
-                  {QLT_NAMES[entry.quality_filter]}
-                </Typography>
-              )}
-              {entry.enchant_filter !== null && (
-                <Typography sx={{ fontSize: '0.62rem', color: 'primary.main', fontWeight: 700, lineHeight: 1 }}>
-                  +{entry.enchant_filter}
-                </Typography>
-              )}
-              {latest_lot_time && (
-                <Typography sx={{ fontSize: '0.54rem', color: 'text.disabled', lineHeight: 1 }}>
-                  {new Date(latest_lot_time).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                </Typography>
-              )}
-              <Box sx={{ ml: 'auto' }}>
-                <Box sx={{ bgcolor: 'success.main', color: '#000', borderRadius: '5px', px: 0.875, py: 0.25, fontSize: '0.68rem', fontWeight: 700, lineHeight: 1.45 }}>
-                  {count}
+                {iconUrl(entry.icon_path) ? (
+                  <Box
+                    component="img"
+                    src={iconUrl(entry.icon_path) ?? undefined}
+                    alt=""
+                    sx={{ width: 24, height: 24, objectFit: 'contain' }}
+                  />
+                ) : (
+                  <Box component="span" sx={{ fontSize: fs.f13, fontWeight: 700, color: qColor }}>
+                    {label[0] ?? '?'}
+                  </Box>
+                )}
+              </Box>
+
+              {/* .sig-main */}
+              <Box sx={{ flex: 1, minWidth: 0, lineHeight: 1.25 }}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    gap: '5px',
+                    fontSize: fs.f12,
+                    fontWeight: 600,
+                    color: tokens.text0,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {label}
+                  </Box>
+                  {entry.enchant_filter !== null && (
+                    <Box component="span" className="mono" sx={{ flexShrink: 0, color: tokens.goldAccent, fontWeight: 700 }}>
+                      +{entry.enchant_filter}
+                    </Box>
+                  )}
+                </Box>
+                <Box
+                  className="mono"
+                  sx={{ fontSize: fs.f11, color: tokens.text2, whiteSpace: 'nowrap' }}
+                >
+                  обн. {hhmm(latest_lot_time)}
                 </Box>
               </Box>
+
+              {/* .sig-badge */}
+              <Box
+                className="mono"
+                sx={{
+                  flexShrink: 0,
+                  fontSize: fs.f12,
+                  fontWeight: 700,
+                  color: tokens.success,
+                  background: tokens.successDim,
+                  border: `1px solid ${tokens.successLine}`,
+                  padding: '2px 8px',
+                  borderRadius: '2px',
+                }}
+              >
+                +{count}
+              </Box>
             </Box>
-          </Box>
           )
         })}
       </Box>

@@ -106,9 +106,11 @@ services:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
       - ./frontend/index.html:/app/index.html
+      - vite_cache:/app/node_modules/.vite  # кэш оптимизатора в записываемом слое (иначе EXDEV при переоптимизации)
     depends_on:
       - backend
 
 volumes:
   postgres_data:
   redis_data:
+  vite_cache:

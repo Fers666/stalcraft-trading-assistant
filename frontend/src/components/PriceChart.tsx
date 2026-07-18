@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, Typography, CircularProgress, ToggleButtonGroup, ToggleButton, Chip } from '@mui/material'
+import { Box, Typography, Skeleton, ToggleButtonGroup, ToggleButton } from '@mui/material'
 import {
-  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip,
-  ResponsiveContainer, ComposedChart, Area, Line, Legend,
+  ScatterChart, Scatter, Cell, XAxis, YAxis, CartesianGrid, ReferenceLine,
+  Tooltip as ChartTooltip, ResponsiveContainer, ComposedChart, Area, Line,
 } from 'recharts'
 import api from '../api/client'
-import { tokens } from '../theme'
+import { tokens, fs } from '../theme'
+import { fmtN, fmtP, fmtCompact } from '../utils/format'
+import { logTicks } from '../utils/chartTicks'
+import ChartFrame, { type ChartLegendItem } from './ui/ChartFrame'
 
 interface SaleRecord {
   sale_time: string
@@ -35,6 +38,8 @@ interface Props {
   enchantFilter?: number | null
   defaultHours?: number
   hideControls?: boolean
+  /** Медиана 7д для линии-ориентира. Если не задана — берётся медиана окна. */
+  median?: number
 }
 
 const HOURS_OPTIONS = [
@@ -44,21 +49,41 @@ const HOURS_OPTIONS = [
   { label: '30д', value: 720 },
 ]
 
-const fmtPrice = (v: number) => v >= 1_000_000
+// Компактный формат для осей (K/M) — только визуальное сокращение тика, не цвет.
+const fmtAxis = (v: number) => v >= 1_000_000
   ? `${(v / 1_000_000).toFixed(2)}M`
   : v >= 1_000 ? `${(v / 1_000).toFixed(0)}K` : `${v}`
 
 function fmtMs(ms: number): string {
   const d = new Date(ms)
-  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 function fmtDayLabel(iso: string): string {
   const d = new Date(iso)
-  return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}`
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-export default function PriceChart({ itemId, region, qualityFilter, enchantFilter, defaultHours = 48, hideControls = false }: Props) {
+const medianOf = (arr: number[]): number => {
+  const a = arr.filter(v => v > 0).sort((x, y) => x - y)
+  if (!a.length) return 0
+  const m = Math.floor(a.length / 2)
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2
+}
+
+// Лог-домен по значениям (+ медиана): min×0.85 … max×1.15 (как charts.js:79,140)
+const logDomain = (values: number[], med: number): [number, number] => {
+  const vals = values.filter(v => v > 0)
+  if (med > 0) vals.push(med)
+  if (!vals.length) return [1, 10]
+  return [Math.max(1, Math.min(...vals) * 0.85), Math.max(...vals) * 1.15]
+}
+
+const axisTick = { fontSize: 11, fill: tokens.text2, fontFamily: tokens.fontMono }
+
+export default function PriceChart({
+  itemId, region, qualityFilter, enchantFilter, defaultHours = 48, hideControls = false, median,
+}: Props) {
   const [resp, setResp]       = useState<SalesChartResponse | null>(null)
   const [hours, setHours]     = useState(defaultHours)
   const [loading, setLoading] = useState(false)
@@ -95,7 +120,7 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
     load()
   }, [visible, itemId, region, hours, qualityFilter, enchantFilter])
 
-  const periodLabel = hours === 720 ? '30 дней' : hours === 168 ? '7 дней' : `${hours} ч`
+  const periodLabel = hours === 720 ? '30д' : hours === 168 ? '7д' : `${hours}ч`
 
   const scatterData = resp?.sales.map(s => ({
     x: new Date(s.sale_time).getTime(),
@@ -112,127 +137,175 @@ export default function PriceChart({ itemId, region, qualityFilter, enchantFilte
     count: d.count,
   })) ?? []
 
-  const isEmpty = !resp || (resp.mode === 'scatter' ? resp.sales.length === 0 : resp.days.length === 0)
+  const mode = resp?.mode ?? 'scatter'
+  const isEmpty = !resp || (mode === 'scatter' ? resp.sales.length === 0 : resp.days.length === 0)
+
+  // Медиана-ориентир: из пропа (median_price_7d) либо медиана окна
+  const windowMedian = mode === 'scatter'
+    ? medianOf(scatterData.map(d => d.y))
+    : medianOf(dailyData.map(d => d.avg ?? 0))
+  const med = median && median > 0 ? median : windowMedian
+
+  const scatterDomain = logDomain(scatterData.map(d => d.y), med)
+  const dailyValues = dailyData.flatMap(d => [d.min ?? 0, d.max ?? 0, d.avg ?? 0])
+  const dailyDomain = logDomain(dailyValues, med)
+
+  // Мета-строка + легенда
+  let metaNode: React.ReactNode = undefined
+  let legend: ChartLegendItem[] | undefined = undefined
+  if (!loading && !isEmpty) {
+    if (mode === 'scatter') {
+      const prices = scatterData.map(d => d.y)
+      const min = Math.min(...prices)
+      const avg = prices.reduce((s, v) => s + v, 0) / prices.length
+      metaNode = `окно ${periodLabel} · ${resp!.total_count} сделок · мин ${fmtCompact(min)} · сред ${fmtCompact(avg)} · лог. шкала`
+      legend = [
+        { variant: 'g',  label: 'ниже медианы' },
+        { variant: 'gd', label: 'выше' },
+      ]
+    } else {
+      const sales = dailyData.reduce((s, d) => s + d.count, 0)
+      metaNode = `окно ${periodLabel} · ${dailyData.length} дн · продаж ${fmtN(sales)} · лог. шкала`
+      legend = [
+        { variant: 'band', label: 'коридор мин–макс' },
+        { variant: 'line', label: 'средняя' },
+      ]
+    }
+  }
+
+  const medianRef = med > 0 ? (
+    <ReferenceLine
+      y={med}
+      stroke={tokens.goldAccent}
+      strokeDasharray="4 3"
+      strokeOpacity={0.8}
+      ifOverflow="extendDomain"
+      label={{
+        value: `медиана ${fmtCompact(med)}`,
+        position: 'insideTopRight',
+        fill: tokens.goldAccent,
+        fontSize: 10,
+        fontFamily: tokens.fontMono,
+      }}
+    />
+  ) : null
 
   return (
     <Box ref={containerRef}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {!hideControls && (
-            <Typography sx={{ fontSize: '0.65rem', color: 'text.disabled', fontWeight: 600, letterSpacing: '0.1em' }}>
-              ИСТОРИЯ ПРОДАЖ
-            </Typography>
-          )}
-          {resp != null && (
-            <Chip
-              label={`${resp.total_count} ${hideControls ? 'продаж' : `за ${periodLabel}`}`}
-              size="small"
-              sx={{
-                height: 18, fontSize: 10,
-                bgcolor: 'rgba(217,175,55,0.10)',
-                color: 'primary.main',
-                border: '1px solid rgba(217,175,55,0.25)',
-              }}
-            />
-          )}
-        </Box>
-        {!hideControls && (
+      {!hideControls && (
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+          <Typography sx={{
+            fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f12,
+            letterSpacing: '0.14em', textTransform: 'uppercase', color: tokens.text1,
+          }}>
+            История продаж
+          </Typography>
           <ToggleButtonGroup value={hours} exclusive onChange={(_, v) => v && setHours(v)} size="small">
             {HOURS_OPTIONS.map((o) => (
-              <ToggleButton key={o.value} value={o.value} sx={{ py: 0, px: 1, fontSize: 11 }}>
+              <ToggleButton key={o.value} value={o.value} sx={{ py: 0, px: 1.2 }}>
                 {o.label}
               </ToggleButton>
             ))}
           </ToggleButtonGroup>
-        )}
-      </Box>
-
-      {loading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
-          <CircularProgress size={24} />
         </Box>
       )}
 
-      {!loading && isEmpty && (
-        <Typography variant="caption" color="text.disabled">
-          Нет данных о продажах
-        </Typography>
-      )}
-
-      {/* Scatter: каждая продажа — точка (12ч / 24ч / 48ч) */}
-      {!loading && !isEmpty && resp!.mode === 'scatter' && (
-        <>
-          <ResponsiveContainer width="100%" height={160} debounce={200}>
-            <ScatterChart margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+      <ChartFrame
+        meta={metaNode}
+        legend={legend}
+        isEmpty={!loading && isEmpty}
+        emptyText="Нет данных о продажах"
+      >
+        {loading ? (
+          <Skeleton variant="rectangular" height={236} sx={{ bgcolor: tokens.bg2 }} />
+        ) : mode === 'scatter' ? (
+          <ResponsiveContainer width="100%" height={236} debounce={200}>
+            <ScatterChart margin={{ top: 10, right: 12, left: 4, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={tokens.grid} />
               <XAxis
                 dataKey="x"
                 type="number"
                 domain={['dataMin', 'dataMax']}
                 scale="time"
                 tickFormatter={fmtMs}
-                tick={{ fontSize: 10, fill: '#7C7C7C' }}
+                tick={axisTick}
+                stroke={tokens.borderHi}
                 interval="preserveStartEnd"
               />
               <YAxis
                 dataKey="y"
-                tickFormatter={fmtPrice}
-                tick={{ fontSize: 10, fill: '#7C7C7C' }}
-                width={48}
+                type="number"
+                scale="log"
+                domain={scatterDomain}
+                ticks={logTicks(scatterDomain[0], scatterDomain[1])}
+                allowDataOverflow
+                tickFormatter={fmtAxis}
+                tick={axisTick}
+                stroke={tokens.borderHi}
+                width={54}
               />
               <ChartTooltip
-                cursor={{ stroke: 'rgba(255,255,255,0.08)' }}
+                cursor={{ stroke: tokens.borderHi }}
                 content={({ active, payload }) => {
                   if (!active || !payload?.length) return null
                   const d = payload[0].payload as { x: number; y: number; amount: number }
                   const dt = new Date(d.x)
-                  const timeStr = `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')} `
-                    + `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+                  const timeStr = `${String(dt.getDate()).padStart(2, '0')}.${String(dt.getMonth() + 1).padStart(2, '0')} `
+                    + `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
                   return (
-                    <Box sx={{ background: '#1A1F26', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', p: 1 }}>
-                      <Typography sx={{ fontSize: 11, color: '#7C7C7C', mb: 0.25 }}>{timeStr}</Typography>
-                      <Typography sx={{ fontSize: 13, color: '#D9AF37', fontWeight: 700 }}>
-                        {d.y.toLocaleString('ru-RU')} ₽
+                    <Box className="mono" sx={{ background: tokens.bg3, border: `1px solid ${tokens.borderHi}`, borderRadius: `${tokens.radiusLg}px`, p: 1 }}>
+                      <Typography sx={{ fontSize: fs.f11, color: tokens.text2, mb: 0.25 }}>{timeStr}</Typography>
+                      <Typography sx={{ fontSize: fs.f13, color: d.y < med ? tokens.success : tokens.gold, fontWeight: 700 }}>
+                        {fmtP(d.y)}
                       </Typography>
                       {d.amount > 1 && (
-                        <Typography sx={{ fontSize: 11, color: '#B8B8B8' }}>{d.amount} шт</Typography>
+                        <Typography sx={{ fontSize: fs.f11, color: tokens.text1 }}>{d.amount} шт</Typography>
                       )}
                     </Box>
                   )
                 }}
               />
-              <Scatter data={scatterData} fill="#D9AF37" opacity={0.8} />
+              {medianRef}
+              <Scatter data={scatterData} fillOpacity={0.85}>
+                {scatterData.map((d, i) => (
+                  <Cell key={i} fill={med > 0 && d.y < med ? tokens.success : tokens.gold} />
+                ))}
+              </Scatter>
             </ScatterChart>
           </ResponsiveContainer>
-          <Typography sx={{ fontSize: 10, color: 'text.disabled', mt: 0.5 }}>
-            {resp!.total_count} сделок · наведите на точку
-          </Typography>
-        </>
-      )}
-
-      {/* Composed chart: коридор мин/макс + средняя по дням (7д/30д) */}
-      {!loading && !isEmpty && resp!.mode === 'daily' && (
-        <ResponsiveContainer width="100%" height={160} debounce={200}>
-          <ComposedChart data={dailyData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-            <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#7C7C7C' }} />
-            <YAxis tickFormatter={fmtPrice} tick={{ fontSize: 10, fill: '#7C7C7C' }} width={48} />
-            <ChartTooltip
-              contentStyle={{ background: '#1A1F26', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, fontSize: 12 }}
-              labelStyle={{ color: '#B8B8B8', marginBottom: 4 }}
-              formatter={(v: number | string | Array<number | string>, name) =>
-                Array.isArray(v)
-                  ? [`${fmtPrice(Number(v[0]))} – ${fmtPrice(Number(v[1]))} ₽`, name]
-                  : [`${fmtPrice(Number(v))} ₽`, name]
-              }
-            />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            <Area type="monotone" dataKey="range" stroke={tokens.info} strokeOpacity={0.4} strokeWidth={1} fill={tokens.info} fillOpacity={0.15} name="Коридор мин–макс" />
-            <Line type="monotone" dataKey="avg" stroke={tokens.gold} dot={{ r: 4 }} strokeWidth={2} name="Средняя цена" />
-          </ComposedChart>
-        </ResponsiveContainer>
-      )}
+        ) : (
+          <ResponsiveContainer width="100%" height={236} debounce={200}>
+            <ComposedChart data={dailyData} margin={{ top: 10, right: 12, left: 4, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={tokens.grid} />
+              <XAxis dataKey="label" tick={axisTick} stroke={tokens.borderHi} />
+              <YAxis
+                type="number"
+                scale="log"
+                domain={dailyDomain}
+                ticks={logTicks(dailyDomain[0], dailyDomain[1])}
+                allowDataOverflow
+                tickFormatter={fmtAxis}
+                tick={axisTick}
+                stroke={tokens.borderHi}
+                width={54}
+              />
+              <ChartTooltip
+                contentStyle={{ background: tokens.bg3, border: `1px solid ${tokens.borderHi}`, borderRadius: tokens.radiusLg, fontSize: 12, fontFamily: tokens.fontMono }}
+                labelStyle={{ color: tokens.text1, marginBottom: 4 }}
+                itemStyle={{ color: tokens.text0 }}
+                formatter={(v: number | string | Array<number | string>, name) =>
+                  Array.isArray(v)
+                    ? [`${fmtCompact(Number(v[0]))} – ${fmtCompact(Number(v[1]))}`, name]
+                    : [fmtP(Number(v)), name]
+                }
+              />
+              {medianRef}
+              <Area type="monotone" dataKey="range" stroke={tokens.goldLineSoft} strokeWidth={1} fill={tokens.goldDim} name="Коридор мин–макс" />
+              <Line type="monotone" dataKey="avg" stroke={tokens.goldAccent} dot={{ r: 3, fill: tokens.goldAccent }} strokeWidth={2} name="Средняя цена" />
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </ChartFrame>
     </Box>
   )
 }

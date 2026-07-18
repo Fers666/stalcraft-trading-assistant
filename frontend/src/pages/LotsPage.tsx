@@ -1,25 +1,33 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
-  Box, Typography, TextField, InputAdornment, Card, CardContent,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TablePagination,
-  Chip, CircularProgress, Alert, FormControl, InputLabel, Select, MenuItem,
-  List, ListItem, ListItemButton, ListItemText, Paper, Tooltip, Avatar,
-  IconButton, Snackbar, Collapse, Divider,
+  Box, Typography, TextField, InputAdornment, Chip, Alert,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  FormControl, InputLabel, Select, MenuItem, List, ListItem,
+  ListItemButton, ListItemText, Paper, Tooltip, IconButton, Skeleton,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import HistoryIcon from '@mui/icons-material/History'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
-import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
 import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd'
 import BookmarkAddedIcon from '@mui/icons-material/BookmarkAdded'
-import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import api from '../api/client'
-import { translateCategory, formatPrice, iconUrl } from '../utils/i18n'
+import { translateCategory, iconUrl, qualityKeyByValue } from '../utils/i18n'
+import { fmtN, fmtP } from '../utils/format'
 import { CATEGORY_TREE } from '../utils/categories'
+import { useAuthStore } from '../store/authStore'
+import { TIER_LABELS } from '../constants/tiers'
+import { Region } from '../constants/regions'
+import { tokens, fs } from '../theme'
+import CategoryTree from '../components/ui/CategoryTree'
+import QualityChip from '../components/ui/QualityChip'
+import RegionSelect from '../components/ui/RegionSelect'
+import ItemIcon from '../components/ui/ItemIcon'
+import Kick from '../components/ui/Kick'
+import SortHeader from '../components/ui/SortHeader'
+import PageLock from '../components/ui/PageLock'
+import { useToast } from '../components/ui/Toast'
 
 // ─── Типы ────────────────────────────────────────────────────────────────────
 
@@ -91,17 +99,8 @@ type SortDir = 'asc' | 'desc'
 
 // ─── Константы ───────────────────────────────────────────────────────────────
 
-const REGIONS = ['RU', 'EU', 'NA', 'SEA']
 const QL_NAMES: Record<number, string> = {
   0: 'Обычный', 1: 'Необычный', 2: 'Особый', 3: 'Ветеран', 4: 'Мастер', 5: 'Легендарный',
-}
-const QUALITY_CHIP_COLOR: Record<string, string> = {
-  'Обычный': '#555',
-  'Необычный': '#4caf50',
-  'Особый': '#2196f3',
-  'Ветеран': '#9c27b0',
-  'Мастер': '#ff9800',
-  'Легендарный': '#f44336',
 }
 const HISTORY_KEY = 'lots_search_history'
 const HISTORY_MAX = 10
@@ -141,22 +140,14 @@ function sortLots<T extends { buyout_price: number; amount: number; hours_remain
   })
 }
 
-// ─── Колонки таблицы лотов ───────────────────────────────────────────────────
-
-const LOT_COLS: { key: SortKey | null; label: string }[] = [
-  { key: 'buyout_price',    label: 'Цена выкупа' },
-  { key: 'amount',          label: 'Количество'  },
-  { key: 'price_per_unit',  label: 'Цена / шт'  },
-  { key: null,              label: 'Качество'    },
-  { key: 'enchant_level',   label: 'Заточка'     },
-  { key: 'hours_remaining', label: 'Осталось'    },
-  { key: null,              label: 'Статус'      },
-]
-
 // ─── Компонент ───────────────────────────────────────────────────────────────
 
 export default function LotsPage() {
   const location = useLocation()
+  const navigate = useNavigate()
+  const { showToast } = useToast()
+  const user = useAuthStore((s) => s.user)
+
   const pendingQualityRef = useRef<string | null>(null)
   const pendingEnchantRef = useRef<string | null>(null)
   const navStateAppliedRef = useRef(false)
@@ -164,7 +155,7 @@ export default function LotsPage() {
 
   // Поиск конкретного предмета
   const [query, setQuery]               = useState('')
-  const [region, setRegion]             = useState('RU')
+  const [region, setRegion]             = useState<Region>('RU')
   const [suggestions, setSuggestions]   = useState<Item[]>([])
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
   const [result, setResult]             = useState<LotsResponse | null>(null)
@@ -175,7 +166,6 @@ export default function LotsPage() {
 
   // Категории
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [expandedGroups, setExpandedGroups]     = useState<Set<string>>(new Set())
   const [catResult, setCatResult]               = useState<CategoryLotsResponse | null>(null)
   const [catLoading, setCatLoading]             = useState(false)
   const [catError, setCatError]                 = useState<string | null>(null)
@@ -190,12 +180,13 @@ export default function LotsPage() {
 
   // Watchlist
   const [wlStates, setWlStates] = useState<Record<string, 'loading' | 'added' | 'exists'>>({})
-  const [snackbar, setSnackbar] = useState<string | null>(null)
+
+  // Гейт доступа (реальное поле auction_access; is_admin обходит) — нужен и на
+  // прямой заход по URL, не только скрытие пункта в навбаре.
+  const gated = !!user && !user.is_admin && user.auction_access === false
 
   // ─── Инициализация из navigation state (переход из Избранного) ───────────
   useEffect(() => {
-    // Guard against React.StrictMode's double-invoke: без него fetchLots
-    // запускался дважды, второй setResult сбрасывал pending-фильтры в 'all'.
     if (navStateAppliedRef.current) return
     navStateAppliedRef.current = true
     const state = location.state as {
@@ -215,8 +206,8 @@ export default function LotsPage() {
       category: null,
       icon_path: state.icon_path ?? null,
     }
-    const reg = state.region ?? region
-    if (state.region) setRegion(state.region)
+    const reg = (state.region as Region) ?? region
+    if (state.region) setRegion(state.region as Region)
     if (state.quality_filter != null) pendingQualityRef.current = QL_NAMES[state.quality_filter] ?? null
     if (state.enchant_filter != null) pendingEnchantRef.current = String(state.enchant_filter)
     fetchLots(item, reg)
@@ -270,6 +261,12 @@ export default function LotsPage() {
     })
     return sortLots(filtered, sortKey, sortDir)
   }, [activeLots, filterQuality, filterEnchant, sortKey, sortDir])
+
+  // Лучшая цена — у значения минимального выкупа (не у первой строки, §5.3)
+  const minBuyout = useMemo(
+    () => filteredSorted.reduce((m, l) => Math.min(m, l.buyout_price), Infinity),
+    [filteredSorted],
+  )
 
   const pageLots = filteredSorted.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
 
@@ -328,7 +325,7 @@ export default function LotsPage() {
     { item_id: entry.item_id, name_ru: entry.name, name_en: null, category: entry.category, icon_path: entry.icon_path },
     region,
   )
-  const handleRegionChange = (newRegion: string) => {
+  const handleRegionChange = (newRegion: Region) => {
     setRegion(newRegion)
     if (selectedItem) {
       preserveFiltersRef.current = true
@@ -356,14 +353,6 @@ export default function LotsPage() {
     if (!cat) setCatResult(null)
   }
 
-  const toggleGroup = (id: string) => {
-    setExpandedGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) { next.delete(id) } else { next.add(id) }
-      return next
-    })
-  }
-
   // ─── Watchlist ─────────────────────────────────────────────────────────────
   const wlKey = (itemId: string, lot: { quality_value: number | null; enchant_level: number | null }) =>
     `${itemId}_${lot.quality_value ?? 'n'}_${lot.enchant_level ?? 'n'}`
@@ -374,15 +363,15 @@ export default function LotsPage() {
     try {
       await api.post('/watchlist/', { item_id: itemId, region, quality_filter: lot.quality_value ?? null, enchant_filter: lot.enchant_level ?? null })
       setWlStates((s) => ({ ...s, [key]: 'added' }))
-      setSnackbar('Добавлено в Избранное')
+      showToast('Добавлено в Избранное')
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status
       if (status === 409) {
         setWlStates((s) => ({ ...s, [key]: 'exists' }))
-        setSnackbar('Уже в Избранном')
+        showToast('Уже в Избранном')
       } else {
         setWlStates((s) => { const next = { ...s }; delete next[key]; return next })
-        setSnackbar('Ошибка добавления')
+        showToast('Ошибка добавления')
       }
     }
   }
@@ -393,210 +382,114 @@ export default function LotsPage() {
     else { setSortKey(key); setSortDir('asc') }
   }
 
-  const SortArrow = ({ k }: { k: SortKey }) =>
-    sortKey !== k
-      ? <ArrowUpwardIcon sx={{ fontSize: 11, ml: 0.5, opacity: 0.2 }} />
-      : sortDir === 'asc'
-        ? <ArrowUpwardIcon  sx={{ fontSize: 11, ml: 0.5, color: 'primary.main' }} />
-        : <ArrowDownwardIcon sx={{ fontSize: 11, ml: 0.5, color: 'primary.main' }} />
-
-  // ─── Вспомогательный рендер ────────────────────────────────────────────────
-
-  const WlButton = ({ itemId, lot }: { itemId: string; lot: { quality_name: string | null; quality_value: number | null; enchant_level: number | null } }) => {
+  // Рендер-функция кнопки «в избранное» (не компонент — избегаем ремаунта строк)
+  const renderWlButton = (itemId: string, lot: { quality_name: string | null; quality_value: number | null; enchant_level: number | null }) => {
     const key = wlKey(itemId, lot)
     const st = wlStates[key]
     const enchantLabel = lot.enchant_level === 0 ? 'Не точёный' : lot.enchant_level != null ? `+${lot.enchant_level}` : null
     const label = lot.quality_name && enchantLabel
       ? `${lot.quality_name} ${enchantLabel}`
       : lot.quality_name ?? enchantLabel ?? 'Без фильтров'
+    const done = st === 'added' || st === 'exists'
     return (
-      <Tooltip title={st === 'added' || st === 'exists' ? 'Уже в Избранном' : `В Избранное: ${label}`}>
+      <Tooltip title={done ? 'Уже в Избранном' : `В Избранное: ${label}`}>
         <span>
           <IconButton
             size="small"
             onClick={() => handleAddToWatchlist(itemId, lot)}
-            disabled={st === 'loading' || st === 'added' || st === 'exists'}
-            sx={{ color: (st === 'added' || st === 'exists') ? 'primary.main' : 'text.disabled' }}
+            disabled={st === 'loading' || done}
+            aria-label={done ? 'Уже в Избранном' : 'В Избранное'}
+            sx={{ color: done ? tokens.goldAccent : tokens.text2 }}
           >
             {st === 'loading'
-              ? <CircularProgress size={16} />
-              : (st === 'added' || st === 'exists')
+              ? <Skeleton variant="rectangular" width={16} height={16} sx={{ bgcolor: tokens.bg3 }} />
+              : done
                 ? <BookmarkAddedIcon fontSize="small" />
-                : <BookmarkAddIcon  fontSize="small" />}
+                : <BookmarkAddIcon fontSize="small" />}
           </IconButton>
         </span>
       </Tooltip>
     )
   }
 
-  const FiltersBar = ({ total }: { total: number }) => (
-    <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-      {showQualityFilter && (
-        <FormControl size="small" sx={{ minWidth: 170 }}>
-          <InputLabel>Качество</InputLabel>
-          <Select value={filterQuality} label="Качество" onChange={(e) => setFilterQuality(e.target.value)}>
-            <MenuItem value="all">Все качества ({total})</MenuItem>
-            {qualityOptions.map((q) => {
-              const count = activeLots.filter((l) => l.quality_name === q).length
-              return <MenuItem key={q} value={q}>{q} ({count})</MenuItem>
-            })}
-          </Select>
-        </FormControl>
-      )}
-      {showEnchantFilter && (
-        <FormControl size="small" sx={{ minWidth: 160 }}>
-          <InputLabel>Заточка</InputLabel>
-          <Select value={filterEnchant} label="Заточка" onChange={(e) => setFilterEnchant(e.target.value)}>
-            <MenuItem value="all">Все заточки</MenuItem>
-            {enchantOptions.map((e) => {
-              const count = activeLots.filter((l) => l.enchant_level === e).length
-              return (
-                <MenuItem key={e} value={String(e)}>
-                  {e === 0 ? `Не точёный (${count})` : `+${e} (${count})`}
-                </MenuItem>
-              )
-            })}
-          </Select>
-        </FormControl>
-      )}
-      {(filterQuality !== 'all' || filterEnchant !== 'all') && (
-        <Chip
-          label="Сбросить"
-          size="small"
-          onClick={() => { setFilterQuality('all'); setFilterEnchant('all') }}
-          sx={{ cursor: 'pointer' }}
-        />
-      )}
-      {filteredSorted.length !== activeLots.length && (
-        <Typography variant="caption" color="text.secondary">
-          Показано: {filteredSorted.length} из {activeLots.length}
-        </Typography>
-      )}
-    </Box>
-  )
-
   const showHistory = !result && !loading && !selectedCategory && history.length > 0 && suggestions.length === 0
+  const catLabel = CATEGORY_TREE.flatMap(g => [g, ...(g.children ?? [])]).find(g => g.id === selectedCategory)?.label ?? selectedCategory
+
+  // ─── Гейт: тариф без доступа к лотам ──────────────────────────────────────
+  if (gated) {
+    return (
+      <Box sx={{ padding: '0 16px 20px' }}>
+        <Box sx={{ background: tokens.bg1, border: `1px solid ${tokens.border}`, borderRadius: 1 }}>
+          <PageLock
+            title="Поиск лотов"
+            tierLabel={TIER_LABELS.advanced_plus}
+            description={<>Твой тариф — {TIER_LABELS[user!.tier as keyof typeof TIER_LABELS] ?? user!.tier}. Живые лоты по любому предмету аукциона открываются на тарифе {TIER_LABELS.advanced_plus} и выше.</>}
+            ctaLabel="Сменить тариф"
+            onCta={() => navigate('/app/settings')}
+          />
+        </Box>
+      </Box>
+    )
+  }
 
   // ─── Render ────────────────────────────────────────────────────────────────
+  const hasResult = loading || result || (selectedCategory && !result)
+
   return (
-    <Box>
-      <Typography variant="h5" fontWeight={700} sx={{ mb: 1 }}>Поиск лотов</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Активные лоты без добавления в Избранное. Данные из кэша, обновляются каждые 5 мин.
-      </Typography>
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateColumns: '272px minmax(0, 1fr)',
+        gap: '12px',
+        alignItems: 'start',
+        '@media (max-width:1360px)': { gridTemplateColumns: '256px minmax(0, 1fr)' },
+      }}
+    >
+      <CategoryTree selected={selectedCategory} onSelect={handleCategorySelect} ariaLabel="Категории лотов" />
 
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
 
-        {/* ── Боковая панель категорий ─────────────────────────────────── */}
-        <Box sx={{
-          width: 210,
-          flexShrink: 0,
-          bgcolor: 'background.paper',
-          borderRadius: 1,
-          border: '1px solid',
-          borderColor: 'divider',
-          maxHeight: '80vh',
-          overflowY: 'auto',
-          position: 'sticky',
-          top: 16,
-        }}>
-          <List dense disablePadding>
-            {CATEGORY_TREE.map((group, idx) => {
-              const isSelected  = selectedCategory === group.id
-              const hasChildren = !!group.children?.length
-              const isExpanded  = hasChildren && group.id != null && expandedGroups.has(group.id)
+        {/* ── Панель поиска ─────────────────────────────────────────── */}
+        <Box sx={{ background: tokens.bg1, border: `1px solid ${tokens.border}`, borderRadius: 1 }}>
+          <Box sx={{ padding: '14px 18px 12px' }}>
+            <Kick>Поиск лотов // Lot Scanner</Kick>
+            <Typography component="h1" sx={{ fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f26, letterSpacing: '0.03em', lineHeight: 1.05, mt: '3px' }}>
+              Поиск лотов
+            </Typography>
+            <Typography sx={{ fontSize: fs.f12, color: tokens.text2, mt: '4px', maxWidth: '72ch' }}>
+              Живые лоты по предмету или категории — без добавления в Избранное. Кэш обновляется каждые 5 минут.
+            </Typography>
+          </Box>
 
-              return (
-                <Box key={String(group.id)}>
-                  {idx === 1 && <Divider />}
-                  <ListItemButton
-                    selected={isSelected}
-                    onClick={() => {
-                      handleCategorySelect(group.id)
-                      if (hasChildren && group.id != null) toggleGroup(group.id)
-                    }}
-                    sx={{ pl: 2, pr: 1 }}
-                  >
-                    <ListItemText
-                      primary={group.label}
-                      primaryTypographyProps={{
-                        variant: 'body2',
-                        sx: { fontWeight: isSelected ? 700 : 400, color: isSelected ? 'primary.main' : 'text.primary' },
-                      }}
-                    />
-                    {hasChildren && group.id != null && (
-                      isExpanded
-                        ? <ExpandLessIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                        : <ExpandMoreIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                    )}
-                  </ListItemButton>
-
-                  {hasChildren && group.id != null && (
-                    <Collapse in={isExpanded} unmountOnExit>
-                      <List dense disablePadding>
-                        {group.children!.map((child) => {
-                          const childSelected = selectedCategory === child.id
-                          return (
-                            <ListItemButton
-                              key={child.id}
-                              selected={childSelected}
-                              onClick={() => handleCategorySelect(child.id)}
-                              sx={{ pl: 4, pr: 1 }}
-                            >
-                              <ListItemText
-                                primary={child.label}
-                                primaryTypographyProps={{
-                                  variant: 'body2',
-                                  sx: { color: childSelected ? 'primary.main' : 'text.secondary', fontWeight: childSelected ? 600 : 400 },
-                                }}
-                              />
-                            </ListItemButton>
-                          )
-                        })}
-                      </List>
-                    </Collapse>
-                  )}
-                </Box>
-              )
-            })}
-          </List>
-        </Box>
-
-        {/* ── Основная область ─────────────────────────────────────────── */}
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-
-          {/* Поиск + регион */}
-          <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-            <Box sx={{ flexGrow: 1, position: 'relative' }}>
+          <Box sx={{ display: 'flex', gap: '8px', padding: '0 18px 14px' }}>
+            <Box sx={{ flex: 1, minWidth: 0, position: 'relative' }}>
               <TextField
-                placeholder="Поиск конкретного предмета..."
+                placeholder="Найти предмет — от 2 символов…"
                 value={query}
                 onChange={(e) => handleQueryChange(e.target.value)}
                 size="small"
                 fullWidth
+                type="search"
                 slotProps={{
                   input: {
                     startAdornment: (
                       <InputAdornment position="start">
-                        {searching ? <CircularProgress size={16} /> : <SearchIcon fontSize="small" />}
+                        {searching ? <Skeleton variant="circular" width={16} height={16} sx={{ bgcolor: tokens.bg2 }} /> : <SearchIcon fontSize="small" />}
                       </InputAdornment>
                     ),
                   },
                 }}
               />
               {suggestions.length > 0 && (
-                <Paper sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, mt: 0.5 }}>
+                <Paper sx={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 30, background: tokens.bg3, border: `1px solid ${tokens.borderHi}` }}>
                   <List dense disablePadding>
                     {suggestions.map((item) => (
                       <ListItem key={item.item_id} disablePadding>
-                        <ListItemButton onClick={() => handleSelect(item)}>
-                          <Avatar src={iconUrl(item.icon_path) ?? undefined} variant="rounded"
-                            sx={{ width: 24, height: 24, mr: 1, bgcolor: 'background.default', flexShrink: 0 }}>
-                            {!item.icon_path && (item.name_ru?.[0] ?? '?')}
-                          </Avatar>
+                        <ListItemButton onClick={() => handleSelect(item)} sx={{ gap: '9px' }}>
+                          <ItemIcon src={iconUrl(item.icon_path) ?? undefined} name={item.name_ru ?? item.name_en ?? item.item_id} />
                           <ListItemText
-                            primary={<Typography variant="body2">{item.name_ru || item.name_en}</Typography>}
-                            secondary={<Typography variant="caption">{translateCategory(item.category)}</Typography>}
+                            primary={<Typography sx={{ fontSize: fs.f125, color: tokens.text0 }} noWrap>{item.name_ru || item.name_en}</Typography>}
+                            secondary={<Typography className="mono" sx={{ fontSize: fs.f105, color: tokens.text2 }} noWrap>{translateCategory(item.category)}</Typography>}
                           />
                         </ListItemButton>
                       </ListItem>
@@ -605,178 +498,264 @@ export default function LotsPage() {
                 </Paper>
               )}
             </Box>
-            <FormControl size="small" sx={{ minWidth: 100 }}>
-              <InputLabel>Регион</InputLabel>
-              <Select value={region} label="Регион" onChange={(e) => handleRegionChange(e.target.value)}>
-                {REGIONS.map((r) => <MenuItem key={r} value={r}>{r}</MenuItem>)}
-              </Select>
-            </FormControl>
+            <RegionSelect value={region} onChange={handleRegionChange} sx={{ minWidth: 90, height: 40 }} />
           </Box>
 
-          {/* История */}
+          {/* История запросов */}
           {showHistory && (
-            <Box sx={{ mb: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                <HistoryIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
-                <Typography variant="caption" color="text.secondary">Недавние запросы</Typography>
+            <Box sx={{ padding: '0 18px 18px' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: '7px', pb: '10px', color: tokens.text2 }}>
+                <HistoryIcon sx={{ fontSize: 14 }} />
+                <Kick>История запросов</Kick>
               </Box>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                 {history.map((entry) => (
-                  <Card key={entry.item_id} onClick={() => handleHistoryClick(entry)}
-                    sx={{ cursor: 'pointer', minWidth: 150, maxWidth: 200, transition: 'box-shadow 0.15s', '&:hover': { boxShadow: 4 } }}>
-                    <CardContent sx={{ p: '12px !important', display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                      <Avatar src={iconUrl(entry.icon_path) ?? undefined} variant="rounded"
-                        sx={{ width: 44, height: 44, bgcolor: 'background.default', flexShrink: 0 }}>
-                        {!entry.icon_path && (entry.name[0] ?? '?')}
-                      </Avatar>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography variant="body2" fontWeight={500} noWrap>{entry.name}</Typography>
-                        <Typography variant="caption" color="text.secondary" noWrap>
-                          {translateCategory(entry.category)}
-                        </Typography>
-                      </Box>
-                    </CardContent>
-                  </Card>
+                  <Box
+                    key={entry.item_id}
+                    component="button"
+                    type="button"
+                    onClick={() => handleHistoryClick(entry)}
+                    sx={{
+                      display: 'flex', alignItems: 'center', gap: '10px', minWidth: 200, padding: '9px 12px',
+                      background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: 1, textAlign: 'left', cursor: 'pointer',
+                      transition: `background-color ${tokens.motion.fast}ms ${tokens.motion.ease}, border-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
+                      '&:hover': { background: tokens.bg3, borderColor: tokens.borderHi },
+                    }}
+                  >
+                    <ItemIcon src={iconUrl(entry.icon_path) ?? undefined} name={entry.name} size={36} />
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography noWrap sx={{ fontSize: fs.f125, fontWeight: 500, color: tokens.text0, maxWidth: 200 }}>{entry.name}</Typography>
+                      <Typography noWrap className="mono" sx={{ fontSize: fs.f105, color: tokens.text2 }}>{translateCategory(entry.category)}</Typography>
+                    </Box>
+                  </Box>
                 ))}
               </Box>
             </Box>
           )}
+        </Box>
 
-          {error && <Alert severity="warning" sx={{ mb: 2 }}>{error}</Alert>}
+        {error && <Alert severity="warning">{error}</Alert>}
 
-          <Snackbar
-            open={snackbar !== null}
-            autoHideDuration={2500}
-            onClose={() => setSnackbar(null)}
-            message={snackbar}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-          />
+        {/* ── Лоты конкретного предмета (из поиска / истории) ──────── */}
+        {(loading || result) && (
+          <Box sx={{ background: tokens.bg1, border: `1px solid ${tokens.border}`, borderRadius: 1 }}>
+            {loading ? (
+              <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} variant="rectangular" height={34} sx={{ bgcolor: tokens.bg2 }} />
+                ))}
+              </Box>
+            ) : result && (
+              <>
+                <ResultHeader
+                  icon={<ItemIcon src={iconUrl(selectedItem?.icon_path ?? null) ?? undefined} name={selectedItem?.name_ru ?? result.item_id} size={44} />}
+                  title={selectedItem?.name_ru || result.item_id}
+                  subtitle={selectedItem?.name_en ?? undefined}
+                  itemId={result.item_id}
+                  chips={[translateCategory(selectedItem?.category ?? null), region, `${fmtN(result.total)} лот.`]}
+                  fromCache={result.from_cache}
+                  cacheNote={result.cache_note}
+                  onRefresh={handleRefresh}
+                />
+                {(showQualityFilter || showEnchantFilter) && (
+                  <LotsFiltersBar
+                    activeLots={activeLots}
+                    total={result.lots.length}
+                    shownCount={filteredSorted.length}
+                    qualityOptions={qualityOptions}
+                    enchantOptions={enchantOptions}
+                    showQuality={showQualityFilter}
+                    showEnchant={showEnchantFilter}
+                    filterQuality={filterQuality}
+                    filterEnchant={filterEnchant}
+                    onQuality={setFilterQuality}
+                    onEnchant={setFilterEnchant}
+                  />
+                )}
+                {filteredSorted.length === 0
+                  ? <Alert severity="info" sx={{ m: 2 }}>Нет лотов, соответствующих фильтрам</Alert>
+                  : <LotsTable
+                      lots={pageLots as Lot[]}
+                      page={page} rowsPerPage={rowsPerPage} totalFiltered={filteredSorted.length}
+                      minBuyout={minBuyout} sortKey={sortKey} sortDir={sortDir} onSort={handleSort}
+                      onSetPage={setPage} onSetRowsPerPage={(v) => { setRowsPerPage(v); setPage(0) }}
+                      renderWl={(lot) => renderWlButton(selectedItem!.item_id, lot)}
+                      showItemCol={false}
+                    />}
+              </>
+            )}
+          </Box>
+        )}
 
-          {/* ── Лоты конкретного предмета (из поиска / истории) ──────── */}
-          {(loading || result) && (
-            <>
-              {loading && <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress /></Box>}
-              {result && !loading && (
-                <Card>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                        {selectedItem?.icon_path && (
-                          <Avatar src={iconUrl(selectedItem.icon_path) ?? undefined} variant="rounded"
-                            sx={{ width: 36, height: 36, bgcolor: 'background.default' }} />
-                        )}
-                        <Box>
-                          <Typography variant="subtitle1" fontWeight={700}>
-                            {selectedItem?.name_ru || result.item_id}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {translateCategory(selectedItem?.category ?? null)} · {result.region} · Лотов: {result.total}
-                          </Typography>
-                        </Box>
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Tooltip title="Обновить данные из API">
-                          <IconButton size="small" onClick={handleRefresh}><RefreshIcon fontSize="small" /></IconButton>
-                        </Tooltip>
-                        <Tooltip title={result.cache_note}>
-                          <Chip
-                            label={result.from_cache ? 'из кэша' : 'свежие данные'}
-                            size="small"
-                            color={result.from_cache ? 'default' : 'success'}
-                            icon={<InfoOutlinedIcon />}
-                          />
-                        </Tooltip>
-                      </Box>
-                    </Box>
-
-                    {(showQualityFilter || showEnchantFilter) && <FiltersBar total={result.lots.length} />}
-                    {filteredSorted.length === 0
-                      ? <Alert severity="info">Нет лотов, соответствующих фильтрам</Alert>
-                      : <LotsTable
-                          lots={pageLots as Lot[]}
-                          page={page}
-                          rowsPerPage={rowsPerPage}
-                          totalFiltered={filteredSorted.length}
-                          sortKey={sortKey}
-                          sortDir={sortDir}
-                          onSort={handleSort}
-                          SortArrow={SortArrow}
-                          onSetPage={setPage}
-                          onSetRowsPerPage={(v) => { setRowsPerPage(v); setPage(0) }}
-                          renderWl={(lot, idx) => (
-                            <WlButton
-                              itemId={selectedItem!.item_id}
-                              lot={lot}
-                              key={idx}
-                            />
-                          )}
-                          showItemCol={false}
+        {/* ── Лоты по категории ─────────────────────────────────────── */}
+        {!result && !loading && selectedCategory && (
+          <Box sx={{ background: tokens.bg1, border: `1px solid ${tokens.border}`, borderRadius: 1 }}>
+            {catLoading ? (
+              <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} variant="rectangular" height={34} sx={{ bgcolor: tokens.bg2 }} />
+                ))}
+              </Box>
+            ) : catError ? (
+              <Alert severity="error" sx={{ m: 2 }}>{catError}</Alert>
+            ) : catResult && (
+              <>
+                <ResultHeader
+                  title={catLabel ?? ''}
+                  chips={[region, `${fmtN(catResult.items_total)} предм.`, `${fmtN(catResult.lots_total)} лот.`]}
+                  onRefresh={handleRefresh}
+                />
+                {catResult.lots_total === 0
+                  ? <Alert severity="info" sx={{ m: 2 }}>В этой категории нет активных лотов</Alert>
+                  : <>
+                      {(showQualityFilter || showEnchantFilter) && (
+                        <LotsFiltersBar
+                          activeLots={activeLots}
+                          total={catResult.lots_total}
+                          shownCount={filteredSorted.length}
+                          qualityOptions={qualityOptions}
+                          enchantOptions={enchantOptions}
+                          showQuality={showQualityFilter}
+                          showEnchant={showEnchantFilter}
+                          filterQuality={filterQuality}
+                          filterEnchant={filterEnchant}
+                          onQuality={setFilterQuality}
+                          onEnchant={setFilterEnchant}
                         />
-                    }
-                  </CardContent>
-                </Card>
-              )}
-            </>
-          )}
+                      )}
+                      {filteredSorted.length === 0
+                        ? <Alert severity="info" sx={{ m: 2 }}>Нет лотов, соответствующих фильтрам</Alert>
+                        : <LotsTable
+                            lots={pageLots as CategoryLot[]}
+                            page={page} rowsPerPage={rowsPerPage} totalFiltered={filteredSorted.length}
+                            minBuyout={minBuyout} sortKey={sortKey} sortDir={sortDir} onSort={handleSort}
+                            onSetPage={setPage} onSetRowsPerPage={(v) => { setRowsPerPage(v); setPage(0) }}
+                            renderWl={(lot) => renderWlButton((lot as CategoryLot).item_id, lot)}
+                            showItemCol
+                          />}
+                    </>}
+              </>
+            )}
+          </Box>
+        )}
 
-          {/* ── Лоты по категории ─────────────────────────────────────── */}
-          {!result && !loading && selectedCategory && (
-            <>
-              {catLoading && <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}><CircularProgress /></Box>}
-              {catError  && <Alert severity="error">{catError}</Alert>}
-              {catResult && !catLoading && (
-                <Card>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                      <Box>
-                        <Typography variant="subtitle1" fontWeight={700}>
-                          {CATEGORY_TREE.flatMap(g => [g, ...(g.children ?? [])]).find(g => g.id === selectedCategory)?.label ?? selectedCategory}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {region} · Предметов: {catResult.items_total} · Лотов: {catResult.lots_total}
-                        </Typography>
-                      </Box>
-                      <Tooltip title="Обновить данные из API">
-                        <IconButton size="small" onClick={handleRefresh}><RefreshIcon fontSize="small" /></IconButton>
-                      </Tooltip>
-                    </Box>
+        {/* Пустое состояние без гейта: загрузка user или ничего не выбрано */}
+        {!hasResult && !showHistory && !user && (
+          <Box sx={{ background: tokens.bg1, border: `1px solid ${tokens.border}`, borderRadius: 1, p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} variant="rectangular" height={34} sx={{ bgcolor: tokens.bg2 }} />
+            ))}
+          </Box>
+        )}
+      </Box>
+    </Box>
+  )
+}
 
-                    {catResult.lots_total === 0
-                      ? <Alert severity="info">В этой категории нет активных лотов</Alert>
-                      : <>
-                          {(showQualityFilter || showEnchantFilter) && <FiltersBar total={catResult.lots_total} />}
-                          {filteredSorted.length === 0
-                            ? <Alert severity="info">Нет лотов, соответствующих фильтрам</Alert>
-                            : <LotsTable
-                                lots={pageLots as CategoryLot[]}
-                                page={page}
-                                rowsPerPage={rowsPerPage}
-                                totalFiltered={filteredSorted.length}
-                                sortKey={sortKey}
-                                sortDir={sortDir}
-                                onSort={handleSort}
-                                SortArrow={SortArrow}
-                                onSetPage={setPage}
-                                onSetRowsPerPage={(v) => { setRowsPerPage(v); setPage(0) }}
-                                renderWl={(lot, idx) => (
-                                  <WlButton
-                                    itemId={(lot as CategoryLot).item_id}
-                                    lot={lot}
-                                    key={idx}
-                                  />
-                                )}
-                                showItemCol
-                              />
-                          }
-                        </>
-                    }
-                  </CardContent>
-                </Card>
-              )}
-            </>
+// ─── Шапка результата (.pg-h с иконкой, чипами, обновлением, кэш-чипом) ───────
+
+function ResultHeader({
+  icon, title, subtitle, itemId, chips, fromCache, cacheNote, onRefresh,
+}: {
+  icon?: JSX.Element
+  title: string
+  subtitle?: string
+  itemId?: string
+  chips: string[]
+  fromCache?: boolean
+  cacheNote?: string
+  onRefresh: () => void
+}) {
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '16px', padding: '14px 18px 12px' }}>
+      {icon}
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: '9px', flexWrap: 'wrap' }}>
+          <Typography component="h1" sx={{ fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f26, letterSpacing: '0.03em', lineHeight: 1 }}>{title}</Typography>
+          {subtitle && <Box component="span" sx={{ fontSize: fs.f12, color: tokens.text2 }}>{subtitle}</Box>}
+          {itemId && (
+            <Box component="span" className="mono" sx={{ fontSize: fs.f11, color: tokens.text2, border: `1px solid ${tokens.border}`, padding: '1px 6px', borderRadius: 1 }}>{itemId}</Box>
           )}
         </Box>
+        <Box sx={{ display: 'flex', gap: '6px', mt: '7px', flexWrap: 'wrap' }}>
+          {chips.map((c, i) => (
+            <Chip key={i} label={c} size="small" className={i === 0 && !itemId ? undefined : 'mono'} />
+          ))}
+        </Box>
       </Box>
+      <Box sx={{ flex: 'none', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Tooltip title="Обновить данные из API">
+          <IconButton size="small" onClick={onRefresh} aria-label="Обновить"><RefreshIcon fontSize="small" /></IconButton>
+        </Tooltip>
+        {fromCache != null && (
+          <Tooltip title={cacheNote ?? ''}>
+            <Chip
+              label={fromCache ? 'из кэша' : 'свежие данные'}
+              size="small"
+              color={fromCache ? 'default' : 'success'}
+              className="mono"
+              icon={<InfoOutlinedIcon />}
+            />
+          </Tooltip>
+        )}
+      </Box>
+    </Box>
+  )
+}
+
+// ─── Панель фильтров (вынесена из тела — не ремаунтится, §5.3) ────────────────
+
+function LotsFiltersBar({
+  activeLots, total, shownCount, qualityOptions, enchantOptions,
+  showQuality, showEnchant, filterQuality, filterEnchant, onQuality, onEnchant,
+}: {
+  activeLots: { quality_name: string | null; enchant_level: number | null }[]
+  total: number
+  shownCount: number
+  qualityOptions: string[]
+  enchantOptions: number[]
+  showQuality: boolean
+  showEnchant: boolean
+  filterQuality: string
+  filterEnchant: string
+  onQuality: (v: string) => void
+  onEnchant: (v: string) => void
+}) {
+  const dirty = filterQuality !== 'all' || filterEnchant !== 'all'
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '0 18px 12px', flexWrap: 'wrap' }}>
+      {showQuality && (
+        <FormControl size="small" sx={{ minWidth: 170 }}>
+          <InputLabel>Качество</InputLabel>
+          <Select value={filterQuality} label="Качество" onChange={(e) => onQuality(e.target.value)}>
+            <MenuItem value="all">Все качества ({total})</MenuItem>
+            {qualityOptions.map((q) => {
+              const count = activeLots.filter((l) => l.quality_name === q).length
+              return <MenuItem key={q} value={q}>{q} ({count})</MenuItem>
+            })}
+          </Select>
+        </FormControl>
+      )}
+      {showEnchant && (
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel>Заточка</InputLabel>
+          <Select value={filterEnchant} label="Заточка" onChange={(e) => onEnchant(e.target.value)}>
+            <MenuItem value="all">Все заточки</MenuItem>
+            {enchantOptions.map((e) => {
+              const count = activeLots.filter((l) => l.enchant_level === e).length
+              return <MenuItem key={e} value={String(e)}>{e === 0 ? `Не точёный (${count})` : `+${e} (${count})`}</MenuItem>
+            })}
+          </Select>
+        </FormControl>
+      )}
+      {dirty && (
+        <Chip label="Сбросить" size="small" onClick={() => { onQuality('all'); onEnchant('all') }} sx={{ cursor: 'pointer' }} />
+      )}
+      {shownCount !== activeLots.length && (
+        <Box component="span" className="mono" sx={{ ml: 'auto', fontSize: fs.f11, color: tokens.text2 }}>
+          показано: <Box component="b" sx={{ color: tokens.text1, fontWeight: 500 }}>{fmtN(shownCount)}</Box> из {fmtN(activeLots.length)}
+        </Box>
+      )}
     </Box>
   )
 }
@@ -797,119 +776,111 @@ interface LotRow {
   quality_value: number | null
 }
 
+const SORTABLE: { key: SortKey; label: string }[] = [
+  { key: 'buyout_price',    label: 'Цена выкупа' },
+  { key: 'amount',          label: 'Количество'  },
+  { key: 'price_per_unit',  label: 'Цена / шт'  },
+]
+
+const thxSx = {
+  padding: '6px 10px',
+  fontFamily: tokens.fontHead,
+  fontWeight: 600,
+  fontSize: fs.f105,
+  letterSpacing: '0.07em',
+  textTransform: 'uppercase',
+  color: tokens.text2,
+  background: tokens.bg2,
+  borderBottom: `1px solid ${tokens.borderHi}`,
+} as const
+
 function LotsTable({
-  lots, page, rowsPerPage, totalFiltered, sortKey: _sortKey, sortDir: _sortDir, onSort, SortArrow,
+  lots, page, rowsPerPage, totalFiltered, minBuyout, sortKey, sortDir, onSort,
   onSetPage, onSetRowsPerPage, renderWl, showItemCol,
 }: {
   lots: LotRow[]
   page: number
   rowsPerPage: number
   totalFiltered: number
+  minBuyout: number
   sortKey: SortKey
   sortDir: SortDir
   onSort: (k: SortKey) => void
-  SortArrow: (props: { k: SortKey }) => JSX.Element
   onSetPage: (p: number) => void
   onSetRowsPerPage: (v: number) => void
-  renderWl: (lot: LotRow, idx: number) => JSX.Element
+  renderWl: (lot: LotRow) => JSX.Element
   showItemCol: boolean
 }) {
+  const from = page * rowsPerPage
+  const to = Math.min(totalFiltered, from + rowsPerPage)
+
   return (
     <>
       <TableContainer>
         <Table size="small">
           <TableHead>
             <TableRow>
-              {showItemCol && <TableCell>Предмет</TableCell>}
-              {LOT_COLS.map(({ key, label }) => (
-                <TableCell
-                  key={label}
-                  onClick={key ? () => onSort(key) : undefined}
-                  sx={{
-                    cursor: key ? 'pointer' : 'default',
-                    userSelect: 'none',
-                    whiteSpace: 'nowrap',
-                    '&:hover': key ? { bgcolor: 'action.hover' } : undefined,
-                  }}
-                >
-                  <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
-                    {label === 'Осталось' ? (
-                      <>
-                        {label}
-                        <Tooltip title="Лоты с остатком менее 2 часов помечены как истекающие">
-                          <InfoOutlinedIcon sx={{ fontSize: 13, color: 'text.disabled', ml: 0.5 }} />
-                        </Tooltip>
-                      </>
-                    ) : label}
-                    {key && <SortArrow k={key} />}
-                  </Box>
-                </TableCell>
+              {showItemCol && <TableCell component="th" sx={{ ...thxSx, textAlign: 'left' }}>Предмет</TableCell>}
+              {SORTABLE.map(({ key, label }) => (
+                <SortHeader key={key} label={label} active={sortKey === key} direction={sortDir} onSort={() => onSort(key)} />
               ))}
-              <TableCell sx={{ width: 40 }} />
+              <TableCell component="th" sx={thxSx}>Качество</TableCell>
+              <SortHeader label="Заточка" active={sortKey === 'enchant_level'} direction={sortDir} onSort={() => onSort('enchant_level')} />
+              <SortHeader
+                label={
+                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    Осталось
+                    <Tooltip title="Лоты с остатком менее 2 часов помечены как истекающие">
+                      <InfoOutlinedIcon sx={{ fontSize: 12 }} />
+                    </Tooltip>
+                  </Box>
+                }
+                active={sortKey === 'hours_remaining'} direction={sortDir} onSort={() => onSort('hours_remaining')}
+              />
+              <TableCell component="th" sx={thxSx}>Статус</TableCell>
+              <TableCell component="th" sx={{ ...thxSx, width: 48 }} />
             </TableRow>
           </TableHead>
           <TableBody>
             {lots.map((lot, i) => {
-              const globalIdx = page * rowsPerPage + i
+              const isBest = lot.buyout_price === minBuyout
               return (
-                <TableRow key={globalIdx} hover sx={{ opacity: lot.is_expiring ? 0.55 : 1 }}>
+                <TableRow key={from + i} hover sx={{ opacity: lot.is_expiring ? 0.6 : 1 }}>
                   {showItemCol && (
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                        <Avatar
-                          src={iconUrl(lot.icon_path ?? null) ?? undefined}
-                          variant="rounded"
-                          sx={{ width: 24, height: 24, bgcolor: 'background.default', flexShrink: 0 }}
-                        >
-                          {!(lot.icon_path) && ((lot.item_name_ru?.[0] ?? lot.item_name_en?.[0] ?? '?'))}
-                        </Avatar>
-                        <Typography variant="body2" noWrap sx={{ maxWidth: 160 }}>
+                    <TableCell sx={{ textAlign: 'left', fontFamily: tokens.fontUi }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: '9px', minWidth: 0 }}>
+                        <ItemIcon src={iconUrl(lot.icon_path ?? null) ?? undefined} name={lot.item_name_ru ?? lot.item_name_en ?? lot.item_id ?? '?'} />
+                        <Typography noWrap sx={{ fontSize: fs.f125, color: tokens.text0, maxWidth: 160 }}>
                           {lot.item_name_ru || lot.item_name_en || lot.item_id}
                         </Typography>
                       </Box>
                     </TableCell>
                   )}
-                  <TableCell>
-                    <Typography variant="body2" fontWeight={600}
-                      color={globalIdx === 0 && !lot.is_expiring ? 'primary.main' : 'inherit'}>
-                      {formatPrice(lot.buyout_price)}
-                    </Typography>
+                  <TableCell sx={isBest ? { color: tokens.goldHighlight, fontWeight: 700, textShadow: `0 0 14px ${tokens.goldGlow}` } : undefined}>
+                    {fmtP(lot.buyout_price)}
                   </TableCell>
-                  <TableCell>{lot.amount} шт.</TableCell>
-                  <TableCell>{formatPrice(Math.floor(lot.buyout_price / lot.amount))}</TableCell>
-                  <TableCell>
-                    {lot.quality_name && QUALITY_CHIP_COLOR[lot.quality_name]
-                      ? <Chip
-                          label={lot.quality_name}
-                          size="small"
-                          variant="outlined"
-                          sx={{
-                            fontSize: '0.65rem',
-                            height: 18,
-                            borderColor: QUALITY_CHIP_COLOR[lot.quality_name],
-                            color: QUALITY_CHIP_COLOR[lot.quality_name],
-                          }}
-                        />
-                      : <Typography variant="caption" color="text.disabled">—</Typography>}
+                  <TableCell>{fmtN(lot.amount)}</TableCell>
+                  <TableCell>{fmtP(Math.floor(lot.buyout_price / lot.amount))}</TableCell>
+                  <TableCell sx={{ textAlign: 'left' }}>
+                    {lot.quality_name
+                      ? <QualityChip color={qualityKeyByValue(lot.quality_value)} label={lot.quality_name} />
+                      : <Box component="span" sx={{ color: tokens.text2 }}>—</Box>}
                   </TableCell>
-                  <TableCell>
-                    {lot.enchant_level === 0
-                      ? <Chip label="Не точёный" size="small" variant="outlined" sx={{ color: 'text.secondary' }} />
-                      : lot.enchant_level != null
-                        ? <Chip label={`+${lot.enchant_level}`} size="small" color="primary" variant="outlined" />
-                        : <Typography variant="caption" color="text.disabled">—</Typography>}
+                  <TableCell sx={{ color: lot.enchant_level ? tokens.text0 : tokens.text2 }}>
+                    {lot.enchant_level == null ? '—' : lot.enchant_level === 0 ? 'не точёный' : `+${lot.enchant_level}`}
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={{ color: lot.is_expiring ? tokens.warning : tokens.text2 }}>
                     {lot.hours_remaining != null ? `${lot.hours_remaining.toFixed(1)} ч` : '—'}
                   </TableCell>
-                  <TableCell>
-                    {lot.is_expiring
-                      ? <Chip label="Истекает" size="small" color="error"    variant="outlined" />
-                      : <Chip label="Активен"  size="small" color="success"  variant="outlined" />}
+                  <TableCell sx={{ textAlign: 'left' }}>
+                    <Chip
+                      label={lot.is_expiring ? 'Истекает' : 'Активен'}
+                      size="small"
+                      color={lot.is_expiring ? 'warning' : 'success'}
+                      className="mono"
+                    />
                   </TableCell>
-                  <TableCell sx={{ p: '4px 8px' }}>
-                    {renderWl(lot, i)}
-                  </TableCell>
+                  <TableCell sx={{ p: '4px 8px', textAlign: 'right' }}>{renderWl(lot)}</TableCell>
                 </TableRow>
               )
             })}
@@ -917,17 +888,51 @@ function LotsTable({
         </Table>
       </TableContainer>
 
-      <TablePagination
-        component="div"
-        count={totalFiltered}
-        page={page}
-        onPageChange={(_, p) => onSetPage(p)}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={(e) => onSetRowsPerPage(parseInt(e.target.value, 10))}
-        rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
-        labelRowsPerPage="Строк:"
-        labelDisplayedRows={({ from, to, count }) => `${from}–${to} из ${count}`}
-      />
+      {/* .tfoot-line — реальная пагинация: диапазон + строк на страницу */}
+      <Box
+        sx={{
+          display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px',
+          padding: '8px 12px 10px', borderTop: `1px solid ${tokens.border}`,
+          fontFamily: tokens.fontMono, fontSize: fs.f11, color: tokens.text2, fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        <PgBtn label="‹" ariaLabel="Предыдущая страница" disabled={page === 0} onClick={() => onSetPage(page - 1)} />
+        <Box component="span">{fmtN(from + 1)}–{fmtN(to)} из {fmtN(totalFiltered)}</Box>
+        <PgBtn label="›" ariaLabel="Следующая страница" disabled={to >= totalFiltered} onClick={() => onSetPage(page + 1)} />
+        <Box component="span">· строк на стр:</Box>
+        <Select
+          value={rowsPerPage}
+          onChange={(e) => onSetRowsPerPage(Number(e.target.value))}
+          size="small"
+          className="mono"
+          aria-label="Строк на страницу"
+          sx={{ height: 24, background: tokens.bg2, fontFamily: tokens.fontMono, fontSize: fs.f11, color: tokens.text1, '& .MuiSelect-select': { py: 0 } }}
+        >
+          {ROWS_PER_PAGE_OPTIONS.map((v) => <MenuItem key={v} value={v} className="mono">{v}</MenuItem>)}
+        </Select>
+      </Box>
     </>
+  )
+}
+
+function PgBtn({ label, ariaLabel, disabled, onClick }: { label: string; ariaLabel: string; disabled: boolean; onClick: () => void }) {
+  return (
+    <Box
+      component="button"
+      type="button"
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={onClick}
+      sx={{
+        width: 24, height: 24, display: 'inline-grid', placeItems: 'center',
+        color: tokens.text1, border: `1px solid ${tokens.border}`, borderRadius: 1, cursor: 'pointer',
+        background: 'none',
+        transition: `color ${tokens.motion.fast}ms ${tokens.motion.ease}, border-color ${tokens.motion.fast}ms ${tokens.motion.ease}, background-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
+        '&:hover': { color: tokens.text0, borderColor: tokens.borderHi, background: tokens.bg2 },
+        '&:disabled': { opacity: 0.35, cursor: 'default', color: tokens.text2, background: 'transparent', borderColor: tokens.border },
+      }}
+    >
+      {label}
+    </Box>
   )
 }
