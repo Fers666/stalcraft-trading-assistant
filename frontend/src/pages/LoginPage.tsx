@@ -1,7 +1,27 @@
 import { useState } from 'react'
-import { useNavigate, Link as RouterLink } from 'react-router-dom'
-import { Box, Card, CardContent, TextField, Button, Typography, Alert, Link, alpha } from '@mui/material'
+import { useNavigate } from 'react-router-dom'
+import { Box, Button, Alert } from '@mui/material'
 import { useAuthStore } from '../store/authStore'
+import { tokens, fs } from '../theme'
+import DiamondLogo from '../components/ui/DiamondLogo'
+
+const T = tokens
+
+// .kick — киккер-лейбл над инпутом (base.css:37). Прямой <label> ради htmlFor.
+const kickSx = {
+  display: 'block', mb: '5px', fontFamily: T.fontHead, fontWeight: 600, fontSize: fs.f10,
+  letterSpacing: '0.16em', textTransform: 'uppercase', color: T.text2,
+} as const
+
+// .input — инпут формы (bg2, border, r2, фокус → золотая рамка). base.css:255-260
+const inputSx = {
+  height: 36, width: '100%', px: '9px', background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 1,
+  color: T.text0, font: 'inherit', fontSize: fs.f125,
+  transition: `border-color ${T.motion.fast}ms ${T.motion.ease}`,
+  '&::placeholder': { color: T.text2 },
+  '&:hover': { borderColor: T.borderHi },
+  '&:focus': { outline: 'none', borderColor: T.goldLine },
+} as const
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -19,11 +39,16 @@ export default function LoginPage() {
       await login(email, password)
       navigate('/app/monitoring')
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status
-      if (status === 403) {
+      const ax = err as { response?: { status?: number } }
+      if (!ax.response) {
+        // нет ответа сервера — сетевая ошибка (offline / таймаут / CORS / 5xx без тела)
+        setError('Нет связи с сервером — проверь подключение и попробуй снова')
+      } else if (ax.response.status === 403) {
         setError('Аккаунт ожидает подтверждения администратора')
-      } else {
+      } else if (ax.response.status === 401 || ax.response.status === 400) {
         setError('Неверный email или пароль')
+      } else {
+        setError('Ошибка сервера — попробуй позже')
       }
     } finally {
       setLoading(false)
@@ -31,110 +56,91 @@ export default function LoginPage() {
   }
 
   return (
-    <Box sx={{
-      display: 'flex', justifyContent: 'center', alignItems: 'center',
-      minHeight: '100vh', bgcolor: 'background.default', position: 'relative',
-      overflow: 'hidden',
-    }}>
-      {/* Subtle gold top glow */}
-      <Box sx={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: 280,
-        pointerEvents: 'none',
-        background: 'radial-gradient(ellipse 50% 40% at 50% -10%, rgba(217,175,55,0.06) 0%, transparent 70%)',
+    <Box sx={{ minHeight: '100vh', bgcolor: T.bg0, position: 'relative' }}>
+
+      {/* ── фоновый слой .pub-bg: ромб-сетка + верхнее золотое свечение ──────── */}
+      <Box aria-hidden="true" sx={{
+        position: 'fixed', inset: 0, zIndex: -1, pointerEvents: 'none',
+        background: [
+          `radial-gradient(ellipse 62% 44% at 50% -14%, ${T.goldDim}, transparent 68%)`,
+          `repeating-linear-gradient(45deg, ${T.grid} 0 1px, transparent 1px 44px)`,
+          `repeating-linear-gradient(-45deg, ${T.grid} 0 1px, transparent 1px 44px)`,
+        ].join(','),
       }} />
 
-      <Card sx={{ width: 440, p: 1, position: 'relative', zIndex: 1 }}>
-        {/* Gold accent bar */}
-        <Box sx={{
-          height: 2,
-          background: 'linear-gradient(90deg, #B78A2A 0%, #D9AF37 50%, #F2C94C 100%)',
-          borderRadius: '18px 18px 0 0',
-          mx: -1, mt: -1, mb: 0,
-        }} />
+      {/* ── .lg-wrap: центрированная карточка + системная строка ─────────────── */}
+      <Box component="main" sx={{
+        minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        gap: '14px', p: '48px 16px', position: 'relative',
+      }}>
+        <Box sx={{ width: 440, maxWidth: '100%', background: T.bg1, border: `1px solid ${T.border}`, borderRadius: 1, overflow: 'hidden' }}>
+          {/* золотая акцентная полоса .lg-bar */}
+          <Box aria-hidden="true" sx={{ height: 2, background: `linear-gradient(90deg, ${T.goldSoft}, ${T.gold} 50%, ${T.goldAccent})` }} />
 
-        <CardContent sx={{ pt: 3 }}>
-          {/* Logo */}
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
-            <Box sx={{ width: 34, height: 34 }}>
-              <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
-                <defs>
-                  <linearGradient id="login-gold" x1="0" y1="1" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#B78A2A" />
-                    <stop offset="55%" stopColor="#D9AF37" />
-                    <stop offset="100%" stopColor="#F2C94C" />
-                  </linearGradient>
-                  <clipPath id="login-diamond">
-                    <polygon points="17,1 33,17 17,33 1,17" />
-                  </clipPath>
-                </defs>
-                <polygon points="17,1 33,17 17,33 1,17" stroke="url(#login-gold)" strokeWidth="1.5" fill="none" />
-                <g clipPath="url(#login-diamond)">
-                  <rect x="6" y="22" width="4" height="9" fill="url(#login-gold)" opacity="0.55" />
-                  <rect x="11.5" y="18" width="4" height="13" fill="url(#login-gold)" opacity="0.7" />
-                  <rect x="17" y="13" width="4" height="18" fill="url(#login-gold)" opacity="0.85" />
-                  <rect x="22.5" y="8" width="4" height="23" fill="url(#login-gold)" />
-                </g>
-              </svg>
+          <Box sx={{ p: '26px 28px 24px' }}>
+            {/* бренд .lg-brand */}
+            <Box
+              component="a" href="/" aria-label="SC Trading — на главную"
+              onClick={(e: React.MouseEvent) => { e.preventDefault(); navigate('/') }}
+              sx={{ display: 'flex', alignItems: 'center', gap: '10px', textDecoration: 'none', mb: '22px' }}
+            >
+              <DiamondLogo size={30} />
+              <Box sx={{ lineHeight: 1.02, display: 'flex', flexDirection: 'column' }}>
+                <Box component="b" sx={{ fontFamily: T.fontHead, fontWeight: 700, fontSize: fs.f15, letterSpacing: '0.08em', color: T.text0 }}>SC TRADING</Box>
+                <Box component="i" sx={{ fontStyle: 'normal', fontFamily: T.fontHead, fontWeight: 600, fontSize: fs.f10, letterSpacing: '0.24em', color: T.text2, textTransform: 'uppercase' }}>Zone Terminal</Box>
+              </Box>
             </Box>
-            <Box>
-              <Typography sx={{
-                fontFamily: '"Rajdhani", sans-serif',
-                fontWeight: 700, fontSize: '1.1rem',
-                color: '#F5F5F5', letterSpacing: '0.08em', lineHeight: 1,
-              }}>
-                SC TRADING
-              </Typography>
-              <Typography sx={{ fontSize: '0.5rem', color: '#7C7C7C', letterSpacing: '0.14em', lineHeight: 1 }}>
-                ZONE MARKET TERMINAL
-              </Typography>
+
+            <Box component="h1" sx={{ fontFamily: T.fontHead, fontWeight: 700, fontSize: fs.f26, letterSpacing: '0.04em', lineHeight: 1.05, color: T.text0, mb: '20px' }}>
+              Вход в систему
             </Box>
-          </Box>
 
-          <Typography sx={{
-            fontFamily: '"Rajdhani", sans-serif',
-            fontWeight: 700, fontSize: '1.35rem', letterSpacing: '0.04em',
-            color: '#F5F5F5', mb: 0.5,
-          }}>
-            Вход в систему
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
-            SC Trading анализирует аукцион STALZONE: показывает реальную цену предмета по истории продаж,
-            прогнозирует время продажи и подсказывает лучшие часы для покупки и продажи. Результат — ты
-            быстрее находишь выгодные лоты и зарабатываешь больше. Зарегистрируйся — доступ на базовом
-            тарифе откроется сразу.
-          </Typography>
+            {error && <Alert severity="error" sx={{ mb: '14px' }}>{error}</Alert>}
 
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            {/* форма .lg-form (без питч-абзаца и без демо-автозаполнения) */}
+            <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <Box>
+                <Box component="label" htmlFor="lg-email" sx={kickSx}>Email</Box>
+                <Box
+                  component="input" id="lg-email" type="email" required
+                  autoComplete="username" spellCheck={false}
+                  value={email} onChange={(ev: React.ChangeEvent<HTMLInputElement>) => setEmail(ev.target.value)}
+                  sx={inputSx}
+                />
+              </Box>
+              <Box>
+                <Box component="label" htmlFor="lg-pass" sx={kickSx}>Пароль</Box>
+                <Box
+                  component="input" id="lg-pass" type="password" required
+                  autoComplete="current-password"
+                  value={password} onChange={(ev: React.ChangeEvent<HTMLInputElement>) => setPassword(ev.target.value)}
+                  sx={inputSx}
+                />
+              </Box>
+              <Button type="submit" variant="contained" fullWidth disabled={loading} sx={{ mt: '4px', height: 40 }}>
+                {loading ? 'Подключение…' : 'Войти'}
+              </Button>
+            </Box>
 
-          <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField
-              label="Email" type="email"
-              value={email} onChange={(e) => setEmail(e.target.value)}
-              required fullWidth
-            />
-            <TextField
-              label="Пароль" type="password"
-              value={password} onChange={(e) => setPassword(e.target.value)}
-              required fullWidth
-            />
-            <Button type="submit" variant="contained" fullWidth size="large" disabled={loading} sx={{ mt: 0.5 }}>
-              {loading ? 'Вход...' : 'Войти'}
-            </Button>
-          </Box>
-
-          <Box sx={{
-            mt: 2.5, pt: 2, borderTop: '1px solid rgba(255,255,255,0.06)',
-            textAlign: 'center',
-          }}>
-            <Typography variant="body2" color="text.secondary">
+            {/* альтернатива .lg-alt */}
+            <Box sx={{ mt: '20px', pt: '16px', borderTop: `1px solid ${T.border}`, textAlign: 'center', fontSize: fs.f125, color: T.text1 }}>
               Нет аккаунта?{' '}
-              <Link component={RouterLink} to="/register" sx={{ color: 'primary.light', textDecorationColor: alpha('#F2C94C', 0.4) }}>
+              <Box
+                component="a" href="/register"
+                onClick={(ev: React.MouseEvent) => { ev.preventDefault(); navigate('/register') }}
+                sx={{ color: T.goldAccent, textDecoration: 'none', borderBottom: `1px solid ${T.goldLine}`, transition: `color ${T.motion.fast}ms ${T.motion.ease}, border-color ${T.motion.fast}ms ${T.motion.ease}`, '&:hover': { color: T.goldHighlight, borderColor: T.goldHighlight } }}
+              >
                 Зарегистрироваться
-              </Link>
-            </Typography>
+              </Box>
+            </Box>
           </Box>
-        </CardContent>
-      </Card>
+        </Box>
+
+        {/* системная строка .lg-sys */}
+        <Box component="p" className="mono" sx={{ m: 0, fontSize: fs.f105, letterSpacing: '0.06em', color: T.text2 }}>
+          SC TRADING TERMINAL · защищённое соединение
+        </Box>
+      </Box>
     </Box>
   )
 }
