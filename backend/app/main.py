@@ -11,7 +11,7 @@ from app.api.v1.endpoints.items import router as items_router
 from app.api.v1.endpoints.lots import router as lots_router
 from app.api.v1.endpoints.monitoring import router as monitoring_router
 from app.api.v1.endpoints.settings import router as settings_router
-from app.api.v1.endpoints.inventory import router as inventory_router
+from app.api.v1.endpoints.buy_sniper import router as buy_sniper_router
 from app.api.v1.endpoints.admin import router as admin_router
 from app.api.v1.endpoints.market_radar import router as market_radar_router
 from app.api.v1.endpoints.telegram import router as telegram_router, register_webhook
@@ -49,7 +49,7 @@ app.include_router(items_router, prefix="/api/v1")
 app.include_router(lots_router, prefix="/api/v1")
 app.include_router(monitoring_router, prefix="/api/v1")
 app.include_router(settings_router, prefix="/api/v1")
-app.include_router(inventory_router, prefix="/api/v1")
+app.include_router(buy_sniper_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(market_radar_router, prefix="/api/v1")
 app.include_router(telegram_router, prefix="/api/v1")

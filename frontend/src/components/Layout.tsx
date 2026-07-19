@@ -12,7 +12,7 @@ import { EmissionWidget } from './EmissionWidget'
 
 const NAV_H = tokens.navH // 48
 
-type GateKey = 'auction_access' | 'market_radar'
+type GateKey = 'auction_access' | 'market_radar' | 'buy_sniper'
 
 interface NavItem {
   label: string
@@ -25,7 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Каталог',     to: '/app/catalog' },
   { label: 'Лоты',        to: '/app/lots', gateKey: 'auction_access' },
   { label: 'Лента',       to: '/app/feed' },
-  { label: 'Склад',       to: '/app/inventory' },
+  { label: 'Закупки',     to: '/app/buy-sniper', gateKey: 'buy_sniper' },
   { label: 'Новости',     to: '/app/news' },
   { label: 'Радар рынка', to: '/app/market-radar', gateKey: 'market_radar' },
 ]
@@ -33,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
 const GATE_TOOLTIP: Record<GateKey, string> = {
   auction_access: `Доступно на тарифе ${TIER_LABELS.advanced_plus}`,
   market_radar:   'Доступно как отдельный аддон «Радар рынка»',
+  buy_sniper:     `Доступно на тарифах ${TIER_LABELS.advanced} / ${TIER_LABELS.advanced_plus} / ${TIER_LABELS.advanced_max}`,
 }
 
 // stroke-иконки .ibtn (shell.js:101-106)
@@ -134,7 +135,9 @@ function AppNav() {
           const locked = !!gateKey && !user?.is_admin && (
             gateKey === 'market_radar'
               ? !user?.has_market_radar_addon
-              : user?.auction_access === false
+              : gateKey === 'buy_sniper'
+                ? user?.buy_sniper_access === false
+                : user?.auction_access === false
           )
 
           if (locked) {

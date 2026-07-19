@@ -33,7 +33,7 @@ class User(Base):
 
     settings    = relationship("UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
     watchlist   = relationship("UserWatchlist", back_populates="user", cascade="all, delete-orphan")
-    inventory   = relationship("UserInventory", back_populates="user", cascade="all, delete-orphan")
+    buy_alerts  = relationship("BuyAlert", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserSettings(Base):
@@ -107,6 +107,7 @@ class UserWatchlist(Base):
 
     user = relationship("User", back_populates="watchlist")
     item = relationship("MasterItem")
+    buy_alert = relationship("BuyAlert", back_populates="watchlist", uselist=False, cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_watchlist_active", "user_id", "is_active", "region"),
@@ -254,46 +255,26 @@ class PurchaseRecommendation(Base):
     )
 
 
-# ─── Внутренний склад ────────────────────────────────────────────────────────
+# ─── Закупки (Buy Sniper) ────────────────────────────────────────────────────
 
-class UserInventory(Base):
-    """Товары, которые пользователь уже купил и хочет продать."""
-    __tablename__ = "user_inventory"
+class BuyAlert(Base):
+    """
+    Цель закупки: порог цены для записи Избранного. Когда самый дешёвый
+    подходящий лот на рынке падает ≤ target_price — бот шлёт Telegram-алерт.
+    Одна закупка = одна запись watchlist (UNIQUE watchlist_id).
+    """
+    __tablename__ = "buy_alerts"
 
-    id                      = Column(Integer, primary_key=True)
-    user_id                 = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    item_id                 = Column(String(50), nullable=False)
-    region                  = Column(String(10), default="EU")
-    quantity                = Column(Integer, nullable=False)
-    avg_buy_price_per_unit  = Column(BigInteger)
-    added_at                = Column(DateTime(timezone=True), server_default=func.now())
-    last_updated            = Column(DateTime(timezone=True), onupdate=func.now())
+    id            = Column(Integer, primary_key=True)
+    user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    watchlist_id  = Column(Integer, ForeignKey("user_watchlist.id", ondelete="CASCADE"), nullable=False, unique=True)
+    target_price  = Column(BigInteger, nullable=False)   # порог ₽/шт: цена ≤ target → уведомить
+    is_active     = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at    = Column(DateTime(timezone=True), onupdate=func.now())
 
-    user              = relationship("User", back_populates="inventory")
-    sell_recommendations = relationship("SellRecommendation", back_populates="inventory_item", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        Index("uq_inventory_user_item", "user_id", "item_id", "region", unique=True),
-    )
-
-
-class SellRecommendation(Base):
-    __tablename__ = "sell_recommendations"
-
-    id                          = Column(Integer, primary_key=True)
-    inventory_id                = Column(Integer, ForeignKey("user_inventory.id", ondelete="CASCADE"), nullable=False)
-    recommended_price_per_unit  = Column(BigInteger, nullable=False)
-    recommended_batch_size      = Column(Integer)
-    expected_wait_hours         = Column(Numeric(8, 2))
-    expected_revenue            = Column(BigInteger)
-    expected_profit             = Column(BigInteger)
-    expected_profit_percent     = Column(Numeric(5, 2))
-    sell_now_vs_wait_benefit    = Column(Numeric(5, 2))
-    confidence_score            = Column(Numeric(3, 2))
-    created_at                  = Column(DateTime(timezone=True), server_default=func.now())
-    is_viewed                   = Column(Boolean, default=False)
-
-    inventory_item = relationship("UserInventory", back_populates="sell_recommendations")
+    user      = relationship("User", back_populates="buy_alerts")
+    watchlist = relationship("UserWatchlist", back_populates="buy_alert")
 
 
 # ─── Логирование и очереди ────────────────────────────────────────────────────

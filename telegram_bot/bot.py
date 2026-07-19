@@ -33,8 +33,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 sys.path.insert(0, "/app")
-from app.models.models import EmissionEvent, User, UserWatchlist, UserSettings
-from app.services.profitable_lots import signals_key, NOTIF_DEDUP_TTL
+from app.models.models import EmissionEvent, User, UserWatchlist, UserSettings, BuyAlert, MasterItem
+from app.services.profitable_lots import signals_key, buymin_key, NOTIF_DEDUP_TTL
 from app.core.tiers import get_tier_limits
 
 logging.basicConfig(
@@ -261,6 +261,138 @@ async def notify_profitable_lots(app: Application) -> None:
                     continue
 
 
+def build_buy_message(
+    item_name: str,
+    quality_name: Optional[str],
+    enchant: Optional[int],
+    price_per_unit: int,
+    target_price: int,
+    amount: int,
+) -> str:
+    prefix = "[STAGE] " if IS_STAGE else ""
+
+    title_extra = ""
+    if quality_name:
+        title_extra += f" · {quality_name}"
+    if enchant is not None:
+        enchant_str = "Не точёный" if enchant == 0 else f"+{enchant}"
+        title_extra += f" · {enchant_str}"
+
+    return (
+        f"{prefix}🛒 <b>Дешёвый лот! {item_name}{title_extra}</b>\n\n"
+        f"<b>{fmt(price_per_unit)} ₽/шт</b> ≤ ваш порог {fmt(target_price)} ₽/шт\n"
+        f"📦 Доступно: <b>{amount}</b> шт"
+    )
+
+
+async def notify_buy_alerts(app: Application) -> None:
+    """
+    Buy Sniper: шлёт уведомление, когда самый дешёвый подходящий лот на рынке
+    падает ≤ порога закупки.
+
+    Триггер-цена читается из Redis-ключа buymin:{...}, который пишет коллектор
+    после каждого сбора (profitable_lots.cheapest_matching_lot). Гейт рассылки —
+    тариф buy_sniper_notifications (Продвинутая+/Макс), в отличие от прибыльных
+    лотов, которые гейтятся telegram_notifications.
+    """
+    r = await get_redis()
+
+    async with SessionLocal() as db:
+        rows = (await db.execute(
+            select(User, UserSettings)
+            .join(UserSettings, UserSettings.user_id == User.id, isouter=True)
+            .where(
+                User.telegram_chat_id.isnot(None),
+                User.is_active == True,
+            )
+        )).all()
+
+        users_to_notify = [
+            (user, us) for user, us in rows
+            if (us is None or us.notify_telegram)
+            and get_tier_limits(user).buy_sniper_notifications
+        ]
+        if not users_to_notify:
+            return
+
+        for user, _ in users_to_notify:
+            alerts = (await db.execute(
+                select(BuyAlert, UserWatchlist)
+                .join(UserWatchlist, UserWatchlist.id == BuyAlert.watchlist_id)
+                .where(
+                    BuyAlert.user_id == user.id,
+                    BuyAlert.is_active == True,
+                    UserWatchlist.is_active == True,
+                )
+            )).all()
+
+            for alert, entry in alerts:
+                try:
+                    raw = await r.get(buymin_key(
+                        user.id, entry.item_id, entry.region,
+                        entry.quality_filter, entry.enchant_filter,
+                    ))
+                    if not raw:
+                        continue
+
+                    try:
+                        cheapest = json.loads(raw)
+                    except Exception:
+                        continue
+
+                    price = cheapest.get("price_per_unit")
+                    if price is None or price > alert.target_price:
+                        continue
+
+                    start_time = cheapest.get("start_time", "")
+                    dedup = (
+                        f"tg_buy_sent:{user.id}:{entry.item_id}:{entry.region}"
+                        f":{entry.quality_filter}:{entry.enchant_filter}"
+                        f":{start_time}"
+                    )
+                    if await r.exists(dedup):
+                        continue
+
+                    master = (await db.execute(
+                        select(MasterItem).where(MasterItem.item_id == entry.item_id)
+                    )).scalar_one_or_none()
+                    item_name = (
+                        (master.name_ru or master.name_en or entry.item_id)
+                        if master else entry.item_id
+                    )
+
+                    msg = build_buy_message(
+                        item_name      = item_name,
+                        quality_name   = cheapest.get("quality_name"),
+                        enchant        = cheapest.get("enchant"),
+                        price_per_unit = price,
+                        target_price   = alert.target_price,
+                        amount         = cheapest.get("amount", 0),
+                    )
+
+                    try:
+                        await app.bot.send_message(
+                            chat_id=user.telegram_chat_id,
+                            text=msg,
+                            parse_mode="HTML",
+                        )
+                        await r.setex(dedup, NOTIF_DEDUP_TTL, "1")
+                        logger.info(
+                            f"Buy-alert notified user={user.id} item={entry.item_id} "
+                            f"price={price} target={alert.target_price}"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Failed to send buy-alert to chat_id={user.telegram_chat_id}: {e}"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"notify_buy_alerts: entry failed user={user.id} "
+                        f"item={entry.item_id}/{entry.region}: {e}"
+                    )
+                    continue
+
+
 async def notify_emission_events(app: Application) -> None:
     """
     Рассылает Telegram-уведомления о старте/завершении выброса.
@@ -381,6 +513,7 @@ async def _notifier_loop(app: Application) -> None:
     while True:
         try:
             await notify_profitable_lots(app)
+            await notify_buy_alerts(app)
             await notify_emission_events(app)
         except Exception as e:
             logger.error(f"Notifier loop error: {e}", exc_info=True)

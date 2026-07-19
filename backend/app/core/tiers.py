@@ -20,13 +20,15 @@ class TierLimits:
     telegram_notifications: bool
     stats_windows: tuple[str, ...]    # подмножество ("24h","48h","7d","30d")
     auction_access: bool
+    buy_sniper_access: bool           # доступ к разделу «Закупки» (видеть/добавлять/мониторить)
+    buy_sniper_notifications: bool    # Telegram-алерты при падении цены ниже порога
 
 
 TIERS: dict[str, TierLimits] = {
-    "base":          TierLimits(watchlist_limit=6,  telegram_notifications=False, stats_windows=("24h",),                    auction_access=False),
-    "advanced":      TierLimits(watchlist_limit=10, telegram_notifications=True,  stats_windows=("24h", "48h"),               auction_access=False),
-    "advanced_plus": TierLimits(watchlist_limit=20, telegram_notifications=True,  stats_windows=("24h", "48h", "7d"),         auction_access=True),
-    "advanced_max":  TierLimits(watchlist_limit=25, telegram_notifications=True,  stats_windows=("24h", "48h", "7d", "30d"),  auction_access=True),
+    "base":          TierLimits(watchlist_limit=6,  telegram_notifications=False, stats_windows=("24h",),                    auction_access=False, buy_sniper_access=False, buy_sniper_notifications=False),
+    "advanced":      TierLimits(watchlist_limit=10, telegram_notifications=True,  stats_windows=("24h", "48h"),               auction_access=False, buy_sniper_access=True,  buy_sniper_notifications=False),
+    "advanced_plus": TierLimits(watchlist_limit=20, telegram_notifications=True,  stats_windows=("24h", "48h", "7d"),         auction_access=True,  buy_sniper_access=True,  buy_sniper_notifications=True),
+    "advanced_max":  TierLimits(watchlist_limit=25, telegram_notifications=True,  stats_windows=("24h", "48h", "7d", "30d"),  auction_access=True,  buy_sniper_access=True,  buy_sniper_notifications=True),
 }
 
 DEFAULT_TIER = "base"
@@ -34,6 +36,7 @@ DEFAULT_TIER = "base"
 ADMIN_LIMITS = TierLimits(
     watchlist_limit=None, telegram_notifications=True,
     stats_windows=("24h", "48h", "7d", "30d"), auction_access=True,
+    buy_sniper_access=True, buy_sniper_notifications=True,
 )
 
 

@@ -317,34 +317,32 @@ watchlist по `(item_id, region)`, логируются текущие проф
 
 ---
 
-### `user_inventory` — склад пользователя
+### `buy_alerts` — закупки (Buy Sniper)
 
-Товары, которые пользователь купил и планирует продать.
+Раздел «Закупки // Buy Sniper» (заменил «Склад» 2026-07-19). Пользователь задаёт
+порог цены на товар из «Избранного»; когда самый дешёвый лот на рынке падает
+≤ порога — приходит Telegram-уведомление «пора покупать». Одна закупка = одна
+запись `user_watchlist` (привязка по UNIQUE FK → лимит закупок = число активных
+избранных). Раньше здесь были таблицы `user_inventory` и `sell_recommendations`
+(старый «Склад») — дропнуты миграцией 0034 (были не задействованы: аналитика
+P&L/медиан никогда не реализовывалась).
 
-| Поле | Тип | Описание |
-|------|-----|----------|
-| `item_id` | varchar(50) | Код предмета |
-| `region` | varchar(10) | Регион |
-| `quantity` | integer | Количество единиц на складе |
-| `avg_buy_price_per_unit` | bigint | Средняя цена покупки (для расчёта прибыли) |
-| `added_at` | timestamptz | Когда добавлен |
+| Поле | Тип | Nullable | Описание |
+|------|-----|----------|----------|
+| `id` | integer PK | нет | |
+| `user_id` | integer FK→`users.id` ON DELETE CASCADE, index | нет | Владелец закупки |
+| `watchlist_id` | integer FK→`user_watchlist.id` ON DELETE CASCADE, **UNIQUE** | нет | Ссылка на карточку «Избранного» — источник item_id/region/quality_filter/enchant_filter |
+| `target_price` | bigint | нет | Порог ₽/шт: цена ≤ target → уведомить |
+| `is_active` | bool (default true) | нет | Пауза без удаления |
+| `created_at` | timestamptz | нет | |
+| `updated_at` | timestamptz | да | Заполняется при PUT |
 
----
+**Связи (модели `models.py`):** `User.buy_alerts` (1:N), `UserWatchlist.buy_alert`
+(1:1 через UNIQUE `watchlist_id`). Класс `BuyAlert`; классы `UserInventory` и
+`SellRecommendation` удалены.
 
-### `sell_recommendations` — рекомендации по продаже склада
-
-Связь с `user_inventory`. Генерируются на основе `market_statistics`.
-
-| Поле | Тип | Описание |
-|------|-----|----------|
-| `recommended_price_per_unit` | bigint | Рекомендуемая цена выставления |
-| `recommended_batch_size` | integer | Рекомендуемый размер пачки |
-| `expected_wait_hours` | numeric(8,2) | Ожидаемое время продажи (из sell_options) |
-| `expected_revenue` | bigint | Ожидаемая выручка |
-| `expected_profit` | bigint | Ожидаемая прибыль (с учётом avg_buy_price) |
-| `expected_profit_percent` | numeric(5,2) | Маржа в % |
-| `sell_now_vs_wait_benefit` | numeric(5,2) | Выгода от ожидания лучшего момента |
-| `confidence_score` | numeric(3,2) | Уверенность 0.0–1.0 |
+**Миграция:** `0034_buy_alerts.py` (drop `sell_recommendations` → drop
+`user_inventory` → create `buy_alerts`).
 
 ---
 
@@ -485,6 +483,7 @@ watchlist по `(item_id, region)`, логируются текущие проф
 | `0031_emission_events.py` | Новая таблица `emission_events` (трекер радиационных выбросов; индексы `ix_emission_region_started`, `ix_emission_active`) |
 | `0032_sales_collected_at_idx.py` | Индекс `ix_sales_collected_at (collected_at)` на `sales_history` — под дифф-пропуск в `calculate_market_stats_batch` (пары с новыми продажами после `calculated_at`) |
 | `0033_emission_end_notified.py` | Поле `emission_events.end_notified` (boolean NOT NULL, server_default false) + backfill `end_notified = TRUE` всей истории — рассылка о завершении выброса перенесена в `telegram_bot` |
+| `0034_buy_alerts.py` | Раздел «Закупки // Buy Sniper»: drop `sell_recommendations` + `user_inventory` (старый «Склад»), create `buy_alerts` (FK→users CASCADE+index, FK→user_watchlist CASCADE UNIQUE, `target_price`, `is_active`) |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 

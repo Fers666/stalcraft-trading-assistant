@@ -31,6 +31,11 @@ def signals_key(user_id: int, item_id: str, region: str, quality_filter, enchant
     return f"signals:{user_id}:{item_id}:{region}:{quality_filter}:{enchant_filter}"
 
 
+def buymin_key(user_id: int, item_id: str, region: str, quality_filter, enchant_filter) -> str:
+    """Ключ «самого дешёвого подходящего лота» для Buy Sniper (см. cheapest_matching_lot)."""
+    return f"buymin:{user_id}:{item_id}:{region}:{quality_filter}:{enchant_filter}"
+
+
 def _filtered_median_now(raw_lots: list, master, entry, is_art: bool, now: datetime) -> Optional[float]:
     """Медиана текущих цен лотов снэпшота, совпадающих по quality/enchant фильтрам entry."""
     prices = []
@@ -48,6 +53,54 @@ def _filtered_median_now(raw_lots: list, master, entry, is_art: bool, now: datet
             continue
         prices.append(buyout // amount)
     return float(_statistics.median(prices)) if prices else None
+
+
+def cheapest_matching_lot(entry, master, snap) -> Optional[dict]:
+    """
+    Самый дешёвый ликвидный лот снапшота, подходящий под quality_filter/
+    enchant_filter записи watchlist. Для триггера закупки (Buy Sniper):
+    срабатывает на ЛЮБОЙ лот ≤ порога, независимо от прибыльности перепродажи,
+    поэтому НЕ зависит от исторических данных / ref (в отличие от
+    compute_signals_for_entry, который возвращает None без ref).
+
+    Возвращает {start_time, price_per_unit, amount, quality_name, enchant}
+    или None если подходящих ликвидных лотов нет.
+    """
+    if snap is None or not snap.raw_lots:
+        return None
+
+    now = datetime.now(timezone.utc)
+    is_art = _is_artefact(master.category)
+
+    best: Optional[dict] = None
+    best_ppu: Optional[int] = None
+
+    for lot in snap.raw_lots:
+        buyout = lot.get("buyoutPrice", 0)
+        amount = lot.get("amount", 1)
+        if buyout <= 0 or amount <= 0:
+            continue
+        if not _is_liquid(lot, now):
+            continue
+
+        qlt_val, enchant = _lot_quality_enchant(lot, master, is_art)
+        if entry.quality_filter is not None and qlt_val != entry.quality_filter:
+            continue
+        if entry.enchant_filter is not None and enchant != entry.enchant_filter:
+            continue
+
+        ppu = buyout // amount
+        if best_ppu is None or ppu < best_ppu:
+            best_ppu = ppu
+            best = {
+                "start_time":     lot.get("startTime", ""),
+                "price_per_unit": ppu,
+                "amount":         amount,
+                "quality_name":   _QLT_NAMES.get(qlt_val) if qlt_val is not None else None,
+                "enchant":        enchant,
+            }
+
+    return best
 
 
 async def compute_signals_for_entry(

@@ -17,6 +17,8 @@ interface User {
   stats_windows: string[]
   auction_access: boolean
   has_market_radar_addon: boolean
+  buy_sniper_access: boolean
+  buy_sniper_notifications: boolean
 }
 
 interface AuthState {

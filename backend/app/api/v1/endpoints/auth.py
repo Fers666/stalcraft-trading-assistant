@@ -50,6 +50,8 @@ class UserResponse(BaseModel):
     telegram_notifications: bool
     stats_windows: tuple[str, ...]
     auction_access: bool
+    buy_sniper_access: bool
+    buy_sniper_notifications: bool
     has_market_radar_addon: bool
     favorites_limit_override: int | None
 
@@ -72,6 +74,8 @@ class UserResponse(BaseModel):
             telegram_notifications=limits.telegram_notifications,
             stats_windows=limits.stats_windows,
             auction_access=limits.auction_access,
+            buy_sniper_access=limits.buy_sniper_access,
+            buy_sniper_notifications=limits.buy_sniper_notifications,
             has_market_radar_addon=user.has_market_radar_addon,
             favorites_limit_override=user.favorites_limit_override,
         )

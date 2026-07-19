@@ -10,7 +10,7 @@ import MonitoringPage from './pages/MonitoringPage'
 import CatalogPage from './pages/CatalogPage'
 import LotsPage from './pages/LotsPage'
 import FeedPage from './pages/FeedPage'
-import InventoryPage from './pages/InventoryPage'
+import BuySniperPage from './pages/BuySniperPage'
 import SettingsPage from './pages/SettingsPage'
 import AdminPage from './pages/AdminPage'
 import MarketRadarPage from './pages/MarketRadarPage'
@@ -61,7 +61,8 @@ export default function App() {
           <Route path="catalog"       element={<CatalogPage />} />
           <Route path="lots"          element={<LotsPage />} />
           <Route path="feed"          element={<FeedPage />} />
-          <Route path="inventory"     element={<InventoryPage />} />
+          <Route path="buy-sniper"    element={<BuySniperPage />} />
+          <Route path="inventory"     element={<Navigate to="/app/buy-sniper" replace />} />
           <Route path="news"          element={<NewsPage />} />
           <Route path="market-radar"  element={<MarketRadarPage />} />
           <Route path="settings"      element={<SettingsPage />} />
@@ -71,7 +72,7 @@ export default function App() {
         <Route path="/monitoring" element={<Navigate to="/app/monitoring" replace />} />
         <Route path="/catalog"    element={<Navigate to="/app/catalog" replace />} />
         <Route path="/lots"       element={<Navigate to="/app/lots" replace />} />
-        <Route path="/inventory"  element={<Navigate to="/app/inventory" replace />} />
+        <Route path="/inventory"  element={<Navigate to="/app/buy-sniper" replace />} />
         <Route path="/settings"   element={<Navigate to="/app/settings" replace />} />
       </Routes>
     </BrowserRouter>

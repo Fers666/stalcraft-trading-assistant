@@ -248,6 +248,16 @@ forked worker-процессе, нагружая оба vCPU прода одно
 
 Один и тот же ключ `signals:*` читают: Telegram-бот, `GET /monitoring/signals/{item_id}`, и фронтенд (`GlobalFeed`/`feedStore` и `LotStatCard`, поллинг 30 сек) — единая точка истины, рассинхрон между лентой/карточкой/ботом невозможен (2026-06-15).
 
+**Публикация `buymin:*` для Buy Sniper (2026-07-19):** дополнительно, для каждой
+активной watchlist-записи `_publish_signals` вычисляет `cheapest_matching_lot`
+(`app/services/profitable_lots.py` — проходит `snap.raw_lots`, фильтрует по
+`_is_liquid` и `quality_filter`/`enchant_filter`, возвращает лот с минимальной `buyout // amount`)
+и пишет Redis-ключ `buymin:{user_id}:{item_id}:{region}:{qlt}:{ench}` (JSON лота,
+TTL `SIGNALS_TTL=300`с). В отличие от `signals:*` публикуется **всегда** — даже
+когда лот не прибыльный для перепродажи (buy-alert срабатывает на любой лот
+≤ порога, независимо от `evaluate_lot_profit`). Ключ читает бот в `notify_buy_alerts`
+и эндпоинт `GET /buy-sniper/` (обогащение `current_min`).
+
 ### Калибровочный лог `signal_outcomes`
 
 После публикации сигналов, для каждой уникальной комбинации `(quality_filter, enchant_filter)`
@@ -505,7 +515,7 @@ backend (FastAPI)          → /api/v1/telegram/* (link-code, status, unlink)
 ```
 
 **Сервис:** `telegram_bot` в `docker-compose.prod.yml` → `python /tg_bot/bot.py`  
-**Код:** `telegram_bot/bot.py` — команды `/start /link /status /stop` + цикл уведомлений `_notifier_loop` (каждые 15 сек: `notify_profitable_lots` → `notify_emission_events`)  
+**Код:** `telegram_bot/bot.py` — команды `/start /link /status /stop` + цикл уведомлений `_notifier_loop` (каждые 15 сек: `notify_profitable_lots` → `notify_buy_alerts` → `notify_emission_events`)  
 **Celery `scan_and_notify`:** **отключён** (дубль с polling-циклом бота)
 
 ### Поток привязки аккаунта
@@ -533,6 +543,31 @@ backend (FastAPI)          → /api/v1/telegram/* (link-code, status, unlink)
 - **Получатели:** `telegram_chat_id IS NOT NULL` + `is_active` + `is_approved` + `UserSettings.notify_telegram` (нет строки настроек → считается True). Tier-гейт НЕ применяется — выброс глобальное событие, в отличие от премиум-сигналов по лотам. Пустой список получателей → событие помечается (иначе вечный retry).
 - **Дедупликация через БД:** флаг (`notified` / `end_notified`) ставится ТОЛЬКО после ≥1 успешной отправки; при полном провале — ретрай каждые 15 сек в пределах отсечки 15 мин.
 - **Отправка:** живой `app.bot.send_message`, `parse_mode=HTML`, per-chat try/except; префикс `[STAGE]` при `IS_STAGE`.
+
+### Уведомления Buy Sniper (`notify_buy_alerts`, bot.py)
+
+Раздел «Закупки // Buy Sniper» (2026-07-19). Вызывается в `_notifier_loop` каждые
+15 сек, между `notify_profitable_lots` и `notify_emission_events`.
+
+- **Получатели:** `telegram_chat_id IS NOT NULL`, `is_active`, `UserSettings.notify_telegram`
+  и тариф-гейт **`buy_sniper_notifications`** (только `advanced_plus`/`advanced_max`;
+  на `advanced` раздел работает как ручной список целей без алертов) — это отдельный
+  гейт от `telegram_notifications`, которым гейтятся уведомления о прибыльных лотах.
+- **Выборка:** для каждого получателя — его `buy_alerts` (join `user_watchlist`,
+  только `is_active` с обеих сторон), для каждой закупки читается Redis-ключ
+  `buymin:{user}:{item}:{region}:{qlt}:{ench}` (пишет коллектор, см. `_publish_signals`).
+- **Условие срабатывания:** `price_per_unit ≤ target_price` → отправить сообщение
+  «🛒 Дешёвый лот!».
+- **Дедупликация по лоту:** Redis-ключ `tg_buy_sent:{user}:{item}:{region}:{qlt}:{ench}:{start_time}`,
+  TTL `NOTIF_DEDUP_TTL` (48ч) — один и тот же лот не спамит каждые 15с; новый более
+  дешёвый лот (другой `start_time`) уведомит снова.
+
+**Redis-ключи Buy Sniper:**
+
+- `buymin:{user}:{item}:{region}:{qlt}:{ench}` — текущий самый дешёвый подходящий
+  лот (JSON), TTL 300с, пишет коллектор в `_publish_signals`
+- `tg_buy_sent:{user}:{item}:{region}:{qlt}:{ench}:{start_time}` — дедуп отправки,
+  TTL 48ч, пишет бот
 
 ---
 

@@ -52,6 +52,11 @@ const ILL_SIGS = [
   { name: 'Кристаллический шип', profit: 132_000 },
   { name: 'Вспышка', profit: 74_300 },
 ]
+const ILL_BUYS = [
+  { name: 'Медуза', target: 420_000, cur: 398_000, lit: true },
+  { name: 'Пружина мутанта', target: 640_000, cur: 705_000, lit: false },
+  { name: 'Вспышка', target: 180_000, cur: 214_000, lit: false },
+]
 
 const STATS = [
   { value: '5', unit: 'мин', label: 'цикл обновления данных', mono: false },
@@ -77,6 +82,8 @@ const PLANS: Plan[] = [
       { k: 'окна графиков', v: '24ч · 48ч' },
       { k: 'раздел «Лоты»', v: 'закрыт', kind: 'no' },
       { k: 'лента сигналов', v: 'включена', kind: 'ok' },
+      { k: 'закупки — мониторинг', v: 'закрыт', kind: 'no' },
+      { k: 'закупки — уведомления', v: 'нет', kind: 'no' },
       { k: 'радар рынка', v: 'аддон', kind: 'no' },
     ],
   },
@@ -86,6 +93,8 @@ const PLANS: Plan[] = [
       { k: 'окна графиков', v: 'до 7 дней' },
       { k: 'раздел «Лоты»', v: 'закрыт', kind: 'no' },
       { k: 'лента сигналов', v: 'включена', kind: 'ok' },
+      { k: 'закупки — мониторинг', v: 'включён', kind: 'ok' },
+      { k: 'закупки — уведомления', v: 'нет', kind: 'no' },
       { k: 'радар рынка', v: 'аддон', kind: 'no' },
     ],
   },
@@ -95,6 +104,8 @@ const PLANS: Plan[] = [
       { k: 'окна графиков', v: 'до 30 дней' },
       { k: 'раздел «Лоты»', v: 'открыт', kind: 'ok' },
       { k: 'лента сигналов', v: 'включена', kind: 'ok' },
+      { k: 'закупки — мониторинг', v: 'включён', kind: 'ok' },
+      { k: 'закупки — уведомления', v: 'да', kind: 'ok' },
       { k: 'радар рынка', v: 'аддон', kind: 'no' },
     ],
   },
@@ -104,6 +115,8 @@ const PLANS: Plan[] = [
       { k: 'окна графиков', v: 'до 30 дней' },
       { k: 'раздел «Лоты»', v: 'открыт', kind: 'ok' },
       { k: 'лента сигналов', v: 'включена', kind: 'ok' },
+      { k: 'закупки — мониторинг', v: 'включён', kind: 'ok' },
+      { k: 'закупки — уведомления', v: 'да', kind: 'ok' },
       { k: 'радар рынка', v: 'аддон', kind: 'no' },
     ],
   },
@@ -298,11 +311,11 @@ export default function LandingPage() {
               Что внутри терминала
             </Box>
             <Box component="p" sx={{ mt: '7px', fontSize: fs.f13, color: T.text2, maxWidth: '70ch' }}>
-              Три контура работы с рынком — от сырых срезов аукциона до готового решения «выкупать или нет».
+              Четыре контура работы с рынком — от сырых срезов аукциона до снайпера выгодной покупки.
             </Box>
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '1px', background: T.border, border: `1px solid ${T.border}`, borderRadius: 1, overflow: 'hidden' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2,1fr)', lg: 'repeat(4,1fr)' }, gap: '1px', background: T.border, border: `1px solid ${T.border}`, borderRadius: 1, overflow: 'hidden' }}>
             {/* фича 1 — Мониторинг */}
             <Box sx={{ background: T.bg1, p: '18px 20px 22px', minWidth: 0 }}>
               <Box aria-hidden="true" sx={{ height: 136, background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 1, p: '10px 12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '3px', overflow: 'hidden', mb: '16px' }}>
@@ -364,6 +377,31 @@ export default function LandingPage() {
               <Box component="h3" sx={{ fontFamily: T.fontHead, fontWeight: 700, fontSize: fs.f16, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.text0, m: '8px 0' }}>Радар рынка</Box>
               <Box component="p" sx={{ m: 0, fontSize: fs.f125, lineHeight: 1.6, color: T.text1 }}>
                 Сканер всего аукциона, а не только избранного: находит лоты дешевле медианы с готовым расчётом прибыли после комиссии 5 %. Осталось выкупить и перевыставить.
+              </Box>
+            </Box>
+
+            {/* фича 4 — Закупки // Buy Sniper */}
+            <Box sx={{ background: T.bg1, p: '18px 20px 22px', minWidth: 0 }}>
+              <Box aria-hidden="true" sx={{ height: 136, background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 1, p: '10px 12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '3px', overflow: 'hidden', mb: '16px' }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 72px 78px', gap: '8px', px: '8px', py: '4px', fontFamily: T.fontHead, fontWeight: 600, fontSize: fs.f10, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.text2, borderBottom: `1px solid ${T.border}` }}>
+                  <span>предмет</span><Box component="span" sx={{ textAlign: 'right' }}>порог</Box><Box component="span" sx={{ textAlign: 'right' }}>цена</Box>
+                </Box>
+                {ILL_BUYS.map((r) => (
+                  <Box key={r.name} className="mono" sx={{
+                    display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 72px 78px', gap: '8px', px: '8px', py: '4px',
+                    fontSize: fs.f105, color: r.lit ? T.goldAccent : T.text1, borderRadius: 1,
+                    ...(r.lit && { background: T.goldDim, boxShadow: `inset 2px 0 0 ${T.goldHighlight}` }),
+                  }}>
+                    <Box component="span" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</Box>
+                    <Box component="span" sx={{ textAlign: 'right', whiteSpace: 'nowrap', color: T.text2 }}>{fmtCompact(r.target)}</Box>
+                    <Box component="span" sx={{ textAlign: 'right', whiteSpace: 'nowrap', color: r.lit ? T.goldHighlight : T.text1 }}>{fmtCompact(r.cur)}</Box>
+                  </Box>
+                ))}
+              </Box>
+              <Kick sx={{ color: T.text2 }}>Snipe</Kick>
+              <Box component="h3" sx={{ fontFamily: T.fontHead, fontWeight: 700, fontSize: fs.f16, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.text0, m: '8px 0' }}>Закупки // Buy Sniper</Box>
+              <Box component="p" sx={{ m: 0, fontSize: fs.f125, lineHeight: 1.6, color: T.text1 }}>
+                Задай цену, за которую готов купить, — терминал следит за рынком и шлёт алерт в Telegram, как только лот падает ниже твоего порога. Ловишь выгодную покупку не глядя в экран.
               </Box>
             </Box>
           </Box>

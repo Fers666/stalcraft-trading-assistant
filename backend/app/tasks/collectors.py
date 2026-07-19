@@ -446,7 +446,10 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
     import redis.asyncio as aioredis
     from app.core.config import settings
     from app.models.models import UserWatchlist, MasterItem, MarketStatistics, UserSettings
-    from app.services.profitable_lots import compute_signals_for_entry, signals_key, SIGNALS_TTL
+    from app.services.profitable_lots import (
+        compute_signals_for_entry, cheapest_matching_lot,
+        signals_key, buymin_key, SIGNALS_TTL,
+    )
     from sqlalchemy import select
 
     entries = (await db.execute(
@@ -505,6 +508,20 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
                         entry.quality_filter, entry.enchant_filter,
                     )
                     await r.setex(key, SIGNALS_TTL, json.dumps(result))
+
+                # Buy Sniper: публикуем самый дешёвый подходящий лот всегда —
+                # даже когда прибыльных сигналов нет (триггер закупки не зависит
+                # от прибыльности перепродажи).
+                cheapest = cheapest_matching_lot(entry, master, snap)
+                if cheapest is not None:
+                    await r.setex(
+                        buymin_key(
+                            entry.user_id, item_id, region,
+                            entry.quality_filter, entry.enchant_filter,
+                        ),
+                        SIGNALS_TTL,
+                        json.dumps(cheapest),
+                    )
             except Exception as e:
                 logger.error(
                     f"_publish_signals: entry user={entry.user_id} {item_id}/{region}: {e}"
