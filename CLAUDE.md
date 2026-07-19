@@ -17,7 +17,7 @@ cd D:\SC_AUC\backend\app; graphify query "как работает X?"
 cd D:\SC_AUC\frontend\src; graphify query "что такое компонент Y?"
 cd D:\SC_AUC\backend\app; graphify path "NodeA" "NodeB"
 ```
-Графы: `backend/app/graphify-out/` (456 nodes) · `frontend/src/graphify-out/` (140 nodes)
+Графы: `backend/app/graphify-out/` (456 nodes) · `frontend/src/graphify-out/` (310 nodes)
 После значимых изменений кода: `graphify update .` из нужной папки.
 
 | Задача | Читать |
@@ -57,12 +57,14 @@ cd D:\SC_AUC\backend\app; graphify path "NodeA" "NodeB"
 
 **Стек:** FastAPI + SQLAlchemy 2.0 async + PostgreSQL 16 (UTC+3) + Celery + Redis  
 React 18 + Vite + MUI (gold: #D9AF37, bg: #080808, font: Rajdhani)  
+Дизайн-система «Терминал»: единый источник — `frontend/src/theme.ts` (tokens + QUALITY_COLORS + fs).
+**Хекс/rgba вне theme.ts = дефект.** Rajdhani (заголовки) · Inter (UI) · JetBrains Mono (цифры).  
 Docker Compose. Данные глобальные (user_id=NULL), персонализация на уровне запроса.
 
 **Структура:**
 ```
-backend/app/   — FastAPI (entry: main.py), SQLAlchemy models, Celery tasks (graphify: 328 nodes)
-frontend/src/  — React/TS (entry: App.tsx), Zustand store, MUI (graphify: 140 nodes)
+backend/app/   — FastAPI (entry: main.py), SQLAlchemy models, Celery tasks (graphify: 456 nodes)
+frontend/src/  — React/TS (entry: App.tsx), Zustand store, MUI (graphify: 310 nodes)
 design/v5/     — прототип-эталон редизайна «Терминал»; внедрение Фазы 1–6/7 done (Ф1–5 2026-07-18, Ф6 2026-07-19), осталась только Фаза 7 «Лента» (ждёт решения пользователя + бэкенд-обсуждение), см. docs/tasks/design-v5-implementation.md
 docs/          — формулы, БД, архитектура, деплой (см. таблицу в Блоке 2)
 .claude/       — агенты, skills, команды Claude Code
