@@ -7,6 +7,7 @@ import {
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
+import SearchIcon from '@mui/icons-material/Search'
 import api from '../api/client'
 import { formatPrice, iconUrl, qualityColor, qualityKeyByValue } from '../utils/i18n'
 import { tokens, fs } from '../theme'
@@ -135,6 +136,7 @@ export default function BuySniperPage() {
   const [pwLoading, setPwLoading]   = useState(false)
   const [addPrice, setAddPrice]     = useState('')
   const [addError, setAddError]     = useState<string | null>(null)
+  const [addSearch, setAddSearch]   = useState('')
 
   // Диалог редактирования порога
   const [editAlert, setEditAlert]   = useState<BuyAlert | null>(null)
@@ -166,6 +168,13 @@ export default function BuySniperPage() {
     () => watchlist.filter((w) => !addedIds.has(w.id)),
     [watchlist, addedIds],
   )
+  const availableFiltered = useMemo(() => {
+    const q = addSearch.trim().toLowerCase()
+    if (!q) return available
+    return available.filter(
+      (w) => nameOf(w).toLowerCase().includes(q) || w.item_id.toLowerCase().includes(q),
+    )
+  }, [available, addSearch])
 
   const litCount = useMemo(
     () => alerts.filter((a) => a.is_active && a.current_min != null && a.current_min <= a.target_price).length,
@@ -177,6 +186,7 @@ export default function BuySniperPage() {
     setPw(null)
     setAddPrice('')
     setAddError(null)
+    setAddSearch('')
     setAddOpen(true)
     try {
       const { data } = await api.get<WatchlistEntry[]>('/watchlist/')
@@ -444,15 +454,39 @@ export default function BuySniperPage() {
                 </Button>
               </Box>
             ) : (
-              <Box sx={{ background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: 1, maxHeight: 220, overflowY: 'auto' }}>
+              <>
+                {available.length > 0 && (
+                  <TextField
+                    value={addSearch}
+                    onChange={(e) => setAddSearch(e.target.value)}
+                    size="small"
+                    fullWidth
+                    placeholder="Поиск по названию"
+                    sx={{ mb: '6px' }}
+                    slotProps={{
+                      input: {
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon sx={{ fontSize: 16, color: tokens.text2 }} />
+                          </InputAdornment>
+                        ),
+                      },
+                    }}
+                  />
+                )}
+                <Box sx={{ background: tokens.bg2, border: `1px solid ${tokens.border}`, borderRadius: 1, maxHeight: 220, overflowY: 'auto' }}>
                 {available.length === 0 ? (
                   <Box sx={{ padding: '14px 10px', color: tokens.text2, fontSize: fs.f12, textAlign: 'center' }}>
                     {watchlist.length === 0
                       ? 'В Избранном пока нет товаров. Добавь их в Каталоге.'
                       : 'Все товары из Избранного уже в закупках.'}
                   </Box>
+                ) : availableFiltered.length === 0 ? (
+                  <Box sx={{ padding: '14px 10px', color: tokens.text2, fontSize: fs.f12, textAlign: 'center' }}>
+                    По запросу «{addSearch.trim()}» ничего не найдено.
+                  </Box>
                 ) : (
-                  available.map((w) => (
+                  availableFiltered.map((w) => (
                     <Box
                       key={w.id}
                       component="button"
@@ -477,7 +511,8 @@ export default function BuySniperPage() {
                     </Box>
                   ))
                 )}
-              </Box>
+                </Box>
+              </>
             )}
           </Box>
 
