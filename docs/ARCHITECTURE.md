@@ -28,7 +28,10 @@
 `(item_id, region, sale_time)` идёт без фильтра по `user_id` (данные фактически
 глобальные). Подробности полей → `docs/DATABASE.md`.
 **После каждого сбора:** `_publish_signals` пересчитывает выгодные лоты и пишет в Redis
-`signals:{user_id}:{item_id}:{region}:{qf}:{ef}` (TTL 300 сек).
+`signals:{user_id}:{item_id}:{region}:{qf}:{ef}` (TTL 300 сек). Параллельно (2026-07-20)
+публикует push-события в RabbitMQ (`push.events`) для сервиса `push_service` —
+низколатентный web push канал (best-effort, не ломает сбор при недоступности брокера);
+см. `docs/SERVICES.md` (раздел «Web Push»), `docs/tasks/web-push-notifications.md`.
 **Эффект:** 100 пользователей следят за одним товаром → **1 API запрос**, не 100.
 
 ```

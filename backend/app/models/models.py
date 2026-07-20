@@ -34,6 +34,7 @@ class User(Base):
     settings    = relationship("UserSettings", back_populates="user", uselist=False, cascade="all, delete-orphan")
     watchlist   = relationship("UserWatchlist", back_populates="user", cascade="all, delete-orphan")
     buy_alerts  = relationship("BuyAlert", back_populates="user", cascade="all, delete-orphan")
+    push_subscriptions = relationship("PushSubscription", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserSettings(Base):
@@ -333,6 +334,27 @@ class NotificationQueue(Base):
     next_attempt_at   = Column(DateTime(timezone=True))
     status            = Column(String(20), default="pending")  # pending | sent | failed
     created_at        = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PushSubscription(Base):
+    """Web Push подписка одного устройства/браузера пользователя.
+
+    Один пользователь = много подписок (ПК + телефон = отдельные записи).
+    endpoint уникален (capability-URL push-сервиса браузера); p256dh/auth —
+    ключи шифрования из PushSubscription.getKey() на фронте.
+    """
+    __tablename__ = "push_subscriptions"
+
+    id           = Column(Integer, primary_key=True)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    endpoint     = Column(Text, nullable=False, unique=True)
+    p256dh       = Column(Text, nullable=False)
+    auth         = Column(Text, nullable=False)
+    user_agent   = Column(String(300), nullable=True)
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User", back_populates="push_subscriptions")
 
 
 # ─── Новости / Анонсы ────────────────────────────────────────────────────────

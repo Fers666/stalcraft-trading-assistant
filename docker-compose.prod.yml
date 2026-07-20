@@ -30,6 +30,19 @@ services:
       retries: 5
     restart: unless-stopped
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    # Порты наружу не публикуем — брокер доступен только внутри compose-сети.
+    # Management UI (15672) при необходимости пробрасывать через SSH-туннель.
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   backend:
     build: ./backend
     env_file: .env
@@ -51,11 +64,14 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
       STALCRAFT_REGION: RU
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     command: celery -A app.tasks.celery_app worker --loglevel=info -Q collector -c 2
     restart: unless-stopped
@@ -91,6 +107,25 @@ services:
     command: python /tg_bot/bot.py
     restart: unless-stopped
 
+  push_service:
+    build: ./backend
+    env_file: .env          # VAPID_PRIVATE_KEY / VAPID_SUBJECT
+    environment:
+      DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    volumes:
+      - ./push_service:/push_service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: python /push_service/consumer.py
+    restart: unless-stopped
+
   frontend:
     build:
       context: ./frontend
@@ -114,5 +149,6 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  rabbitmq_data:
   caddy_data:
   caddy_config:

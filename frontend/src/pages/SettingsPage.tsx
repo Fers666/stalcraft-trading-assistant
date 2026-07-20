@@ -9,6 +9,7 @@ import Panel from '../components/ui/Panel'
 import { useToast } from '../components/ui/Toast'
 import { useAuthStore } from '../store/authStore'
 import { TIER_LABELS, Tier } from '../constants/tiers'
+import { enablePush, disablePush, isPushSupported, isIOS, isStandalone } from '../lib/push'
 
 interface Settings {
   min_profit_margin_percent: number
@@ -239,6 +240,35 @@ export default function SettingsPage() {
   const update = <K extends keyof Settings>(k: K, v: Settings[K]) => {
     setSettings((s) => (s ? { ...s, [k]: v } : s))
     setDirty(true)
+  }
+
+  // Browser Push: тумблер запускает браузерный flow (разрешение + подписка)
+  // и сразу сохраняет флаг — сайд-эффект нельзя откладывать до кнопки «Сохранить».
+  const [pushBusy, setPushBusy] = useState(false)
+  const [pushHint, setPushHint] = useState<string | null>(null)
+
+  const handleBrowserPush = async (v: boolean) => {
+    setPushHint(null)
+    if (v && isIOS() && !isStandalone()) {
+      setPushHint('На iPhone/iPad: откройте сайт в Safari → «Поделиться» → «На экран „Домой“», запустите приложение с домашнего экрана и включите push оттуда.')
+      return
+    }
+    if (!isPushSupported()) {
+      setPushHint('Этот браузер не поддерживает web push.')
+      return
+    }
+    setPushBusy(true)
+    try {
+      if (v) await enablePush()
+      else await disablePush()
+      await api.put('/settings', { notify_browser_push: v })
+      setSettings((s) => (s ? { ...s, notify_browser_push: v } : s))
+      showToast(v ? 'Push-уведомления включены' : 'Push-уведомления отключены')
+    } catch (e: any) {
+      setPushHint(e?.message || 'Не удалось изменить push-уведомления')
+    } finally {
+      setPushBusy(false)
+    }
   }
 
   const handleSave = async () => {
@@ -528,11 +558,19 @@ export default function SettingsPage() {
           )}
         </Box>
 
-        <TumblerSwitch
-          checked={settings?.notify_browser_push ?? false}
-          onChange={(v) => update('notify_browser_push', v)}
-          label="Browser Push"
-        />
+        <Box>
+          <TumblerSwitch
+            checked={settings?.notify_browser_push ?? false}
+            disabled={pushBusy}
+            onChange={handleBrowserPush}
+            label="Browser Push"
+          />
+          {pushHint && (
+            <Box component="span" sx={{ display: 'block', mt: '5px', pl: '40px', fontSize: fs.f11, color: tokens.text2, lineHeight: 1.4 }}>
+              {pushHint}
+            </Box>
+          )}
+        </Box>
       </SetPanel>
 
       {/* ── Тариф ────────────────────────────────────────────────────────── */}

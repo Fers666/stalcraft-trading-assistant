@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     telegram_bot_username: str = "SC_TRADING_auc_bot"
     telegram_webhook_url: str = ""
 
+    # RabbitMQ (брокер событий для push-сервиса)
+    rabbitmq_url: str = "amqp://guest:guest@rabbitmq:5672/"
+
+    # Web Push (VAPID)
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:admin@sctrading.ru"
+
     # App
     debug: bool = False
     cors_origins: str = "http://localhost:3000"

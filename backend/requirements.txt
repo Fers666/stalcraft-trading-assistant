@@ -31,6 +31,13 @@ pandas==2.2.3
 # Telegram
 python-telegram-bot==21.6
 
+# RabbitMQ (продюсер push-событий)
+aio-pika==9.4.3
+
+# Web Push (VAPID) — генерация ключей и отправка
+pywebpush==2.0.0
+py-vapid==1.9.1
+
 # Utils
 python-dotenv==1.0.1
 tenacity==9.0.0

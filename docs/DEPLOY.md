@@ -36,6 +36,41 @@ docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
 
 > **При переписанной git-истории** (например, после `git-filter-repo`) обычный `git pull` не сработает (история разошлась) — нужен `git fetch && git reset --hard origin/main`.
 
+## Web Push / RabbitMQ (первый деплой фичи, 2026-07-20)
+
+Фича добавляет два новых сервиса (`rabbitmq`, `push_service`) и требует VAPID-ключи.
+ТЗ — `docs/tasks/web-push-notifications.md`. Порядок первого деплоя:
+
+1. **Сгенерировать ОТДЕЛЬНЫЕ прод-VAPID-ключи** (не переиспользовать локальные). Внутри backend-образа стоит `py-vapid`:
+   ```bash
+   docker compose -f docker-compose.prod.yml run --rm backend python - <<'PY'
+   from cryptography.hazmat.primitives.asymmetric import ec
+   from cryptography.hazmat.primitives import serialization
+   import base64
+   b=lambda x: base64.urlsafe_b64encode(x).rstrip(b'=').decode()
+   k=ec.generate_private_key(ec.SECP256R1())
+   print("VAPID_PRIVATE_KEY="+b(k.private_numbers().private_value.to_bytes(32,'big')))
+   print("VAPID_PUBLIC_KEY="+b(k.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)))
+   PY
+   ```
+   Значения (+ `VAPID_SUBJECT=mailto:...`) вписать в прод `.env`. `VAPID_PRIVATE_KEY` — секрет, в git не коммитить.
+2. **Пересобрать и поднять** (новые зависимости backend-образа + новые сервисы):
+   ```bash
+   docker compose -f docker-compose.prod.yml build --no-cache backend frontend worker push_service
+   docker compose -f docker-compose.prod.yml up -d
+   ```
+   `push_service` переиспользует backend-образ; `worker` пересобрать обязательно (он публикует события).
+3. **Применить миграцию** `0035` (таблица `push_subscriptions`):
+   ```bash
+   docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
+   ```
+4. **Проверить:** `docker compose -f docker-compose.prod.yml ps` (rabbitmq healthy, push_service up),
+   лог `push_service` = «запущен, слушаю push.notifications»,
+   `curl -s https://sctrading.ru/api/v1/push/vapid-public-key` → ключ.
+
+> **Безопасность:** RabbitMQ портов наружу не публикует (только внутри compose-сети), но креды по умолчанию `guest/guest`. Перед проколом наружу/при ужесточении — задать отдельного пользователя RabbitMQ и обновить `RABBITMQ_URL`. Management UI (15672) — только через SSH-туннель.
+> **HTTPS обязателен** для web push и Service Worker — уже есть (Caddy + `sctrading.ru`).
+
 ## Caddy: применить новый Caddyfile без даунтайма
 ```bash
 docker compose -f docker-compose.prod.yml exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile

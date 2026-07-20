@@ -54,9 +54,26 @@ ORM: SQLAlchemy 2.0 async. Миграции: Alembic.
 | `min_profit_margin_percent` | integer | Минимальная маржа (%) для показа рекомендации (по умолчанию 10%) |
 | `exclude_less_than_amount` | integer | Игнорировать лоты с количеством меньше N штук |
 | `notify_telegram` | bool | Отправлять уведомления в Telegram |
-| `notify_browser_push` | bool | Отправлять browser push-уведомления |
+| `notify_browser_push` | bool | Канальный тумблер web push. Проверяется в `push_service` перед рассылкой (аналог `notify_telegram` для Telegram). NULL-строка настроек → трактуется как True |
 | `auto_refresh_enabled` | bool | Включить автоматический сбор данных по расписанию |
 | `updated_at` | timestamptz | Дата изменения настроек |
+
+---
+
+### `push_subscriptions` — подписки устройств на web push
+
+Миграция `0035`. Один пользователь = много подписок (ПК + телефон = отдельные записи). Создаётся при включении тумблера «Browser Push» (`POST /push/subscribe`), удаляется при отключении или когда push-сервис браузера возвращает 404/410 (мёртвая подписка — чистит `push_service`). Рассылку выполняет отдельный сервис `push_service` (см. `docs/SERVICES.md`).
+
+| Поле | Тип | Описание |
+|------|-----|----------|
+| `id` | integer PK | Внутренний ID |
+| `user_id` | integer FK→users CASCADE, index | Владелец подписки |
+| `endpoint` | text UNIQUE | Capability-URL push-сервиса браузера (FCM/Mozilla/Apple). Уникален; общий браузер → переназначается на нового `user_id` при subscribe |
+| `p256dh` | text | Публичный ключ шифрования полезной нагрузки (из `PushSubscription.getKey`) |
+| `auth` | text | Auth-секрет шифрования |
+| `user_agent` | varchar(300), nullable | UA устройства (диагностика) |
+| `created_at` | timestamptz | Дата подписки |
+| `last_used_at` | timestamptz, nullable | Обновляется при upsert |
 
 ---
 

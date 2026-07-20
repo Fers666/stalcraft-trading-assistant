@@ -69,6 +69,12 @@ def collect_all_active_lots(self):
         # _publish_signals(). Закрывается в finally ниже. Между разными Celery-тасками
         # клиент НЕ переиспользуется — только внутри одного прохода _run().
         redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+        # Канал в RabbitMQ на весь батч — продюсер push-событий (push_service их
+        # рассылает как web push). Best-effort: при недоступности брокера
+        # push_exchange=None и публикация становится no-op, сбор данных и
+        # Telegram-канал (через Redis) продолжают работать.
+        from app.services.push_broker import open_channel, close_channel
+        push_conn, push_exchange = await open_channel()
         try:
             async with get_db_session() as db:
                 from sqlalchemy import asc, nullsfirst
@@ -110,7 +116,7 @@ def collect_all_active_lots(self):
                 collected_keys = set()
                 for i, (key, entry) in enumerate(pairs_to_collect.items()):
                     try:
-                        await _collect_lots_for_item(db, entry, redis_client=redis_client)
+                        await _collect_lots_for_item(db, entry, redis_client=redis_client, push_exchange=push_exchange)
                         collected_keys.add(key)
                     except Exception as e:
                         logger.error(f"Failed to collect lots for {entry.item_id}/{entry.region}: {e}")
@@ -125,6 +131,9 @@ def collect_all_active_lots(self):
                         entry.last_successful_check = now
                 await db.commit()
         finally:
+            # Закрываем RabbitMQ-соединение в рамках живого loop (await) —
+            # аналогично redis, чтобы не оставлять сокеты после loop.close().
+            await close_channel(push_conn)
             # Диагностика утечки Redis-соединений (2026-07-06,
             # telegram-notification-bug.md, причина G). Понижено до debug
             # 2026-07-07 после подтверждения фикса утечки на проде (895aee6).
@@ -326,7 +335,7 @@ def collect_history_single(user_id: int, item_id: str, region: str):
     run_async(_run())
 
 
-async def _collect_lots_for_item(db, entry, redis_client=None):
+async def _collect_lots_for_item(db, entry, redis_client=None, push_exchange=None):
     """
     Собирает снэпшот активных лотов и разделяет их на ликвидные/истекающие.
 
@@ -427,10 +436,10 @@ async def _collect_lots_for_item(db, entry, redis_client=None):
 
     # После коммита — публикуем предвычисленные сигналы в Redis.
     # Бот и API читают из одного ключа → рассинхрон исключён.
-    await _publish_signals(db, entry.item_id, entry.region, snapshot, redis_client=redis_client)
+    await _publish_signals(db, entry.item_id, entry.region, snapshot, redis_client=redis_client, push_exchange=push_exchange)
 
 
-async def _publish_signals(db, item_id: str, region: str, snap, redis_client=None) -> None:
+async def _publish_signals(db, item_id: str, region: str, snap, redis_client=None, push_exchange=None) -> None:
     """
     Вычисляет выгодные лоты для каждой watchlist-записи (item_id, region)
     и записывает результат в Redis.
@@ -445,11 +454,12 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
     import json
     import redis.asyncio as aioredis
     from app.core.config import settings
-    from app.models.models import UserWatchlist, MasterItem, MarketStatistics, UserSettings
+    from app.models.models import UserWatchlist, MasterItem, MarketStatistics, UserSettings, BuyAlert
     from app.services.profitable_lots import (
         compute_signals_for_entry, cheapest_matching_lot,
         signals_key, buymin_key, SIGNALS_TTL,
     )
+    from app.services.push_broker import publish_event
     from sqlalchemy import select
 
     entries = (await db.execute(
@@ -489,6 +499,23 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
             for s in rows
         }
 
+    # Имя предмета для push-payload (чтобы push_service не ходил в БД за именем).
+    item_name = (master.name_ru or master.name_en or item_id)
+
+    # Активные пороги закупки (Buy Sniper) по watchlist_id — публикуем buy_alert
+    # событие только когда цена реально пересекла порог (иначе очередь флудится
+    # каждый цикл). Ключ — entry.id (BuyAlert.watchlist_id UNIQUE).
+    entry_ids = [e.id for e in entries]
+    alert_map: dict[int, int] = {}
+    if entry_ids:
+        arows = (await db.execute(
+            select(BuyAlert).where(
+                BuyAlert.watchlist_id.in_(entry_ids),
+                BuyAlert.is_active == True,
+            )
+        )).scalars().all()
+        alert_map = {a.watchlist_id: a.target_price for a in arows}
+
     owns_client = redis_client is None
     r = redis_client
     try:
@@ -509,6 +536,22 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
                     )
                     await r.setex(key, SIGNALS_TTL, json.dumps(result))
 
+                    # Push-событие о выгодных лотах (низкая задержка через RabbitMQ).
+                    # Несём весь signal + идентификацию — push_service дедуплицирует
+                    # по каждому лоту и рендерит компактный push. dedup там же не
+                    # даёт повторов между циклами.
+                    if result.get("lots") and entry.user_id is not None:
+                        await publish_event(push_exchange, {
+                            "type": "profitable_lot",
+                            "user_id": entry.user_id,
+                            "item_id": item_id,
+                            "region": region,
+                            "quality_filter": entry.quality_filter,
+                            "enchant_filter": entry.enchant_filter,
+                            "item_name": item_name,
+                            "signal": result,
+                        })
+
                 # Buy Sniper: публикуем самый дешёвый подходящий лот всегда —
                 # даже когда прибыльных сигналов нет (триггер закупки не зависит
                 # от прибыльности перепродажи).
@@ -522,6 +565,28 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
                         SIGNALS_TTL,
                         json.dumps(cheapest),
                     )
+
+                    # Push-событие закупки — только когда цена пересекла порог
+                    # (событие = «цена упала ≤ target»). Recipient/тариф/устройства
+                    # курирует push_service.
+                    target_price = alert_map.get(entry.id)
+                    if (
+                        target_price is not None
+                        and entry.user_id is not None
+                        and cheapest.get("price_per_unit") is not None
+                        and cheapest["price_per_unit"] <= target_price
+                    ):
+                        await publish_event(push_exchange, {
+                            "type": "buy_alert",
+                            "user_id": entry.user_id,
+                            "item_id": item_id,
+                            "region": region,
+                            "quality_filter": entry.quality_filter,
+                            "enchant_filter": entry.enchant_filter,
+                            "item_name": item_name,
+                            "target_price": target_price,
+                            "cheapest": cheapest,
+                        })
             except Exception as e:
                 logger.error(
                     f"_publish_signals: entry user={entry.user_id} {item_id}/{region}: {e}"
@@ -862,8 +927,21 @@ async def _collect_emission_async():
     from app.db.session import get_celery_db_session as get_db_session
     from app.models.models import EmissionEvent
     from app.services.collector.client import stalcraft_client
+    from app.services.push_broker import open_channel, publish_event, close_channel
 
     region = settings.stalcraft_region
+
+    async def _emit_push(payload: dict) -> None:
+        """Публикует одно emission-событие через свой short-lived канал.
+
+        Выбросы редки (старт/конец раз в игровой цикл), поэтому короткоживущее
+        соединение здесь оправдано — отдельный канал на батч не нужен.
+        """
+        conn, exch = await open_channel()
+        try:
+            await publish_event(exch, payload)
+        finally:
+            await close_channel(conn)
 
     data = await stalcraft_client.get_emission(region=region)
     # API возвращает camelCase: currentStart / previousStart / previousEnd
@@ -876,17 +954,28 @@ async def _collect_emission_async():
         async with get_db_session() as db:
             if current_start_raw and current_start_raw != prev_fingerprint:
                 # Начало нового выброса
+                started_at = datetime.fromisoformat(current_start_raw.replace("Z", "+00:00"))
                 event = EmissionEvent(
                     region=region,
-                    started_at=datetime.fromisoformat(current_start_raw.replace("Z", "+00:00")),
+                    started_at=started_at,
                     ended_at=None,
                     notified=False,
                 )
                 db.add(event)
+                await db.flush()          # получить event.id до commit
+                event_id = event.id
                 await db.commit()
 
                 await r.set(EMISSION_REDIS_KEY, current_start_raw, ex=7200)
                 logger.info(f"Emission started: {current_start_raw} region={region}")
+
+                await _emit_push({
+                    "type": "emission",
+                    "phase": "start",
+                    "event_id": event_id,
+                    "region": region,
+                    "started_at": started_at.isoformat(),
+                })
 
             elif not current_start_raw and not prev_fingerprint:
                 # Первый запуск (пустой Redis) — засеять таблицу из previousStart/previousEnd
@@ -920,11 +1009,26 @@ async def _collect_emission_async():
                     .limit(1)
                 )
                 active = result.scalar_one_or_none()
+                emission_end_payload = None
                 if active:
-                    active.ended_at = datetime.now(timezone.utc)
+                    ended_at = datetime.now(timezone.utc)
+                    active.ended_at = ended_at
+                    # Собираем payload ДО commit — после commit поля могут
+                    # экспайрнуться (expire_on_commit).
+                    emission_end_payload = {
+                        "type": "emission",
+                        "phase": "end",
+                        "event_id": active.id,
+                        "region": region,
+                        "started_at": active.started_at.isoformat() if active.started_at else None,
+                        "ended_at": ended_at.isoformat(),
+                    }
                     await db.commit()
 
                 await r.delete(EMISSION_REDIS_KEY)
                 logger.info(f"Emission ended region={region}")
+
+                if emission_end_payload is not None:
+                    await _emit_push(emission_end_payload)
     finally:
         await r.aclose()

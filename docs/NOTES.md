@@ -4,6 +4,34 @@
 
 ## Задачи в очереди
 
+- [x] **Web Push уведомления через RabbitMQ ← 2026-07-20** — ТЗ
+  `docs/tasks/web-push-notifications.md`, миграция `0035` применена локально,
+  QA пройден. Второй канал доставки (браузерный push, ПК + Android + iOS)
+  **параллельно** Telegram, с минимальной задержкой через настоящую очередь
+  событий. Продюсер (коллектор) кладёт лёгкое `{type, user_id, item, ...}` в
+  RabbitMQ exchange `push.events`; отдельный контейнер `push_service` слушает
+  очередь, курирует (гейт `notify_browser_push` + тариф, дедуп `push_*_sent:*`,
+  все устройства) и шлёт web push (pywebpush/VAPID). Три типа событий (лоты /
+  Buy Sniper / выброс). Новое: таблица `push_subscriptions`, эндпоинты
+  `/push/*`, `push_broker.py`, Service Worker + PWA-манифест + тумблер
+  «Browser Push» (subscribe-flow, iOS-инструкция), сервисы `rabbitmq` +
+  `push_service` в оба compose. Детали — `docs/CHANGELOG.md`, `docs/DATABASE.md`,
+  `docs/SERVICES.md`, `docs/ARCHITECTURE.md`, `docs/DEPLOY.md`.
+  **Не задеплоено на прод** (нужны прод-VAPID-ключи + закрыть guest-креды
+  RabbitMQ). **Не проверен** реальный приём push на устройстве (нужен браузер).
+- [ ] **Перевести Telegram-уведомления на ту же очередь событий (RabbitMQ)** —
+  идея пользователя 2026-07-20. Сейчас бот поллит Redis (`signals:*`/`buymin:*`)
+  каждые 15с — это остаток исходной задержки. Сделать `telegram_bot`
+  консьюмером той же очереди (своя durable-queue к exchange `push.events`,
+  direct fanout по одному routing key) → Telegram становится таким же
+  low-latency, конвейер событий унифицируется. **Отдельная задача ПОСЛЕ
+  стабилизации push в проде** (не смешивать с аддитивной push-фичей —
+  рефактор трогает ранее багованный критический путь). Ключевой design-момент:
+  воспроизвести freshness-семантику Redis-TTL (300с) — `x-message-ttl` на
+  очереди + отсечка по timestamp события (как 15-мин cutoff у emission), иначе
+  при простое консьюмера возможна пачка устаревших уведомлений. Дедуп у каждого
+  канала свой (`tg_sent:*` vs `push_sent:*`) — уже разведены. Контекст —
+  `docs/tasks/web-push-notifications.md`, `docs/tasks/telegram-notification-bug.md`.
 - [x] **Раздел «Закупки // Buy Sniper» (замена «Склада») ← 2026-07-19** — ТЗ
   `docs/tasks/buy-sniper.md`, миграция 0034 применена, QA пройден. Порог цены на
   товар из «Избранного» → Telegram-алерт «пора покупать», когда самый дешёвый лот
