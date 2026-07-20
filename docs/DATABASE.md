@@ -427,7 +427,9 @@ P&L/медиан никогда не реализовывалась).
 
 ### `emission_events` — события радиационного выброса
 
-Заполняется Celery-задачей `collect_emission` (каждые 2 мин). Каждая строка — один задетектированный выброс (start/end пара). Дедупликация на уровне Redis-fingerprint (`emission:current_fingerprint`): задача сравнивает `currentStart` из API с сохранённым значением и пишет в БД только при изменении. Worker только фиксирует события; Telegram-рассылку по флагам `notified`/`end_notified` делает `telegram_bot::notify_emission_events` (polling каждые 15 сек, с 2026-07-08 — см. `docs/SERVICES.md`).
+Заполняется Celery-задачей `collect_emission` (каждые 2 мин). Каждая строка — один задетектированный выброс (start/end пара). Дедупликация на уровне Redis-fingerprint (`emission:current_fingerprint`): задача сравнивает `currentStart` из API с сохранённым значением и пишет в БД только при изменении. Worker только фиксирует события; Telegram-рассылку делает `telegram_bot` (с 2026-07-08 — см. `docs/SERVICES.md`).
+
+**Дедуп Telegram — с 2026-07-21 в Redis, не в этих полях.** После перевода бота на консьюмер RabbitMQ (событие `emission`) дедупликация Telegram-рассылки ведётся Redis-ключом `tg_emission_sent:{event_id}:{phase}`. Поля `notified`/`end_notified` для Telegram больше **не используются** (стали вестигиальными), но остаются `NOT NULL` и по-прежнему заполняются продюсером (`collect_emission`) — их не удаляли, схема не менялась (миграций фича не потребовала).
 
 | Поле | Тип | Nullable | Описание |
 |------|-----|----------|----------|
@@ -436,8 +438,8 @@ P&L/медиан никогда не реализовывалась).
 | `started_at` | timestamptz | нет | Время начала выброса (`currentStart` из API) |
 | `ended_at` | timestamptz | да | Время окончания (заполняется когда выброс завершился; `NULL` = выброс активен) |
 | `detected_at` | timestamptz | нет | Время когда задача впервые зафиксировала событие |
-| `notified` | boolean | нет | `true` = Telegram-уведомление о СТАРТЕ отправлено (ставит бот только после ≥1 успешной отправки; seed-событие первого запуска — сразу `true`) |
-| `end_notified` | boolean | нет | `true` = Telegram-уведомление о ЗАВЕРШЕНИИ отправлено (default `false`; миграция 0033 backfill'ом выставила `true` всей истории, чтобы бот не разослал её после деплоя) |
+| `notified` | boolean | нет | Исторически `true` = Telegram-уведомление о СТАРТЕ отправлено (seed-событие первого запуска — сразу `true`). **С 2026-07-21 для Telegram-дедупа не используется** (перешёл на Redis `tg_emission_sent:*`), но продюсер поле заполняет |
+| `end_notified` | boolean | нет | Исторически `true` = Telegram-уведомление о ЗАВЕРШЕНИИ отправлено (default `false`; миграция 0033 backfill'ом выставила `true` всей истории). **С 2026-07-21 для Telegram-дедупа не используется** (перешёл на Redis), но продюсер поле заполняет |
 
 **Индексы:**
 - `ix_emission_region_started (region, started_at)` — поиск событий по региону и времени

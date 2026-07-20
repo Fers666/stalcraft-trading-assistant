@@ -29,9 +29,14 @@
 глобальные). Подробности полей → `docs/DATABASE.md`.
 **После каждого сбора:** `_publish_signals` пересчитывает выгодные лоты и пишет в Redis
 `signals:{user_id}:{item_id}:{region}:{qf}:{ef}` (TTL 300 сек). Параллельно (2026-07-20)
-публикует push-события в RabbitMQ (`push.events`) для сервиса `push_service` —
-низколатентный web push канал (best-effort, не ломает сбор при недоступности брокера);
-см. `docs/SERVICES.md` (раздел «Web Push»), `docs/tasks/web-push-notifications.md`.
+публикует push-события в RabbitMQ (`push.events`, DIRECT-exchange, routing_key `push`) —
+низколатентный конвейер уведомлений (best-effort, не ломает сбор при недоступности брокера).
+Fan-out на стороне брокера: к `push.events` привязаны ДВЕ durable-очереди с тем же
+routing_key — `push.notifications` (web push, сервис `push_service`) и (с 2026-07-21)
+`telegram.notifications` (сервис `telegram_bot`); брокер отдаёт копию каждого события
+обоим каналам. Продюсер о получателях/каналах не знает — курация в консьюмерах.
+См. `docs/SERVICES.md` (разделы «Web Push» и «Telegram»),
+`docs/tasks/telegram-notifications.md`, `docs/tasks/web-push-notifications.md`.
 **Эффект:** 100 пользователей следят за одним товаром → **1 API запрос**, не 100.
 
 ```
@@ -90,11 +95,15 @@ Watchlist всех пользователей:
                     │     (TTL 300 сек)          │
                     └────────────┬───────────────┘
                                   │
-            ┌─────────────────────┼─────────────────────┐
-            ▼                     ▼                      ▼
-     Telegram-бот        GET /monitoring/signals    Фронтенд (GlobalFeed/
-     (поллинг 15 сек)      /{item_id}               feedStore, LotStatCard;
-                                                     поллинг 30 сек)
+            ┌─────────────────────┴─────────────────────┐
+            ▼                                            ▼
+   GET /monitoring/signals/{item_id}          Фронтенд (GlobalFeed/
+                                               feedStore, LotStatCard;
+                                               поллинг 30 сек)
+
+  Параллельно уведомления: _publish_signals → RabbitMQ push.events (DIRECT)
+  → fan-out → telegram.notifications (telegram_bot) + push.notifications (push_service)
+  — событийная доставка; с 2026-07-21 Telegram тоже консьюмер, а не поллинг Redis.
 ```
 
 ---
@@ -134,5 +143,6 @@ Watchlist всех пользователей:
 
 **Автообновление фронтенда:** `LotStatCard` и `GlobalFeed` поллят
 `GET /monitoring/signals/{item_id}` каждые 30 сек — те же данные из Redis
-`signals:*`, что читают Telegram-бот и `_publish_signals`. Полный refresh
-страницы не требуется.
+`signals:*`, что пишет `_publish_signals`. Полный refresh страницы не требуется.
+(Telegram-бот с 2026-07-21 читает уведомления не из Redis `signals:*`, а из
+очереди `telegram.notifications` — см. `docs/SERVICES.md`.)

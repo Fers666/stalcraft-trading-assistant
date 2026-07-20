@@ -104,6 +104,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD:-stalcraft_dev}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
     volumes:
       - ./backend:/app
       - ./telegram_bot:/tg_bot
@@ -111,6 +112,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     command: python /tg_bot/bot.py
     restart: unless-stopped

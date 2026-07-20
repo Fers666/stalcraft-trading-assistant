@@ -8,13 +8,16 @@ Telegram Bot — Stalcraft Trading Assistant.
   /status      — показать статус привязки
   /stop        — отвязать аккаунт и отключить уведомления
 
-Фоновый цикл (каждые 15 сек):
-  - Читает предвычисленные сигналы из Redis (ключи signals:user_id:…)
-  - Сигналы публикуются коллектором сразу после сбора свежего снапшота
-  - Дедуплицирует по startTime лота (одно уведомление на лот за 48ч)
-  - Отправляет отдельное сообщение на каждый выгодный лот
-  - Рассылает уведомления о старте/завершении выброса (emission_events,
-    флаги notified / end_notified ставятся после успешной отправки)
+Событийный консьюмер (RabbitMQ, вместо polling Redis):
+  - Слушает durable-очередь telegram.notifications, привязанную к DIRECT-exchange
+    push.events (routing_key push). Продюсер (Celery-коллектор) публикует туда
+    события profitable_lot / buy_alert / emission — те же, что получает web push.
+  - Fan-out на стороне брокера: web push и Telegram имеют по своей очереди на один
+    exchange, поэтому каждый получает копию каждого события. Продюсер не меняется.
+  - Рендер сообщений (build_lot_message / build_buy_message / тексты выброса)
+    остаётся прежним; источник данных — payload события, а не Redis-poll.
+  - Дедуп: Redis-ключи tg_sent:* / tg_buy_sent:* / tg_emission_sent:*
+    (независимы от push_*). Best-effort ack всегда (poison-message safety, без DLX).
 """
 
 import asyncio
@@ -25,6 +28,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+import aio_pika
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -33,8 +37,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 sys.path.insert(0, "/app")
-from app.models.models import EmissionEvent, User, UserWatchlist, UserSettings, BuyAlert, MasterItem
-from app.services.profitable_lots import signals_key, buymin_key, NOTIF_DEDUP_TTL
+from app.models.models import User, UserWatchlist, UserSettings
+from app.services.profitable_lots import NOTIF_DEDUP_TTL
+from app.services.push_broker import EXCHANGE_NAME, ROUTING_KEY
 from app.core.tiers import get_tier_limits
 
 logging.basicConfig(
@@ -47,12 +52,16 @@ logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 REDIS_URL    = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+RABBITMQ_URL = os.environ.get("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 BOT_TOKEN    = os.environ["TELEGRAM_BOT_TOKEN"]
 BOT_USERNAME = os.environ.get("TELEGRAM_BOT_USERNAME", "SC_TRADING_auc_bot")
 APP_ENV      = os.environ.get("APP_ENV", "production").lower()
 IS_STAGE     = APP_ENV == "stage"
 
-POLL_INTERVAL = 15    # сек — интервал проверки Redis (просто чтение, быстро)
+QUEUE_NAME = "telegram.notifications"
+PREFETCH   = 20
+QUEUE_TTL_MS = 15 * 60 * 1000  # 15 мин — очередь не отдаёт протухшее после простоя
+CONSUMER_RETRY_SEC = 5  # пауза перед реконнектом консьюмера после сбоя цикла
 EMISSION_MAX_AGE_MIN = 15  # мин — события старше не рассылаем (защита от спама историей)
 
 # ─── DB / Redis ───────────────────────────────────────────────────────────────
@@ -60,7 +69,7 @@ EMISSION_MAX_AGE_MIN = 15  # мин — события старше не рас�
 engine        = create_async_engine(DATABASE_URL, pool_size=5, max_overflow=2)
 SessionLocal  = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 _redis: Optional[aioredis.Redis] = None
-_notifier_task: Optional[asyncio.Task] = None
+_consumer_task: Optional[asyncio.Task] = None
 
 
 async def get_redis() -> aioredis.Redis:
@@ -142,125 +151,6 @@ def build_lot_message(
     return "\n".join(lines)
 
 
-# ─── Notifier loop ────────────────────────────────────────────────────────────
-
-async def notify_profitable_lots(app: Application) -> None:
-    """
-    Читает предвычисленные сигналы из Redis и отправляет Telegram-уведомления.
-
-    Сигналы публикуются коллектором сразу после каждого успешного сбора,
-    поэтому бот видит те же данные что и сайт — рассинхрон невозможен.
-    """
-    r = await get_redis()
-
-    async with SessionLocal() as db:
-        rows = (await db.execute(
-            select(User, UserSettings)
-            .join(UserSettings, UserSettings.user_id == User.id, isouter=True)
-            .where(
-                User.telegram_chat_id.isnot(None),
-                User.is_active == True,
-            )
-        )).all()
-
-        users_to_notify = [
-            (user, us) for user, us in rows
-            if (us is None or us.notify_telegram)
-            and (user.is_admin or get_tier_limits(user).telegram_notifications)
-        ]
-        if not users_to_notify:
-            return
-
-        for user, _ in users_to_notify:
-            watchlist = (await db.execute(
-                select(UserWatchlist)
-                .where(
-                    UserWatchlist.user_id   == user.id,
-                    UserWatchlist.is_active == True,
-                )
-            )).scalars().all()
-
-            for entry in watchlist:
-                try:
-                    key = signals_key(
-                        user.id, entry.item_id, entry.region,
-                        entry.quality_filter, entry.enchant_filter,
-                    )
-                    raw = await r.get(key)
-                    if not raw:
-                        continue
-
-                    try:
-                        signals = json.loads(raw)
-                    except Exception:
-                        continue
-
-                    lots        = signals.get("lots", [])
-                    sell_options = signals.get("sell_options", [])
-                    volume_7d   = signals.get("volume_7d")
-                    volatility  = signals.get("volatility_7d")
-                    trend       = signals.get("trend")
-                    saturation  = signals.get("saturation_ratio")
-
-                    for lot in lots:
-                        start_time = lot.get("start_time", "")
-                        dedup = (
-                            f"tg_sent:{user.id}:{entry.item_id}:{entry.region}"
-                            f":{entry.quality_filter}:{entry.enchant_filter}"
-                            f":{start_time}"
-                        )
-                        if await r.exists(dedup):
-                            continue
-
-                        # Получаем имя предмета из БД (можно закэшировать, но watchlist небольшой)
-                        from app.models.models import MasterItem
-                        master = (await db.execute(
-                            select(MasterItem).where(MasterItem.item_id == entry.item_id)
-                        )).scalar_one_or_none()
-                        item_name = (
-                            (master.name_ru or master.name_en or entry.item_id)
-                            if master else entry.item_id
-                        )
-
-                        msg = build_lot_message(
-                            item_name        = item_name,
-                            quality_name     = lot.get("quality_name"),
-                            enchant          = lot.get("enchant"),
-                            buyout_per_unit  = lot["buyout_per_unit"],
-                            sell_options     = sell_options,
-                            sales_volume_7d  = volume_7d,
-                            volatility_7d    = volatility,
-                            trend            = trend,
-                            saturation_ratio = saturation,
-                        )
-
-                        try:
-                            await app.bot.send_message(
-                                chat_id=user.telegram_chat_id,
-                                text=msg,
-                                parse_mode="HTML",
-                            )
-                            await r.setex(dedup, NOTIF_DEDUP_TTL, "1")
-                            logger.info(
-                                f"Notified user={user.id} item={entry.item_id} "
-                                f"price={lot['buyout_per_unit']}"
-                            )
-                        except Exception as e:
-                            logger.error(
-                                f"Failed to send message to chat_id={user.telegram_chat_id}: {e}"
-                            )
-                except Exception as e:
-                    # Причина F (docs/tasks/telegram-notification-bug.md): не даём
-                    # сбою на одной watchlist-записи (например, транзиентная ошибка
-                    # запроса MasterItem) прервать обработку остальных пользователей
-                    # и записей в этом же проходе notify_profitable_lots().
-                    logger.error(
-                        f"notify_profitable_lots: entry failed user={user.id} "
-                        f"item={entry.item_id}/{entry.region}: {e}"
-                    )
-                    continue
-
-
 def build_buy_message(
     item_name: str,
     quality_name: Optional[str],
@@ -285,239 +175,251 @@ def build_buy_message(
     )
 
 
-async def notify_buy_alerts(app: Application) -> None:
-    """
-    Buy Sniper: шлёт уведомление, когда самый дешёвый подходящий лот на рынке
-    падает ≤ порога закупки.
+def build_emission_message(event: dict) -> str:
+    """Текст уведомления о выбросе (start/end) — как в polling-версии,
+    источник данных теперь payload события, а не строка EmissionEvent."""
+    prefix = "[STAGE] " if IS_STAGE else ""
 
-    Триггер-цена читается из Redis-ключа buymin:{...}, который пишет коллектор
-    после каждого сбора (profitable_lots.cheapest_matching_lot). Гейт рассылки —
-    тариф buy_sniper_notifications (Продвинутая+/Макс), в отличие от прибыльных
-    лотов, которые гейтятся telegram_notifications.
-    """
-    r = await get_redis()
+    if event.get("phase") == "start":
+        time_line = ""
+        started_at = event.get("started_at")
+        if started_at:
+            try:
+                local_time = datetime.fromisoformat(started_at).astimezone(timezone(timedelta(hours=3)))
+                time_line = f"Время: {local_time.strftime('%H:%M')} МСК\n"
+            except ValueError:
+                pass
+        return (
+            f"{prefix}<b>Выброс начался</b>\n"
+            f"{time_line}"
+            f"Аукционная активность снижена (~15 мин)"
+        )
 
-    async with SessionLocal() as db:
-        rows = (await db.execute(
-            select(User, UserSettings)
-            .join(UserSettings, UserSettings.user_id == User.id, isouter=True)
-            .where(
-                User.telegram_chat_id.isnot(None),
-                User.is_active == True,
-            )
-        )).all()
-
-        users_to_notify = [
-            (user, us) for user, us in rows
-            if (us is None or us.notify_telegram)
-            and get_tier_limits(user).buy_sniper_notifications
-        ]
-        if not users_to_notify:
-            return
-
-        for user, _ in users_to_notify:
-            alerts = (await db.execute(
-                select(BuyAlert, UserWatchlist)
-                .join(UserWatchlist, UserWatchlist.id == BuyAlert.watchlist_id)
-                .where(
-                    BuyAlert.user_id == user.id,
-                    BuyAlert.is_active == True,
-                    UserWatchlist.is_active == True,
-                )
-            )).all()
-
-            for alert, entry in alerts:
-                try:
-                    raw = await r.get(buymin_key(
-                        user.id, entry.item_id, entry.region,
-                        entry.quality_filter, entry.enchant_filter,
-                    ))
-                    if not raw:
-                        continue
-
-                    try:
-                        cheapest = json.loads(raw)
-                    except Exception:
-                        continue
-
-                    price = cheapest.get("price_per_unit")
-                    if price is None or price > alert.target_price:
-                        continue
-
-                    start_time = cheapest.get("start_time", "")
-                    dedup = (
-                        f"tg_buy_sent:{user.id}:{entry.item_id}:{entry.region}"
-                        f":{entry.quality_filter}:{entry.enchant_filter}"
-                        f":{start_time}"
-                    )
-                    if await r.exists(dedup):
-                        continue
-
-                    master = (await db.execute(
-                        select(MasterItem).where(MasterItem.item_id == entry.item_id)
-                    )).scalar_one_or_none()
-                    item_name = (
-                        (master.name_ru or master.name_en or entry.item_id)
-                        if master else entry.item_id
-                    )
-
-                    msg = build_buy_message(
-                        item_name      = item_name,
-                        quality_name   = cheapest.get("quality_name"),
-                        enchant        = cheapest.get("enchant"),
-                        price_per_unit = price,
-                        target_price   = alert.target_price,
-                        amount         = cheapest.get("amount", 0),
-                    )
-
-                    try:
-                        await app.bot.send_message(
-                            chat_id=user.telegram_chat_id,
-                            text=msg,
-                            parse_mode="HTML",
-                        )
-                        await r.setex(dedup, NOTIF_DEDUP_TTL, "1")
-                        logger.info(
-                            f"Buy-alert notified user={user.id} item={entry.item_id} "
-                            f"price={price} target={alert.target_price}"
-                        )
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to send buy-alert to chat_id={user.telegram_chat_id}: {e}"
-                        )
-                except Exception as e:
-                    logger.error(
-                        f"notify_buy_alerts: entry failed user={user.id} "
-                        f"item={entry.item_id}/{entry.region}: {e}"
-                    )
-                    continue
-
-
-async def notify_emission_events(app: Application) -> None:
-    """
-    Рассылает Telegram-уведомления о старте/завершении выброса.
-
-    События фиксирует Celery worker (collect_emission) в emission_events,
-    бот подхватывает их по флагам: notified — «о старте отправлено»,
-    end_notified — «о завершении отправлено». Флаг ставится ТОЛЬКО после
-    ≥1 успешной отправки — дедупликация через БД, ретрай каждые 15 сек.
-    События старше EMISSION_MAX_AGE_MIN помечаются без рассылки.
-    """
-    async with SessionLocal() as db:
-        starts = (await db.execute(
-            select(EmissionEvent).where(EmissionEvent.notified == False)
-        )).scalars().all()
-        ends = (await db.execute(
-            select(EmissionEvent).where(
-                EmissionEvent.ended_at.isnot(None),
-                EmissionEvent.end_notified == False,
-            )
-        )).scalars().all()
-
-        if not starts and not ends:
-            return
-
-        # Отсечка свежести: старые события помечаем без рассылки
-        # (защита от спама историей после простоя бота)
-        now = datetime.now(timezone.utc)
-        max_age = timedelta(minutes=EMISSION_MAX_AGE_MIN)
-
-        fresh_starts: list[EmissionEvent] = []
-        for event in starts:
-            if now - event.started_at > max_age:
-                event.notified = True
-            else:
-                fresh_starts.append(event)
-
-        fresh_ends: list[EmissionEvent] = []
-        for event in ends:
-            if now - event.ended_at > max_age:
-                event.end_notified = True
-            else:
-                fresh_ends.append(event)
-
-        await db.commit()
-
-        if not fresh_starts and not fresh_ends:
-            return
-
-        rows = (await db.execute(
-            select(User, UserSettings)
-            .join(UserSettings, UserSettings.user_id == User.id, isouter=True)
-            .where(
-                User.telegram_chat_id.isnot(None),
-                User.is_active == True,
-                User.is_approved == True,
-            )
-        )).all()
-        recipients = [u for u, us in rows if us is None or us.notify_telegram]
-
-        if not recipients:
-            # Некому слать — помечаем событие обработанным,
-            # иначе вечный retry на каждой итерации
-            for event in fresh_starts:
-                event.notified = True
-            for event in fresh_ends:
-                event.end_notified = True
-            await db.commit()
-            return
-
-        prefix = "[STAGE] " if IS_STAGE else ""
-        queue = [(e, True) for e in fresh_starts] + [(e, False) for e in fresh_ends]
-
-        for event, is_start in queue:
-            if is_start:
-                local_time = event.started_at.astimezone(timezone(timedelta(hours=3)))
-                text = (
-                    f"{prefix}<b>Выброс начался</b>\n"
-                    f"Время: {local_time.strftime('%H:%M')} МСК\n"
-                    f"Аукционная активность снижена (~15 мин)"
-                )
-            else:
-                duration_min = None
-                if event.ended_at and event.started_at:
-                    duration_min = round((event.ended_at - event.started_at).total_seconds() / 60)
-                dur_str = f" (длился {duration_min} мин)" if duration_min else ""
-                text = f"{prefix}<b>Выброс завершён</b>{dur_str}\nАукцион возвращается к норме"
-
-            sent = 0
-            for user in recipients:
-                try:
-                    await app.bot.send_message(
-                        chat_id=user.telegram_chat_id,
-                        text=text,
-                        parse_mode="HTML",
-                    )
-                    sent += 1
-                except Exception as e:
-                    logger.error(
-                        f"notify_emission_events: send failed chat_id={user.telegram_chat_id}: {e}"
-                    )
-
-            # Флаг только после ≥1 успешной отправки; иначе ретрай через 15 сек
-            if sent > 0:
-                if is_start:
-                    event.notified = True
-                else:
-                    event.end_notified = True
-                await db.commit()
-                logger.info(
-                    f"Emission {'start' if is_start else 'end'} notified: "
-                    f"event_id={event.id} sent={sent}/{len(recipients)}"
-                )
-
-
-async def _notifier_loop(app: Application) -> None:
-    """Бесконечный цикл уведомлений, запускается как asyncio task при старте бота."""
-    await asyncio.sleep(15)  # небольшая задержка после старта
-    while True:
+    duration_min = None
+    started_at, ended_at = event.get("started_at"), event.get("ended_at")
+    if started_at and ended_at:
         try:
-            await notify_profitable_lots(app)
-            await notify_buy_alerts(app)
-            await notify_emission_events(app)
+            duration_min = round(
+                (datetime.fromisoformat(ended_at) - datetime.fromisoformat(started_at)).total_seconds() / 60
+            )
+        except ValueError:
+            pass
+    dur_str = f" (длился {duration_min} мин)" if duration_min else ""
+    return f"{prefix}<b>Выброс завершён</b>{dur_str}\nАукцион возвращается к норме"
+
+
+# ─── Гейты получателя ─────────────────────────────────────────────────────────
+
+async def _load_user_gate(db: AsyncSession, user_id: int, gate_attr: str) -> Optional[User]:
+    """Загружает пользователя и проверяет: привязан Telegram (telegram_chat_id),
+    активен/подтверждён, канальный тумблер notify_telegram, тарифный гейт.
+    Возвращает User если можно слать, иначе None."""
+    row = (await db.execute(
+        select(User, UserSettings)
+        .join(UserSettings, UserSettings.user_id == User.id, isouter=True)
+        .where(
+            User.id == user_id,
+            User.is_active == True,
+            User.telegram_chat_id.isnot(None),
+        )
+    )).first()
+    if row is None:
+        return None
+    user, us = row
+    if not (user.is_approved or user.is_admin):
+        return None
+    if us is not None and not us.notify_telegram:
+        return None
+    if not (user.is_admin or getattr(get_tier_limits(user), gate_attr)):
+        return None
+    return user
+
+
+# ─── Обработчики событий ──────────────────────────────────────────────────────
+
+async def handle_profitable_lot(db, r, app: Application, event: dict) -> None:
+    user = await _load_user_gate(db, event["user_id"], "telegram_notifications")
+    if user is None:
+        return
+
+    signal = event.get("signal", {})
+    sell_options = signal.get("sell_options", [])
+    for lot in signal.get("lots", []):
+        start_time = lot.get("start_time", "")
+        dedup = (
+            f"tg_sent:{user.id}:{event['item_id']}:{event['region']}"
+            f":{event['quality_filter']}:{event['enchant_filter']}:{start_time}"
+        )
+        if await r.exists(dedup):
+            continue
+
+        msg = build_lot_message(
+            item_name        = event["item_name"],
+            quality_name     = lot.get("quality_name"),
+            enchant          = lot.get("enchant"),
+            buyout_per_unit  = lot["buyout_per_unit"],
+            sell_options     = sell_options,
+            sales_volume_7d  = signal.get("volume_7d"),
+            volatility_7d    = signal.get("volatility_7d"),
+            trend            = signal.get("trend"),
+            saturation_ratio = signal.get("saturation_ratio"),
+        )
+        try:
+            await app.bot.send_message(
+                chat_id=user.telegram_chat_id, text=msg, parse_mode="HTML",
+            )
+            await r.setex(dedup, NOTIF_DEDUP_TTL, "1")
+            logger.info(
+                f"Notified user={user.id} item={event['item_id']} price={lot['buyout_per_unit']}"
+            )
         except Exception as e:
-            logger.error(f"Notifier loop error: {e}", exc_info=True)
-        await asyncio.sleep(POLL_INTERVAL)
+            logger.error(f"Failed to send message to chat_id={user.telegram_chat_id}: {e}")
+
+
+async def handle_buy_alert(db, r, app: Application, event: dict) -> None:
+    user = await _load_user_gate(db, event["user_id"], "buy_sniper_notifications")
+    if user is None:
+        return
+
+    cheapest = event["cheapest"]
+    start_time = cheapest.get("start_time", "")
+    dedup = (
+        f"tg_buy_sent:{user.id}:{event['item_id']}:{event['region']}"
+        f":{event['quality_filter']}:{event['enchant_filter']}:{start_time}"
+    )
+    if await r.exists(dedup):
+        return
+
+    msg = build_buy_message(
+        item_name      = event["item_name"],
+        quality_name   = cheapest.get("quality_name"),
+        enchant        = cheapest.get("enchant"),
+        price_per_unit = cheapest["price_per_unit"],
+        target_price   = event["target_price"],
+        amount         = cheapest.get("amount", 0),
+    )
+    try:
+        await app.bot.send_message(
+            chat_id=user.telegram_chat_id, text=msg, parse_mode="HTML",
+        )
+        await r.setex(dedup, NOTIF_DEDUP_TTL, "1")
+        logger.info(
+            f"Buy-alert notified user={user.id} item={event['item_id']} "
+            f"price={cheapest['price_per_unit']} target={event['target_price']}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to send buy-alert to chat_id={user.telegram_chat_id}: {e}")
+
+
+async def handle_emission(db, r, app: Application, event: dict) -> None:
+    # Отсечка свежести — не рассылаем историю после простоя консьюмера.
+    ref_ts = event.get("started_at") if event.get("phase") == "start" else event.get("ended_at")
+    if ref_ts:
+        try:
+            if datetime.now(timezone.utc) - datetime.fromisoformat(ref_ts) > timedelta(minutes=EMISSION_MAX_AGE_MIN):
+                return
+        except ValueError:
+            pass
+
+    dedup = f"tg_emission_sent:{event.get('event_id')}:{event.get('phase')}"
+    if await r.exists(dedup):
+        return
+
+    # Получатели: все привязанные+активные+подтверждённые с включённым каналом.
+    # Без тарифного гейта — как emission в старой polling-версии.
+    rows = (await db.execute(
+        select(User, UserSettings)
+        .join(UserSettings, UserSettings.user_id == User.id, isouter=True)
+        .where(
+            User.telegram_chat_id.isnot(None),
+            User.is_active == True,
+            User.is_approved == True,
+        )
+    )).all()
+    recipients = [u for u, us in rows if us is None or us.notify_telegram]
+    if not recipients:
+        await r.setex(dedup, NOTIF_DEDUP_TTL, "1")
+        return
+
+    text = build_emission_message(event)
+    sent = 0
+    for user in recipients:
+        try:
+            await app.bot.send_message(
+                chat_id=user.telegram_chat_id, text=text, parse_mode="HTML",
+            )
+            sent += 1
+        except Exception as e:
+            logger.error(f"Emission send failed chat_id={user.telegram_chat_id}: {e}")
+
+    if sent > 0:
+        await r.setex(dedup, NOTIF_DEDUP_TTL, "1")
+        logger.info(
+            f"Emission {event.get('phase')} notified: event_id={event.get('event_id')} "
+            f"sent={sent}/{len(recipients)}"
+        )
+
+
+HANDLERS = {
+    "profitable_lot": handle_profitable_lot,
+    "buy_alert": handle_buy_alert,
+    "emission": handle_emission,
+}
+
+
+async def handle_message(app: Application, body: bytes) -> None:
+    event = json.loads(body)
+    handler = HANDLERS.get(event.get("type"))
+    if handler is None:
+        logger.warning(f"Unknown event type: {event.get('type')}")
+        return
+    r = await get_redis()
+    async with SessionLocal() as db:
+        await handler(db, r, app, event)
+
+
+# ─── Consumer loop ────────────────────────────────────────────────────────────
+
+async def _consume_loop(app: Application) -> None:
+    """Слушает telegram.notifications и рассылает события. Стартует из post_init
+    как asyncio task в том же loop, что и PTB — переиспользует app.bot.
+
+    Супервайзер-петля: если потребление упадёт с исключением, вышедшим за пределы
+    самолечения connect_robust (например из queue.iterator()), логируем и
+    переподнимаем консьюмер после паузы — иначе таск тихо умирает при живом
+    процессе PTB (Docker restart не срабатывает, доставка молча встаёт)."""
+    while True:
+        connection = None
+        try:
+            connection = await aio_pika.connect_robust(RABBITMQ_URL)
+            channel = await connection.channel()
+            await channel.set_qos(prefetch_count=PREFETCH)
+
+            exchange = await channel.declare_exchange(EXCHANGE_NAME, aio_pika.ExchangeType.DIRECT, durable=True)
+            queue = await channel.declare_queue(
+                QUEUE_NAME, durable=True, arguments={"x-message-ttl": QUEUE_TTL_MS},
+            )
+            await queue.bind(exchange, routing_key=ROUTING_KEY)
+
+            logger.info(f"Telegram consumer запущен, слушаю {QUEUE_NAME}")
+
+            async with queue.iterator() as it:
+                async for message in it:
+                    try:
+                        await handle_message(app, message.body)
+                    except Exception as e:
+                        logger.error(f"handle_message error: {e}", exc_info=True)
+                    finally:
+                        # Best-effort: всегда ack (без DLX не хотим бесконечный requeue).
+                        await message.ack()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(f"Consumer loop crashed, reconnect in {CONSUMER_RETRY_SEC}s: {e}", exc_info=True)
+            await asyncio.sleep(CONSUMER_RETRY_SEC)
+        finally:
+            if connection is not None:
+                await connection.close()
 
 
 # ─── Command handlers ─────────────────────────────────────────────────────────
@@ -640,9 +542,9 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 async def post_init(application: Application) -> None:
-    global _notifier_task
-    _notifier_task = asyncio.create_task(_notifier_loop(application))
-    logger.info("Notifier task started")
+    global _consumer_task
+    _consumer_task = asyncio.create_task(_consume_loop(application))
+    logger.info("Consumer task started")
 
 
 # ─── Entrypoint ───────────────────────────────────────────────────────────────
