@@ -17,7 +17,7 @@ cd D:\SC_AUC\backend\app; graphify query "как работает X?"
 cd D:\SC_AUC\frontend\src; graphify query "что такое компонент Y?"
 cd D:\SC_AUC\backend\app; graphify path "NodeA" "NodeB"
 ```
-Графы: `backend/app/graphify-out/` (456 nodes) · `frontend/src/graphify-out/` (310 nodes)
+Графы: `backend/app/graphify-out/` (492 nodes) · `frontend/src/graphify-out/` (327 nodes)
 После значимых изменений кода: `graphify update .` из нужной папки.
 
 | Задача | Читать |
@@ -63,8 +63,8 @@ Docker Compose. Данные глобальные (user_id=NULL), персона
 
 **Структура:**
 ```
-backend/app/   — FastAPI (entry: main.py), SQLAlchemy models, Celery tasks (graphify: 456 nodes)
-frontend/src/  — React/TS (entry: App.tsx), Zustand store, MUI (graphify: 310 nodes)
+backend/app/   — FastAPI (entry: main.py), SQLAlchemy models, Celery tasks (graphify: 492 nodes)
+frontend/src/  — React/TS (entry: App.tsx), Zustand store, MUI (graphify: 327 nodes)
 design/v5/     — прототип-эталон редизайна «Терминал»; внедрение Фазы 1–6/7 done (Ф1–5 2026-07-18, Ф6 2026-07-19), осталась только Фаза 7 «Лента» (ждёт решения пользователя + бэкенд-обсуждение), см. docs/tasks/design-v5-implementation.md
 docs/          — формулы, БД, архитектура, деплой (см. таблицу в Блоке 2)
 .claude/       — агенты, skills, команды Claude Code
