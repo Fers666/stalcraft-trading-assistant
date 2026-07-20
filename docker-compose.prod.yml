@@ -34,6 +34,10 @@ services:
     image: rabbitmq:3-management-alpine
     # Порты наружу не публикуем — брокер доступен только внутри compose-сети.
     # Management UI (15672) при необходимости пробрасывать через SSH-туннель.
+    # Отдельный пользователь (не guest) из .env — см. docs/DEPLOY.md.
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
@@ -64,7 +68,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
       STALCRAFT_REGION: RU
     depends_on:
       postgres:
@@ -113,7 +117,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
       REDIS_URL: redis://redis:6379/0
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
     volumes:
       - ./push_service:/push_service
     depends_on:

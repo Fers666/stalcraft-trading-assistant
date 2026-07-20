@@ -45,8 +45,9 @@ _publish_signals / emission ─pub→ exchange push.events (direct) ─→ queue
 
 ## Статус
 - Реализовано и раскатано локально 2026-07-20; QA-проход пройден (API, консьюмер, гейт, дедуп, удаление мёртвых подписок, регрессия Telegram, прод-сборка фронта `npm run build` exit 0).
+- **Security-ревью пройдено, фиксы применены (2026-07-20):** allowlist push-хостов в `/push/subscribe` (анти-SSRF, только https + FCM/Mozilla/Apple/WNS) + cap 20 подписок на пользователя; `timeout=10` в `webpush()`; отдельный пользователь RabbitMQ на проде (`RABBITMQ_USER/PASSWORD` в `.env`, не guest); dev-порты RabbitMQ на `127.0.0.1`. Открытый Low — нет rate-limit на `/push/*` (глобального лимитера в проекте нет, отложено).
 - **Не проверено (требует живого браузера):** реальный приём push на устройстве.
-- **Не задеплоено на прод.** Перед деплоем: сгенерировать отдельные прод-VAPID-ключи, применить миграцию `0035`, пересобрать backend/worker/frontend + поднять `rabbitmq`/`push_service`. Детали — `docs/DEPLOY.md`. Guest-креды RabbitMQ на проде — закрыть (security).
+- **Не задеплоено на прод.** Перед деплоем: сгенерировать отдельные прод-VAPID-ключи, задать `RABBITMQ_USER/PASSWORD`, применить миграцию `0035`, пересобрать backend/worker/frontend + поднять `rabbitmq`/`push_service`. Детали — `docs/DEPLOY.md`.
 
 ## Будущее
 Перевести **Telegram** на чтение той же очереди (отдельный durable-queue к тому же exchange) — уберёт задержку и для Telegram, унифицирует конвейер. Отдельная задача ПОСЛЕ стабилизации push; ключевой момент — воспроизвести freshness-семантику Redis-TTL (message-TTL очереди + timestamp-guard). См. `docs/NOTES.md`.

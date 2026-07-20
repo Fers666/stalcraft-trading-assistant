@@ -54,6 +54,7 @@ docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
    PY
    ```
    Значения (+ `VAPID_SUBJECT=mailto:...`) вписать в прод `.env`. `VAPID_PRIVATE_KEY` — секрет, в git не коммитить.
+   Там же задать **отдельного пользователя RabbitMQ** (не guest): `RABBITMQ_USER=...` и `RABBITMQ_PASSWORD=<сильный>` — прод-compose подставляет их в `RABBITMQ_DEFAULT_USER/PASS` брокера и в `RABBITMQ_URL` воркера/push_service.
 2. **Пересобрать и поднять** (новые зависимости backend-образа + новые сервисы):
    ```bash
    docker compose -f docker-compose.prod.yml build --no-cache backend frontend worker push_service

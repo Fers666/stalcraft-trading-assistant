@@ -34,8 +34,9 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     ports:
-      - "5672:5672"     # AMQP
-      - "15672:15672"   # Management UI
+      # Только loopback — не выставляем AMQP/Management в LAN разработчика.
+      - "127.0.0.1:5672:5672"     # AMQP
+      - "127.0.0.1:15672:15672"   # Management UI
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:

@@ -164,6 +164,7 @@ def _send_sync(sub: dict, payload: dict) -> None:
         vapid_private_key=VAPID_PRIVATE_KEY,
         vapid_claims={"sub": VAPID_SUBJECT},
         ttl=600,
+        timeout=10,  # не залипать на «висящих» endpoint (защита тред-пула)
     )
 
 
