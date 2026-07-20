@@ -17,8 +17,13 @@
   «Browser Push» (subscribe-flow, iOS-инструкция), сервисы `rabbitmq` +
   `push_service` в оба compose. Детали — `docs/CHANGELOG.md`, `docs/DATABASE.md`,
   `docs/SERVICES.md`, `docs/ARCHITECTURE.md`, `docs/DEPLOY.md`.
-  **Не задеплоено на прод** (нужны прод-VAPID-ключи + закрыть guest-креды
-  RabbitMQ). **Не проверен** реальный приём push на устройстве (нужен браузер).
+  **Задеплоено на прод 2026-07-20** (прод-VAPID + отдельный пользователь
+  RabbitMQ из `.env`, не guest). Security-ревью пройдено, фиксы применены
+  (коммит `e4e2949`): allowlist push-хостов в `/push/subscribe` (анти-SSRF) +
+  cap 20 подписок, `timeout` в `webpush()`, dev-порты RabbitMQ на `127.0.0.1`.
+  Приём push подтверждён вживую (реальные лот-пуши + тестовый emission
+  `sent=2/2` дошли до устройства). У одного устройства push не показывался —
+  причина на стороне браузера/ОС (разрешение/показ), не код.
 - [ ] **Перевести Telegram-уведомления на ту же очередь событий (RabbitMQ)** —
   идея пользователя 2026-07-20. Сейчас бот поллит Redis (`signals:*`/`buymin:*`)
   каждые 15с — это остаток исходной задержки. Сделать `telegram_bot`
@@ -32,6 +37,24 @@
   при простое консьюмера возможна пачка устаревших уведомлений. Дедуп у каждого
   канала свой (`tg_sent:*` vs `push_sent:*`) — уже разведены. Контекст —
   `docs/tasks/web-push-notifications.md`, `docs/tasks/telegram-notification-bug.md`.
+- [ ] **Web push: deep-link клика по уведомлению на конкретный предмет** — идея
+  пользователя 2026-07-20 (после прод-деплоя push). Сейчас Service Worker при
+  клике открывает захардкоженный раздел (`render_*` в `push_service/consumer.py`:
+  лот → `/app/lots`, закупка → `/app/buy-sniper`, выброс → `/app`). Надо вести на
+  страницу **того** предмета, по которому пришло уведомление. Данные в событии
+  уже есть (`item_id`/`region`/`quality_filter`/`enchant_filter`). **Ключевой
+  нюанс:** клик по push открывает URL (`clients.openWindow`), а не React-Router
+  `location.state` — поэтому мало дописать `?item=` в `url`, целевая страница
+  должна **читать предмет из query-параметра** (`useSearchParams`). Сейчас
+  пред-выбор работает только через `location.state` (`MonitoringPage.tsx:89-105`,
+  `LotsPage.tsx:192-203`) — расширить на `?item=`. Маршруты — `/app/monitoring`,
+  `/app/lots`, `/app/buy-sniper` (`App.tsx:60-64`). Правки: `push_service/
+  consumer.py` (`render_profitable_lot`/`render_buy_alert` — адресный `url`),
+  фронт `MonitoringPage.tsx`/`BuySniperPage.tsx` (чтение `?item=`). **Открытый
+  UX-вопрос (не решён пользователем):** выгодный-лот вести на карточку Избранного
+  (`/app/monitoring?item=`, богатый анализ) ИЛИ на список «Лоты»
+  (`/app/lots?item=`, требует тариф advanced_plus+). Требует пересборки фронта +
+  редеплоя.
 - [x] **Раздел «Закупки // Buy Sniper» (замена «Склада») ← 2026-07-19** — ТЗ
   `docs/tasks/buy-sniper.md`, миграция 0034 применена, QA пройден. Порог цены на
   товар из «Избранного» → Telegram-алерт «пора покупать», когда самый дешёвый лот
