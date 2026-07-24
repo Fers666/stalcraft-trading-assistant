@@ -10,7 +10,7 @@ from app.core.dependencies import get_current_admin
 from app.core.rate_limiter import rate_limiter
 from app.core.tiers import TIERS, get_tier_limits, deactivate_excess_watchlist, effective_watchlist_limit
 from app.db.session import get_db
-from app.models.models import User, UserWatchlist, RegistrationSettings
+from app.models.models import User, UserWatchlist, RegistrationSettings, MasterItem
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -360,3 +360,71 @@ async def update_registration_settings(
     await db.commit()
     await db.refresh(settings_row)
     return settings_row
+
+
+# ─── Аудит торгуемости каталога (on_auction) ──────────────────────────────────
+
+class AuditAuctionStatusRequest(BaseModel):
+    force_recheck: bool = False
+    stale_days: int | None = Field(None, ge=1)
+    limit: int | None = Field(None, ge=1)
+
+
+class AuditAuctionProgressResponse(BaseModel):
+    total: int
+    checked: int
+    on_auction_true: int
+    on_auction_false: int
+    pending: int
+    last_checked_at: datetime | None
+
+
+@router.post("/audit-auction-status")
+async def start_audit_auction_status(
+    payload: AuditAuctionStatusRequest | None = None,
+    _: User = Depends(get_current_admin),
+):
+    """Ставит в очередь разовый бэкфилл master_items.on_auction через Stalcraft API.
+
+    Без параметров — resumable-прогон (только непроверенные, on_auction IS NULL).
+    force_recheck=True — все предметы; stale_days=N — устаревшие проверки;
+    limit=N — тестовый прогон на N предметов.
+    """
+    payload = payload or AuditAuctionStatusRequest()
+    from app.tasks.audit import audit_auction_status
+    result = audit_auction_status.delay(
+        force_recheck=payload.force_recheck,
+        stale_days=payload.stale_days,
+        limit=payload.limit,
+    )
+    return {"status": "queued", "task_id": result.id}
+
+
+@router.get("/audit-auction-status", response_model=AuditAuctionProgressResponse)
+async def get_audit_auction_status(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_admin),
+):
+    """Прогресс бэкфилла on_auction по каталогу master_items."""
+    total = (await db.execute(select(func.count()).select_from(MasterItem))).scalar_one()
+    on_true = (await db.execute(
+        select(func.count()).select_from(MasterItem).where(MasterItem.on_auction.is_(True))
+    )).scalar_one()
+    on_false = (await db.execute(
+        select(func.count()).select_from(MasterItem).where(MasterItem.on_auction.is_(False))
+    )).scalar_one()
+    pending = (await db.execute(
+        select(func.count()).select_from(MasterItem).where(MasterItem.on_auction.is_(None))
+    )).scalar_one()
+    last_checked_at = (await db.execute(
+        select(func.max(MasterItem.auction_checked_at))
+    )).scalar_one()
+
+    return AuditAuctionProgressResponse(
+        total=total,
+        checked=on_true + on_false,
+        on_auction_true=on_true,
+        on_auction_false=on_false,
+        pending=pending,
+        last_checked_at=last_checked_at,
+    )

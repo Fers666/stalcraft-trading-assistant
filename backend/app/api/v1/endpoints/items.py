@@ -78,8 +78,17 @@ async def list_items(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    # Фаза A (двухфазный переход на on_auction, см. docs/tasks/audit-on-auction-status.md):
+    # on_auction=FALSE — подтверждённо не торгуется → скрыть; TRUE — показать;
+    # NULL (ещё не проверен бэкфиллом) — падаем на старую эвристику bind_state.
+    # После полного бэкфилла (pending=0) Фаза B заменит это на on_auction IS TRUE.
     query = select(MasterItem).where(
-        or_(MasterItem.bind_state.is_(None), MasterItem.bind_state.notin_(_UNTRADABLE_BIND_STATES))
+        MasterItem.on_auction.is_not(False),
+        or_(
+            MasterItem.on_auction.is_(True),
+            MasterItem.bind_state.is_(None),
+            MasterItem.bind_state.notin_(_UNTRADABLE_BIND_STATES),
+        ),
     )
 
     if search:

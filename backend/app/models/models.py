@@ -76,12 +76,19 @@ class MasterItem(Base):
     icon_path           = Column(String(200))   # путь вида /icons/medicine/9mmq.png
     bind_state          = Column(String(30))    # status.state из GitHub: NONE/NON_DROP/PERSONAL_ON_USE/PERSONAL_ON_GET/PERSONAL_DROP_ON_GET
     can_be_batch_traded = Column(Boolean, default=True)
+    # Реальная торгуемость по данным Stalcraft API (задача audit_auction_status):
+    # NULL = ещё не проверено, TRUE = торгуется, FALSE = не появляется на аукционе.
+    on_auction          = Column(Boolean, nullable=True)
+    auction_checked_at  = Column(DateTime(timezone=True), nullable=True)   # момент последней проверки через API
+    history_total       = Column(Integer, nullable=True)                   # последний замер total из /history (отладка)
+    lots_total          = Column(Integer, nullable=True)                   # последний замер total из /lots (отладка)
     last_updated        = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
         Index("ix_master_name_ru", "name_ru"),
         Index("ix_master_name_en", "name_en"),
         Index("ix_master_category", "category"),
+        Index("ix_master_on_auction", "on_auction"),
     )
 
 

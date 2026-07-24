@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.tasks.cleanup",
         "app.tasks.analyzers",
         "app.tasks.tiers",
+        "app.tasks.audit",
     ],
 )
 
