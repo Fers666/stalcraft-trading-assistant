@@ -10,6 +10,7 @@ import ClearIcon from '@mui/icons-material/Clear'
 import LotStatCard from '../components/LotStatCard'
 import ItemIcon from '../components/ui/ItemIcon'
 import Kick from '../components/ui/Kick'
+import { useToast } from '../components/ui/Toast'
 import api from '../api/client'
 import { useFeedStore, type FeedWatchlistEntry } from '../store/feedStore'
 import { useAuthStore } from '../store/authStore'
@@ -19,6 +20,17 @@ import { tokens, fs } from '../theme'
 const QLT_NAMES: Record<number, string> = {
   0: 'Обычный', 1: 'Необычный', 2: 'Особый',
   3: 'Ветеран', 4: 'Мастер', 5: 'Легендарный',
+}
+
+// Обезличенная подсказка для пустого «Избранного» (GET /watchlist/suggestions) —
+// без числовых счётчиков, только мягкие флаги has_profitable/is_popular.
+interface Suggestion {
+  item_id: string
+  name_ru: string | null
+  name_en: string | null
+  icon_path: string | null
+  has_profitable: boolean
+  is_popular: boolean
 }
 
 const prefersReducedMotion = () =>
@@ -149,6 +161,48 @@ export default function MonitoringPage() {
     setDeleteEntry(null)
   }
 
+  // ── Онбординг пустого «Избранного»: подсказки предметов ────────────────────
+  const { showToast } = useToast()
+  const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null)
+  const [addingItemId, setAddingItemId] = useState<string | null>(null)
+  const isEmpty = initialized && watchlist.length === 0
+
+  useEffect(() => {
+    // Список стал непустым — сбрасываем подсказки, чтобы при возврате в пустое
+    // состояние (удалили всё обратно) они перезапросились, а не остались устаревшими.
+    if (!isEmpty) {
+      if (suggestions !== null) setSuggestions(null)
+      return
+    }
+    if (suggestions !== null) return
+    let cancelled = false
+    api.get<Suggestion[]>('/watchlist/suggestions')
+      .then(({ data }) => { if (!cancelled) setSuggestions(data) })
+      .catch(() => { if (!cancelled) setSuggestions([]) })
+    return () => { cancelled = true }
+  }, [isEmpty, suggestions])
+
+  const handleAddSuggestion = async (s: Suggestion) => {
+    setAddingItemId(s.item_id)
+    try {
+      await api.post('/watchlist/', { item_id: s.item_id, region: 'RU' })
+      showToast(`«${s.name_ru || s.name_en || s.item_id}» добавлен в избранное (RU)`)
+      setSuggestions(prev => prev?.filter(x => x.item_id !== s.item_id) ?? null)
+      await loadWatchlistAndStats()
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 409) {
+        // уже в избранном — просто убираем карточку
+        setSuggestions(prev => prev?.filter(x => x.item_id !== s.item_id) ?? null)
+      } else {
+        const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        showToast(msg || 'Ошибка добавления')
+      }
+    } finally {
+      setAddingItemId(null)
+    }
+  }
+
   return (
     <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', minHeight: 0 }}>
 
@@ -160,14 +214,89 @@ export default function MonitoringPage() {
             <Skeleton variant="rectangular" height={280} sx={{ bgcolor: tokens.bg2 }} />
           </Box>
         ) : watchlist.length === 0 ? (
-          <Box sx={{ textAlign: 'center', mt: 8 }}>
-            <Typography variant="h6" color="text.secondary">Избранное пусто</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Добавь товары в разделе «Каталог», чтобы видеть статистику и историю продаж
-            </Typography>
-            <Button variant="contained" sx={{ mt: 2 }} onClick={() => navigate('/app/catalog')}>
-              Перейти в Каталог
-            </Button>
+          <Box sx={{ maxWidth: 760, mx: 'auto', mt: 6, px: 2 }}>
+            {/* Объяснитель механики — закрывает «непонятно, как работает Избранное» */}
+            <Box sx={{ textAlign: 'center', mb: 3 }}>
+              <Kick sx={{ color: tokens.gold }}>Избранное пусто</Kick>
+              <Typography sx={{
+                fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f16,
+                color: tokens.text0, letterSpacing: '0.04em', mt: 1, mb: 1,
+              }}>
+                Отслеживай товар — портал сам находит выгодные лоты
+              </Typography>
+              <Typography sx={{ fontFamily: tokens.fontUi, fontSize: fs.f13, color: tokens.text1, lineHeight: 1.6 }}>
+                Добавь предмет в Избранное → мы следим за аукционом и считаем прибыль от&nbsp;перепродажи →
+                сигнал о выгодном лоте приходит в ленту.
+              </Typography>
+            </Box>
+
+            {/* Подсказки предметов с добавлением в один клик */}
+            <Kick sx={{ display: 'block', mb: 1.5 }}>Начни с популярного</Kick>
+            {suggestions === null ? (
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 1.5 }}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} variant="rectangular" height={56} sx={{ bgcolor: tokens.bg2 }} />
+                ))}
+              </Box>
+            ) : suggestions.length > 0 ? (
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 1.5 }}>
+                {suggestions.map((s) => {
+                  const name = s.name_ru || s.name_en || s.item_id
+                  const badge = s.has_profitable
+                    ? { label: 'Есть выгодные лоты', color: tokens.goldAccent, bg: tokens.goldDim, border: tokens.goldLine }
+                    : s.is_popular
+                      ? { label: 'Популярное', color: tokens.text1, bg: tokens.bg2, border: tokens.borderHi }
+                      : null
+                  return (
+                    <Box key={s.item_id} sx={{
+                      display: 'flex', alignItems: 'center', gap: 1, p: 1,
+                      background: tokens.bg1, border: `1px solid ${tokens.border}`,
+                      borderRadius: `${tokens.radiusLg / 2}px`,
+                    }}>
+                      <ItemIcon src={iconUrl(s.icon_path) ?? undefined} name={name} size={32} />
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography sx={{
+                          fontFamily: tokens.fontUi, fontSize: fs.f125, fontWeight: 600, color: tokens.text0,
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {name}
+                        </Typography>
+                        {badge && (
+                          <Box component="span" sx={{
+                            display: 'inline-block', mt: 0.25, px: 0.5, py: '1px',
+                            fontFamily: tokens.fontUi, fontSize: fs.f10, letterSpacing: '0.03em',
+                            color: badge.color, background: badge.bg,
+                            border: `1px solid ${badge.border}`, borderRadius: `${tokens.radiusLg / 2}px`,
+                          }}>
+                            {badge.label}
+                          </Box>
+                        )}
+                      </Box>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={addingItemId === s.item_id}
+                        onClick={() => handleAddSuggestion(s)}
+                        sx={{ flexShrink: 0, minWidth: 88 }}
+                      >
+                        {addingItemId === s.item_id ? 'Добавляю…' : 'Добавить'}
+                      </Button>
+                    </Box>
+                  )
+                })}
+              </Box>
+            ) : (
+              <Typography sx={{ fontFamily: tokens.fontUi, fontSize: fs.f13, color: tokens.text2, textAlign: 'center', py: 2 }}>
+                Пока нечего предложить — открой каталог и выбери предмет вручную.
+              </Typography>
+            )}
+
+            {/* Вторичный путь — весь каталог */}
+            <Box sx={{ textAlign: 'center', mt: 3 }}>
+              <Button variant="text" onClick={() => navigate('/app/catalog')}>
+                Смотреть весь каталог →
+              </Button>
+            </Box>
           </Box>
         ) : !selected ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>

@@ -13,6 +13,7 @@ from app.db.session import get_db
 from app.models.models import User, UserWatchlist, MasterItem
 from app.core.dependencies import get_current_user
 from app.core.tiers import get_tier_limits
+from app.services.analytics.market_radar import get_watchlist_suggestions
 
 router = APIRouter(prefix="/watchlist", tags=["Watchlist"])
 
@@ -49,6 +50,34 @@ class WatchlistResponse(BaseModel):
 
     class Config:
         from_attributes = False
+
+
+class WatchlistSuggestion(BaseModel):
+    """Обезличенная подсказка для пустого «Избранного» — без числовых
+    счётчиков (см. get_watchlist_suggestions), только мягкие флаги."""
+    item_id: str
+    name_ru: Optional[str] = None
+    name_en: Optional[str] = None
+    icon_path: Optional[str] = None
+    has_profitable: bool
+    is_popular: bool
+
+
+@router.get("/suggestions", response_model=List[WatchlistSuggestion])
+async def get_suggestions(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Подсказки для онбординга: топ предметов (выгодные сейчас → популярные),
+    исключая уже добавленные пользователем. НЕ гейтится аддоном Радара —
+    отдаёт ослабленную выжимку без чисел watchers/profit.
+    """
+    watched = (await db.execute(
+        select(UserWatchlist.item_id).where(UserWatchlist.user_id == current_user.id)
+    )).scalars().all()
+
+    return await get_watchlist_suggestions(exclude_item_ids=set(watched))
 
 
 @router.get("/", response_model=List[WatchlistResponse])
