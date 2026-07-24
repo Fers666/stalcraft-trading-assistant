@@ -78,15 +78,18 @@ async def list_items(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    # Фаза A + временная митигация (см. docs/tasks/audit-on-auction-status.md):
+    # Фаза A + митигация (см. docs/tasks/audit-on-auction-status.md):
     # on_auction=FALSE скрываем (подтверждённо не торгуется), TRUE/NULL показываем.
-    # ИСКЛЮЧЕНИЕ: weapon/armor с on_auction=FALSE НЕ прячем — их каталожный item_id
-    # может не совпадать с аукционным (catalog↔auction id mismatch): API отдаёт 0/0
-    # по легаси/вариантному id, хотя ствол реально торгуется под другим id. До резолва
-    # id-проблемы держим оружие/броню видимыми, чтобы не терять живой каталог.
+    # ИСКЛЮЧЕНИЕ: всё экипируемое снаряжение (_SINGLE_CATEGORIES из github_parser:
+    # weapon/armor/attachment/backpacks/weapon_modules) с on_auction=FALSE НЕ прячем.
+    # Часть gear реально не торгуется (AK-103 → 0/0 честный), но по API нельзя надёжно
+    # отделить непродаваемое от торгуемого-под-другим-именем, а терять живое оружие
+    # дороже, чем показать пару непродаваемых. Держим весь класс gear видимым.
     _gear_exempt = or_(
-        MasterItem.category.like("weapon%"),
+        MasterItem.category.like("weapon%"),       # weapon/* и weapon_modules
         MasterItem.category.like("armor%"),
+        MasterItem.category.like("attachment%"),
+        MasterItem.category.like("backpacks%"),
     )
     query = select(MasterItem).where(
         or_(MasterItem.on_auction.is_not(False), _gear_exempt),
