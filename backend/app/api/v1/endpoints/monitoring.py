@@ -13,6 +13,10 @@ from app.core.dependencies import get_current_user
 from app.core.tiers import get_tier_limits, max_stats_hours
 from app.services.profitable_lots import signals_key
 from app.services.analytics.pricing import make_sell_options, classify_risk, GLITCH_RATIO, _build_sales_filter
+from app.services.analytics.market_stats import (
+    derive_sell_timing, derive_buy_timing,
+    _calculate_batch_stats, _avg_sell_time_from_buyouts,
+)
 
 router = APIRouter(prefix="/monitoring", tags=["Monitoring"])
 
@@ -215,24 +219,28 @@ async def get_item_stats(
     cutoff_7d  = now - timedelta(days=7)
     cutoff_30d = now - timedelta(days=30)
 
+    # Один фетч строк за 30д (sale_time/price/amount/additional_info) вместо двух
+    # scalar-запросов: те же колонки покрывают и ценовые окна, и группу A
+    # (время продажи/пачки/ср. время). Row даёт атрибутный доступ, совместимый
+    # с чистыми хелперами market_stats — ORM-сущность целиком не грузим.
     extra_conds = _build_sales_filter(quality_filter, enchant_filter)
-    prices_7d = (await db.execute(
-        select(SalesHistory.price_per_unit).where(
-            SalesHistory.item_id == item_id,
-            SalesHistory.region  == region.upper(),
-            SalesHistory.sale_time >= cutoff_7d,
-            *extra_conds,
-        )
-    )).scalars().all()
-
-    prices_30d = (await db.execute(
-        select(SalesHistory.price_per_unit).where(
+    rows = (await db.execute(
+        select(
+            SalesHistory.sale_time,
+            SalesHistory.price_per_unit,
+            SalesHistory.amount,
+            SalesHistory.additional_info,
+        ).where(
             SalesHistory.item_id == item_id,
             SalesHistory.region  == region.upper(),
             SalesHistory.sale_time >= cutoff_30d,
             *extra_conds,
-        )
-    )).scalars().all()
+        ).order_by(SalesHistory.sale_time.desc())
+    )).all()
+
+    rows_7d    = [r for r in rows if r.sale_time >= cutoff_7d]
+    prices_30d = [r.price_per_unit for r in rows]
+    prices_7d  = [r.price_per_unit for r in rows_7d]
 
     # Статистика строится только на реальных продажах (SalesHistory с qlt/ptn).
     # qlt/ptn попадает в additional_info при матчинге продажи с лотом из снэпшота.
@@ -261,6 +269,14 @@ async def get_item_stats(
         if avg7 > 0:
             filtered_volatility_7d = round(_statistics.stdev(prices_7d) / avg7 * 100, 2)
 
+    # Группа A (время продажи / пачки / ср. время продажи) + buy-side (B1) —
+    # пересчёт per-request из отфильтрованного набора вместо агрегата по всему предмету.
+    # Пустая выборка → хелперы вернут None/{}, карточка честно покажет «нет данных».
+    sell_timing            = derive_sell_timing(rows)
+    buy_timing             = derive_buy_timing(rows)
+    filtered_batch         = _calculate_batch_stats(rows)
+    filtered_avg_sell_time = _avg_sell_time_from_buyouts(rows)
+
     response = MonitoringItemResponse(
         item_id=stats.item_id,
         region=stats.region,
@@ -280,16 +296,16 @@ async def get_item_stats(
         sales_volume_30d=filtered_sales_30d,
         price_volatility_7d=filtered_volatility_7d,
         price_volatility_30d=filtered_volatility_30d,
-        best_sell_hour=stats.best_sell_hour,
-        best_sell_day=stats.best_sell_day,
-        best_buy_hour=stats.best_buy_hour,
-        best_buy_day=stats.best_buy_day,
-        sell_hours_by_day=stats.sell_hours_by_day,
-        buy_hours_by_day=stats.buy_hours_by_day,
-        weekend_bonus_percent=float(stats.weekend_bonus_percent) if stats.weekend_bonus_percent else None,
-        avg_sell_time_hours=float(stats.avg_sell_time_hours) if stats.avg_sell_time_hours else None,
+        best_sell_hour=sell_timing["best_sell_hour"],
+        best_sell_day=sell_timing["best_sell_day"],
+        best_buy_hour=buy_timing["best_buy_hour"],
+        best_buy_day=buy_timing["best_buy_day"],
+        sell_hours_by_day=sell_timing["sell_hours_by_day"] or None,
+        buy_hours_by_day=buy_timing["buy_hours_by_day"] or None,
+        weekend_bonus_percent=sell_timing["weekend_bonus_percent"],
+        avg_sell_time_hours=filtered_avg_sell_time,
         sell_options=filtered_opts or None,
-        batch_stats=stats.batch_stats,
+        batch_stats=filtered_batch,
         demand_signals=stats.demand_signals,
         risk_level=classify_risk(filtered_volatility_7d),
         calculated_at=stats.calculated_at,

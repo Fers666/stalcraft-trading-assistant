@@ -65,6 +65,134 @@ def _fast_mean(values: list) -> float:
     return sum(values) / len(values)
 
 
+# Взвешенный скор лучшего времени продажи: 60% цена + 40% объём.
+# Нас интересует не просто когда продаётся больше всего, а когда покупатели
+# платят БОЛЬШЕ и при этом рынок достаточно активен.
+WEIGHT_PRICE  = 0.6
+WEIGHT_VOLUME = 0.4
+
+
+def weighted_score(groups: dict) -> str | int | None:
+    """
+    Выбирает лучший ключ по взвешенному скору:
+      score = avg_price_norm × WEIGHT_PRICE + volume_norm × WEIGHT_VOLUME
+    Нормализация: каждый показатель делится на свой максимум → диапазон [0, 1].
+    """
+    if not groups:
+        return None
+    max_avg = max(_fast_mean(ps) for ps in groups.values())
+    max_vol = max(len(ps) for ps in groups.values())
+    if max_avg == 0 or max_vol == 0:
+        return max(groups, key=lambda k: len(groups[k]))
+
+    def score(key):
+        avg_price = _fast_mean(groups[key])
+        volume    = len(groups[key])
+        return (avg_price / max_avg) * WEIGHT_PRICE + (volume / max_vol) * WEIGHT_VOLUME
+
+    return max(groups, key=score)
+
+
+def derive_sell_timing(sales: list) -> dict:
+    """
+    Лучшее время продажи из списка продаж (SalesHistory-строки/сущности).
+    Чистая функция: принимает объекты с атрибутами .sale_time, .price_per_unit.
+
+    Возвращает {best_sell_hour, best_sell_day, sell_hours_by_day,
+    weekend_bonus_percent}. При недостатке данных (< MIN_SALES_FOR_STATS) —
+    None/{} по полям. Поведение идентично инлайн-расчёту calculate_market_stats.
+    """
+    result = {
+        "best_sell_hour":        None,
+        "best_sell_day":         None,
+        "sell_hours_by_day":     {},
+        "weekend_bonus_percent": None,
+    }
+    if len(sales) < MIN_SALES_FOR_STATS:
+        return result
+
+    by_hour:     dict[int, list] = {}
+    by_day:      dict[str, list] = {}
+    by_day_hour: dict[str, dict[int, list]] = {}
+    for s in sales:
+        sale_local = s.sale_time.astimezone(timezone(timedelta(hours=3)))
+        h = sale_local.hour
+        d = sale_local.strftime("%A")
+        by_hour.setdefault(h, []).append(s.price_per_unit)
+        by_day.setdefault(d, []).append(s.price_per_unit)
+        by_day_hour.setdefault(d, {}).setdefault(h, []).append(s.price_per_unit)
+
+    result["best_sell_hour"] = weighted_score(by_hour)
+    result["best_sell_day"]  = weighted_score(by_day)
+    result["sell_hours_by_day"] = {
+        day: weighted_score(hours_map)
+        for day, hours_map in by_day_hour.items()
+        if len(hours_map) >= 1
+    }
+
+    # Бонус выходного дня
+    weekday_sales = [
+        p for d, ps in by_day.items()
+        if d not in ("Saturday", "Sunday") for p in ps
+    ]
+    weekend_sales = [
+        p for d, ps in by_day.items()
+        if d in ("Saturday", "Sunday") for p in ps
+    ]
+    if weekday_sales and weekend_sales:
+        avg_wd = statistics.mean(weekday_sales)
+        avg_we = statistics.mean(weekend_sales)
+        result["weekend_bonus_percent"] = (
+            _clamp_pct(round((avg_we / avg_wd - 1) * 100, 2)) if avg_wd > 0 else None
+        )
+
+    return result
+
+
+def derive_buy_timing(sales: list) -> dict:
+    """
+    B1-прокси лучшего времени ПОКУПКИ из отфильтрованных продаж: час/день с
+    наименьшей средней ценой продажи (зеркало weighted_score, но минимизируем цену).
+
+    Используется в ветке эндпоинта «с фильтром качества/заточки», где buy-side
+    из снэпшотов недоступен per-combo. В агрегатной ветке calculate_market_stats
+    buy-side по-прежнему считается из снэпшотов CollectedData — семантика источников
+    отличается сознательно (см. ТЗ, вариант B1).
+
+    Возвращает {best_buy_hour, best_buy_day, buy_hours_by_day}; None/{} при
+    недостатке данных (< MIN_SALES_FOR_STATS).
+    """
+    result = {
+        "best_buy_hour":    None,
+        "best_buy_day":     None,
+        "buy_hours_by_day": {},
+    }
+    if len(sales) < MIN_SALES_FOR_STATS:
+        return result
+
+    by_hour:     dict[int, list] = {}
+    by_day:      dict[str, list] = {}
+    by_day_hour: dict[str, dict[int, list]] = {}
+    for s in sales:
+        sale_local = s.sale_time.astimezone(timezone(timedelta(hours=3)))
+        h = sale_local.hour
+        d = sale_local.strftime("%A")
+        by_hour.setdefault(h, []).append(s.price_per_unit)
+        by_day.setdefault(d, []).append(s.price_per_unit)
+        by_day_hour.setdefault(d, {}).setdefault(h, []).append(s.price_per_unit)
+
+    if by_hour:
+        result["best_buy_hour"] = min(by_hour, key=lambda h: _fast_mean(by_hour[h]))
+    if by_day:
+        result["best_buy_day"] = min(by_day, key=lambda d: _fast_mean(by_day[d]))
+    result["buy_hours_by_day"] = {
+        day: min(hours_map, key=lambda h: _fast_mean(hours_map[h]))
+        for day, hours_map in by_day_hour.items()
+        if len(hours_map) >= 1
+    }
+    return result
+
+
 async def calculate_market_stats(
     db: AsyncSession,
     item_id: str,
@@ -129,82 +257,15 @@ async def calculate_market_stats(
         volatility_30d = _clamp_pct(round(stdev / avg * 100, 2)) if avg > 0 else None
 
     # ── 3. Лучшее время продажи (час и день недели) ───────────────────────────
-    # Взвешенный скор: 60% цена + 40% объём.
-    # Логика: нас интересует не просто когда продаётся больше всего,
-    # а когда покупатели платят БОЛЬШЕ и при этом рынок достаточно активен.
-    WEIGHT_PRICE  = 0.6
-    WEIGHT_VOLUME = 0.4
+    timing = derive_sell_timing(sales_30d)
+    best_sell_hour    = timing["best_sell_hour"]
+    best_sell_day     = timing["best_sell_day"]
+    sell_hours_by_day = timing["sell_hours_by_day"]
+    weekend_bonus     = timing["weekend_bonus_percent"]
 
-    best_sell_hour    = None
-    best_sell_day     = None
-    sell_hours_by_day = {}
     best_buy_hour     = None
     best_buy_day      = None
     buy_hours_by_day  = {}
-    weekend_bonus     = None
-
-    if len(sales_30d) >= MIN_SALES_FOR_STATS:
-        by_hour: dict[int, list] = {}
-        by_day:  dict[str, list] = {}
-
-        for s in sales_30d:
-            sale_local = s.sale_time.astimezone(timezone(timedelta(hours=3)))
-            h = sale_local.hour
-            d = sale_local.strftime("%A")
-            by_hour.setdefault(h, []).append(s.price_per_unit)
-            by_day.setdefault(d, []).append(s.price_per_unit)
-
-        def weighted_score(groups: dict) -> str | int | None:
-            """
-            Выбирает лучший ключ по взвешенному скору:
-              score = avg_price_norm × WEIGHT_PRICE + volume_norm × WEIGHT_VOLUME
-            Нормализация: каждый показатель делится на свой максимум → диапазон [0, 1].
-            """
-            if not groups:
-                return None
-            max_avg = max(_fast_mean(ps) for ps in groups.values())
-            max_vol = max(len(ps) for ps in groups.values())
-            if max_avg == 0 or max_vol == 0:
-                return max(groups, key=lambda k: len(groups[k]))
-
-            def score(key):
-                avg_price = _fast_mean(groups[key])
-                volume    = len(groups[key])
-                return (avg_price / max_avg) * WEIGHT_PRICE + (volume / max_vol) * WEIGHT_VOLUME
-
-            return max(groups, key=score)
-
-        best_sell_hour = weighted_score(by_hour)
-        best_sell_day  = weighted_score(by_day)
-
-        # Лучший час продажи для каждого дня отдельно
-        # by_day_hour[day][hour] = [prices]
-        by_day_hour: dict[str, dict[int, list]] = {}
-        for s in sales_30d:
-            sale_local = s.sale_time.astimezone(timezone(timedelta(hours=3)))
-            d = sale_local.strftime("%A")
-            h = sale_local.hour
-            by_day_hour.setdefault(d, {}).setdefault(h, []).append(s.price_per_unit)
-
-        sell_hours_by_day = {
-            day: weighted_score(hours_map)
-            for day, hours_map in by_day_hour.items()
-            if len(hours_map) >= 1
-        }
-
-        # Бонус выходного дня
-        weekday_sales = [
-            p for d, ps in by_day.items()
-            if d not in ("Saturday", "Sunday") for p in ps
-        ]
-        weekend_sales = [
-            p for d, ps in by_day.items()
-            if d in ("Saturday", "Sunday") for p in ps
-        ]
-        if weekday_sales and weekend_sales:
-            avg_wd = statistics.mean(weekday_sales)
-            avg_we = statistics.mean(weekend_sales)
-            weekend_bonus = _clamp_pct(round((avg_we / avg_wd - 1) * 100, 2)) if avg_wd > 0 else None
 
     # ── Лучшее время покупки ──────────────────────────────────────────────────
     # Источник: снэпшоты collected_data (каждые 5 мин).
