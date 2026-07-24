@@ -4,6 +4,37 @@
 
 ## Задачи в очереди
 
+- [x] **Fix: статистика карточки Избранного под фильтром qlt/ptn ← 2026-07-24** —
+  ТЗ `docs/tasks/fix-favorite-card-stats-qlt-ptn.md` (buy-side = вариант B1), коммит
+  `0367a96`. Ветка «с фильтром качества/заточки» эндпоинта `get_item_stats` раньше
+  пересчитывала под фильтр только ценовые окна (median/volume/volatility/sell_options), а
+  sell-side timing (`best_sell_*`, `sell_hours_by_day`, `weekend_bonus`), `avg_sell_time_hours`
+  и `batch_stats` брала из агрегата `market_statistics` (по всему предмету). Теперь эти поля +
+  buy-side (`best_buy_*`, `buy_hours_by_day`) считаются per-request из отфильтрованного
+  `SalesHistory`. Новые чистые хелперы `derive_sell_timing(sales)` / `derive_buy_timing(sales)`
+  в `market_stats.py` (`weighted_score` + `WEIGHT_PRICE`/`WEIGHT_VOLUME` подняты на уровень
+  модуля); `monitoring.py` — 2 scalar-запроса заменены одним фетчем строк за 30д. buy-side под
+  фильтром = прокси B1 (час/день с минимальной средней ценой отфильтрованных продаж) —
+  осознанный семантический сдвиг источника ТОЛЬКО для ветки с фильтром; агрегатная ветка
+  (`best_buy` из снэпшотов `CollectedData`) и поведение `calculate_market_stats` не менялись.
+  Детали — `docs/BUSINESS_LOGIC.md` §«Статистика артефактов…», `docs/SERVICES.md`
+  (market_stats.py). Файлы: `backend/app/services/analytics/market_stats.py`,
+  `backend/app/api/v1/endpoints/monitoring.py`.
+- [ ] **Рассинхрон агрегатных ценовых окон под фильтром qlt/ptn** (пред-существующее, вне
+  фикса `0367a96`, зафиксировано 2026-07-24) — в ветке `/monitoring/item` с активным фильтром
+  качества/заточки поля `min_price_7d`/`max_price_7d`/`avg_price_7d` и окна 24h/48h всё ещё
+  берутся из агрегата `market_statistics` (по всему предмету), рассинхрон с отфильтрованной
+  медианой. На карточке эти поля напрямую не отображаются → визуального дефекта нет; для
+  полноты честного пересчёта под фильтр их тоже стоило бы считать из отфильтрованного
+  `SalesHistory` за 30д.
+- [x] **Fix: добавление вариаций предмета в избранное (каталог) ← 2026-07-24** — коммит
+  `00b0e7e`. Кнопка «в избранное» в строке каталога защёлкивалась по одному `item_id` после
+  первого добавления и блокировала добавление того же предмета с другой заточкой/качеством/
+  регионом (бэкенд различает записи по кортежу `item_id+region+qlt+ptn`). Теперь кнопка всегда
+  кликабельна, галочка `BookmarkOk` — информативный индикатор «уже отслеживается», не блокирует
+  повторное добавление вариации. Плюс перевод 409-detail «Already in watchlist» → «Уже в
+  избранном». Файлы: `frontend/src/pages/CatalogPage.tsx`,
+  `backend/app/api/v1/endpoints/watchlist.py`.
 - [x] **Web Push уведомления через RabbitMQ ← 2026-07-20** — ТЗ
   `docs/tasks/web-push-notifications.md`, миграция `0035` применена локально,
   QA пройден. Второй канал доставки (браузерный push, ПК + Android + iOS)

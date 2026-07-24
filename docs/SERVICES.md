@@ -191,6 +191,17 @@ OAuth2 Client Credentials flow для Stalcraft API.
 Час с минимальной средней ликвидной ценой по снэпшотам `collected_data`.  
 `buy_hours_by_day` — лучший час покупки для каждого дня недели.
 
+**Переиспользование под фильтром qlt/ptn** (← 2026-07-24, коммит `0367a96`):  
+Блок «лучшее время продажи» вынесен в чистый хелпер `derive_sell_timing(sales)`
+(`weighted_score` + `WEIGHT_PRICE`/`WEIGHT_VOLUME` подняты на уровень модуля), buy-side-прокси —
+`derive_buy_timing(sales)` (час/день с минимальной средней ценой отфильтрованных продаж, вариант
+B1). Ветка «с фильтром качества/заточки» эндпоинта `GET /monitoring/item/{id}` вызывает эти
+хелперы + `_calculate_batch_stats`/`_avg_sell_time_from_buyouts` на отфильтрованном
+`sales_history` за 30д (один фетч строк вместо двух scalar-запросов), чтобы `best_sell_*`,
+`sell_hours_by_day`, `weekend_bonus`, `avg_sell_time_hours`, `batch_stats` и `best_buy_*`
+соответствовали выбранной вариации. `calculate_market_stats` (агрегатная ветка) по поведению
+не изменилась.
+
 **Прогноз времени (coverage-based):**
 - `coverage = matched_count / total_sales_30d × 100%`
 - **high** (≥30% AND ≥10 точек) → интерполяция по реальным данным
