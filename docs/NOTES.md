@@ -4,6 +4,31 @@
 
 ## Задачи в очереди
 
+- [x] **Точный статус торгуемости каталога `on_auction` (Фаза A + gear-митигация) ←
+  2026-07-24** — ТЗ + расследование `docs/tasks/audit-on-auction-status.md`. Коммиты
+  `e003f58` (Фаза A), `a9a98d6` (митигация weapon/armor), `b67ea84` (расширение gear-
+  исключения на attachment/backpacks/weapon_modules). Миграция `0036` применена на проде,
+  бэкфилл отработал (1445 TRUE / 879 FALSE, errors=0). Источник статуса «появляется ли на
+  аукционе» переведён с эвристики `bind_state` (привязка ≠ торгуемость) на реальную проверку
+  через Stalcraft API — новые поля `master_items.on_auction`/`auction_checked_at`/
+  `history_total`/`lots_total` + индекс `ix_master_on_auction`. Разовая Celery-задача
+  `audit_auction_status` (`backend/app/tasks/audit.py`) пробивает каждый `item_id` через
+  `/history` (>0 → TRUE) → `/lots` (>0 → TRUE; оба 0 → FALSE); 404 → FALSE; транзиент → NULL.
+  Resumable (`WHERE on_auction IS NULL`), покоммитно, self-throttle ~100 ед/мин, region RU.
+  Запуск ТОЛЬКО вручную через `POST /admin/audit-auction-status` (beat НЕТ — после
+  `refresh-catalog` дёргать вручную для новых предметов); прогресс — `GET` того же URL.
+  Фильтр `/items` (Фаза A): `(on_auction IS NOT FALSE OR gear_exempt) AND (on_auction IS TRUE
+  OR bind_state IS NULL OR bind_state NOT IN {PERSONAL_ON_GET,DROP_ON_GET})`. `bind_state`
+  теперь лишь fallback для непроверенных (`NULL`). ~519 непродаваемых **не-gear** (квесты,
+  валюта, чертежи, крафт-патроны, поношенные/арена-стволы) убраны; всё gear видимо
+  сознательно (каталожный id части gear даёт 0/0, но отделить непродаваемое от торгуемого-
+  под-другим-именем через API нельзя — не теряем живое оружие). id-mismatch как баг НЕ
+  подтвердился. Детали — `docs/DATABASE.md`, `docs/SERVICES.md`, `docs/BUSINESS_LOGIC.md` §6.
+  Гибридный фильтр — **финальный дизайн**, а не транзит: отдельная «Фаза B» (жёсткий
+  `on_auction IS TRUE`) НЕ нужна — `bind_state`-fallback постоянно защищает новые непроверенные
+  предметы (on_auction=NULL) из `refresh-catalog`. A/B по gear разрешён: пользователь подтвердил
+  (AK-103 реально не торгуется), id-mismatch как баг отсутствует; gear держим видимым по решению.
+  Опционально на будущее: периодический ре-чек аудита (сейчас ручной по выбору пользователя).
 - [x] **Онбординг-подсказки в пустом «Избранном» ← 2026-07-24** — новые пользователи
   не понимали механику Избранного (первый экран после входа — пустой список) и не
   начинали пользоваться порталом. Решение (подтверждено пользователем): подсказки в

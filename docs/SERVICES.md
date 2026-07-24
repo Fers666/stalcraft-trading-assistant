@@ -13,6 +13,7 @@
 | `delete_old_data` | ежедневно 03:00 | `app.tasks.cleanup` | Данные старше 120 дней |
 | `sweep_expired_tiers` | ежедневно 03:30 | `app.tasks.tiers` | Понижение до `base` пользователей с истёкшим `tier_expires_at` + деактивация лишних карточек watchlist сверх нового лимита |
 | `collect_emission` | каждые 2 мин | `app.tasks.collectors` | Опрос `GET /RU/emission`, детект start/end выброса, Redis-дедупликация (`emission:current_fingerprint`), запись событий в `emission_events` (старт → `notified=False`; конец → `ended_at`; seed первого запуска → `notified=True, end_notified=True`). С 2026-07-08 worker сам НЕ рассылает Telegram — рассылку делает `telegram_bot::notify_emission_events` (см. раздел Telegram) |
+| `audit_auction_status` | — (только вручную, beat НЕТ) | `app.tasks.audit` | Разовый бэкфилл `master_items.on_auction` — реальная торгуемость через Stalcraft API. Запуск через `POST /admin/audit-auction-status` (см. ниже) после обновления каталога |
 
 ### Логика дедупликации watchlist
 
@@ -476,6 +477,47 @@ Token Bucket алгоритм для соблюдения лимита Stalcraft
 `UserAdminResponse` (`GET /admin/users`) дополнен полем `telegram_chat_id: int | None` (рядом с уже существующим `telegram_username`) — заполняется в `list_users`. Используется как раздельный источник данных от `telegram_username`: таблица пользователей в `AdminPage.tsx` показывает именно `telegram_username` (введённый юзернейм), а агрегатная метрика `users_telegram_linked` выше — `telegram_chat_id` (факт подключения бота). Это намеренная асимметрия между отображением в таблице и подсчётом статистики, не баг.
 
 Добавлены 2026-06-28 — устранение пробела, см. `docs/tasks/admin-stats-gaps.md`.
+
+---
+
+## app/tasks/audit.py — audit_auction_status (бэкфилл торгуемости)
+
+Разовая Celery-задача (не непрерывный опрос): пробивает каждый `item_id` из
+`master_items` через Stalcraft API и записывает реальный статус торгуемости в
+`master_items.on_auction`. Заменяет неверную эвристику по `bind_state` (привязка ≠
+торгуемость). ТЗ + расследование — `docs/tasks/audit-on-auction-status.md`.
+
+**Критерий классификации** (`_classify_item`, экономия запросов — `/history` первым):
+1. `/history` (cost 2): `history_total > 0` → `on_auction = TRUE`, `/lots` НЕ запрашивается
+   (`lots_total = NULL`). История продаж = торгуется (в т.ч. редкие/сезонные без активных лотов).
+2. иначе `/lots` (cost 2): `lots_total > 0` → `TRUE` (новый предмет, выставлен, ещё не продан);
+   оба `0` → `FALSE` (ни истории, ни лотов).
+- **404** от API → валидный `FALSE` (`history_total = lots_total = 0`).
+- **Транзиентная ошибка** (5xx/таймаут/сеть/неожиданный 429) → до 2 ретраев с backoff (2s, 5s);
+  при неудаче предмет остаётся `on_auction = NULL` (НЕ пишется FALSE) и попадёт в следующий прогон.
+
+**Параметры задачи** (`audit_auction_status(force_recheck=False, stale_days=None, limit=None)`):
+- без параметров — resumable-прогон `WHERE on_auction IS NULL` (только непроверенные);
+- `force_recheck=True` — перепроверить ВСЕ предметы;
+- `stale_days=N` — `on_auction IS NULL OR auction_checked_at < now() - N дней` (периодический ре-чек);
+- `limit=N` — обработать не более N предметов (тестовый прогон).
+
+**Устойчивость:** `bind=True, max_retries=0` (ретраи внутренние, на уровне одного предмета);
+коммит после **каждого** предмета (рестарт воркера/деплой не теряет прогресс и не начинает заново).
+Region — `settings.stalcraft_region` (`RU`), аукцион пер-региональный. Self-throttle
+`AUDIT_REQUEST_DELAY = 1.5с` между предметами (~40 предметов/мин ≈ ~100 ед/мин лимитера,
+25% от 400): Token Bucket жёстко гарантирует потолок, self-throttle не даёт бэкфиллу выесть резерв
+непрерывного сбора. Прогресс логируется каждые 50 предметов. Прод-прогон: 1445 TRUE / 879 FALSE, errors=0.
+
+**Admin-эндпоинты** (`app/api/v1/endpoints/admin.py`, `Depends(get_current_admin)`):
+
+| Метод | URL | Описание |
+|-------|-----|----------|
+| POST | `/api/v1/admin/audit-auction-status` | Ставит задачу в очередь (`audit_auction_status.delay(...)`), тело `{force_recheck?, stale_days?, limit?}` опционально; отдаёт `{status: "queued", task_id}` |
+| GET | `/api/v1/admin/audit-auction-status` | Прогресс из БД: `total`, `checked` (`on_auction` NOT NULL), `on_auction_true`, `on_auction_false`, `pending` (NULL), `last_checked_at` |
+
+Периодического beat НЕТ (по решению пользователя) — после `POST /items/refresh-catalog`
+дёргать бэкфилл вручную для новых предметов (у них `on_auction IS NULL`).
 
 ---
 

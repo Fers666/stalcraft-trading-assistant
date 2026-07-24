@@ -89,18 +89,44 @@ ORM: SQLAlchemy 2.0 async. Миграции: Alembic.
 | `name_ru` | varchar(200) | Русское название |
 | `name_en` | varchar(200) | Английское название |
 | `category` | varchar(50) | Категория (напр. `artefact/biochemical`, `weapon/assault_rifle`) |
-| `bind_state` | varchar(30) | `status.state` из GitHub: `NONE`/`NON_DROP`/`PERSONAL_ON_USE` — продаётся; `PERSONAL_ON_GET`/`PERSONAL_DROP_ON_GET` — привязывается при получении, на аукционе не появляется (исключается из `/items`) |
+| `bind_state` | varchar(30) | `status.state` из GitHub — **привязка**, НЕ торгуемость. Больше не источник статуса «появляется ли на аукционе» (заменён на `on_auction`, миграция 0036). Остаётся как метаданные GitHub и fallback для непроверенных предметов (`on_auction IS NULL`) в фильтре `/items` |
 | `can_be_batch_traded` | bool | Можно ли торговать пачками (false для оружия, брони) |
 | `last_updated` | timestamptz | Дата последней синхронизации с GitHub |
+| `on_auction` | bool, nullable | Реальная торгуемость по данным Stalcraft API (миграция 0036). `NULL` = ещё не проверено, `TRUE` = торгуется, `FALSE` = не появляется на аукционе. Заполняется задачей `audit_auction_status` (см. `docs/SERVICES.md`) |
+| `auction_checked_at` | timestamptz, nullable | Момент последней проверки через API (resumable-прогон + периодический ре-чек) |
+| `history_total` | integer, nullable | Последний замер `total` из `/history` (аудит/отладка) |
+| `lots_total` | integer, nullable | Последний замер `total` из `/lots` (аудит/отладка; `NULL`, если `/lots` не запрашивался — история уже дала `>0`) |
 
-**Индексы:** `item_id` (unique), `name_ru`, `name_en`, `category`.
+**Индексы:** `item_id` (unique), `name_ru`, `name_en`, `category`, `on_auction` (`ix_master_on_auction`, под фильтр каталога).
 
-**Фильтрация непродаваемых предметов:** `GET /items` исключает предметы с
-`bind_state IN ('PERSONAL_ON_GET', 'PERSONAL_DROP_ON_GET')` — это ~77 предметов
-(квестовые расписки, личные артефакты/фрагменты), которые привязываются в момент
-получения и физически не могут быть выставлены на аукцион. Подтверждено
-эмпирически: `history_total=0` и `lots_total=0` через Stalcraft API для всех
-проверенных предметов этих категорий.
+**Фильтрация непродаваемых предметов (с 2026-07-24, миграция 0036):** источник
+статуса торгуемости — поле `on_auction` (реальная проверка через Stalcraft API),
+а НЕ эвристика по `bind_state`. `GET /items` (`list_items`) фильтрует по формуле
+Фазы A + gear-исключение:
+
+```sql
+(on_auction IS NOT FALSE OR gear_exempt)
+AND (on_auction IS TRUE OR bind_state IS NULL OR bind_state NOT IN
+     ('PERSONAL_ON_GET','PERSONAL_DROP_ON_GET'))
+```
+
+- `on_auction = FALSE` скрывает предмет (подтверждённо не торгуется), `TRUE`/`NULL`
+  показывает; для `NULL` (ещё не проверен) действует старый fallback по `bind_state`.
+- `gear_exempt` = категории `weapon%`/`armor%`/`attachment%`/`backpacks%` (набор
+  `_SINGLE_CATEGORIES`, экипируемая снаряга). Такое gear с `on_auction=FALSE` НЕ
+  прячется: каталожный `item_id` части gear даёт `0/0` по API, но надёжно отделить
+  реально непродаваемое от торгуемого-под-другим-именем нельзя (id не резолвится
+  через API) — весь класс gear держим видимым, чтобы не терять живое оружие.
+
+Результат: ~519 непродаваемых **не-gear** предметов (квесты, валюта, чертежи,
+крафт-патроны, поношенные/арена-стволы) убраны из каталога; всё gear видимо.
+Бэкфилл на проде дал 1445 TRUE / 879 FALSE (errors=0).
+
+> Прежняя формулировка «id-mismatch = баг» **не подтвердилась**: каталожный
+> `item_id` — канонический id EXBO, AK-103 (`0/0`) реально не торгуется. Часть gear
+> честно непродаваема, часть торгуется (те → TRUE); gear видим сознательно (размен:
+> не терять торгуемое ценой показа пары непродаваемых). Детали расследования —
+> `docs/tasks/audit-on-auction-status.md`.
 
 ---
 
@@ -503,6 +529,8 @@ P&L/медиан никогда не реализовывалась).
 | `0032_sales_collected_at_idx.py` | Индекс `ix_sales_collected_at (collected_at)` на `sales_history` — под дифф-пропуск в `calculate_market_stats_batch` (пары с новыми продажами после `calculated_at`) |
 | `0033_emission_end_notified.py` | Поле `emission_events.end_notified` (boolean NOT NULL, server_default false) + backfill `end_notified = TRUE` всей истории — рассылка о завершении выброса перенесена в `telegram_bot` |
 | `0034_buy_alerts.py` | Раздел «Закупки // Buy Sniper»: drop `sell_recommendations` + `user_inventory` (старый «Склад»), create `buy_alerts` (FK→users CASCADE+index, FK→user_watchlist CASCADE UNIQUE, `target_price`, `is_active`) |
+| `0035_push_subscriptions.py` | Новая таблица `push_subscriptions` (web push, ПК/Android/iOS): `user_id` FK→users CASCADE+index, `endpoint` UNIQUE, `p256dh`/`auth`/`user_agent`, `created_at`/`last_used_at` |
+| `0036_master_items_on_auction.py` | Поля `master_items.on_auction` (bool nullable), `auction_checked_at` (timestamptz), `history_total`/`lots_total` (int) + индекс `ix_master_on_auction` — реальная торгуемость по Stalcraft API вместо эвристики `bind_state` (задача `audit_auction_status`) |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 
