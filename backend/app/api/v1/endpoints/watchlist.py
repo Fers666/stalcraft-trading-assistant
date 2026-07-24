@@ -111,7 +111,7 @@ async def add_to_watchlist(
         )
     )).scalar_one_or_none()
     if existing:
-        raise HTTPException(status_code=409, detail="Already in watchlist")
+        raise HTTPException(status_code=409, detail="Уже в избранном")
 
     limits = get_tier_limits(current_user)
     if limits.watchlist_limit is not None:

@@ -301,35 +301,23 @@ export default function CatalogPage() {
                         {item.can_be_batch_traded ? 'да' : '—'}
                       </TableCell>
                       <TableCell sx={{ textAlign: 'right', p: '4px 10px' }}>
-                        {added ? (
-                          <Tooltip title="Уже в избранном">
-                            <Box
-                              component="span"
-                              aria-label="Уже в избранном"
-                              sx={{ width: 30, height: 30, display: 'inline-grid', placeItems: 'center', color: tokens.goldAccent }}
-                            >
-                              <BookmarkOk />
-                            </Box>
-                          </Tooltip>
-                        ) : (
-                          <Tooltip title="В избранное">
-                            <Box
-                              component="button"
-                              type="button"
-                              aria-label="В избранное"
-                              onClick={() => openDialog(item)}
-                              sx={{
-                                width: 30, height: 30, display: 'inline-grid', placeItems: 'center',
-                                background: 'none', border: '1px solid transparent', borderRadius: 1, cursor: 'pointer',
-                                color: tokens.text2,
-                                transition: `color ${tokens.motion.fast}ms ${tokens.motion.ease}, background-color ${tokens.motion.fast}ms ${tokens.motion.ease}, border-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
-                                '&:hover': { color: tokens.goldAccent, background: tokens.bg2, borderColor: tokens.borderHi },
-                              }}
-                            >
-                              <BookmarkAdd />
-                            </Box>
-                          </Tooltip>
-                        )}
+                        <Tooltip title={added ? 'Уже отслеживается — добавить ещё вариант' : 'В избранное'}>
+                          <Box
+                            component="button"
+                            type="button"
+                            aria-label={added ? 'Уже отслеживается — добавить ещё вариант' : 'В избранное'}
+                            onClick={() => openDialog(item)}
+                            sx={{
+                              width: 30, height: 30, display: 'inline-grid', placeItems: 'center',
+                              background: 'none', border: '1px solid transparent', borderRadius: 1, cursor: 'pointer',
+                              color: added ? tokens.goldAccent : tokens.text2,
+                              transition: `color ${tokens.motion.fast}ms ${tokens.motion.ease}, background-color ${tokens.motion.fast}ms ${tokens.motion.ease}, border-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
+                              '&:hover': { color: tokens.goldAccent, background: tokens.bg2, borderColor: tokens.borderHi },
+                            }}
+                          >
+                            {added ? <BookmarkOk /> : <BookmarkAdd />}
+                          </Box>
+                        </Tooltip>
                       </TableCell>
                     </TableRow>
                   )
