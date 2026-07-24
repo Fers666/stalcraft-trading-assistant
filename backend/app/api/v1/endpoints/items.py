@@ -78,12 +78,18 @@ async def list_items(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    # Фаза A (двухфазный переход на on_auction, см. docs/tasks/audit-on-auction-status.md):
-    # on_auction=FALSE — подтверждённо не торгуется → скрыть; TRUE — показать;
-    # NULL (ещё не проверен бэкфиллом) — падаем на старую эвристику bind_state.
-    # После полного бэкфилла (pending=0) Фаза B заменит это на on_auction IS TRUE.
+    # Фаза A + временная митигация (см. docs/tasks/audit-on-auction-status.md):
+    # on_auction=FALSE скрываем (подтверждённо не торгуется), TRUE/NULL показываем.
+    # ИСКЛЮЧЕНИЕ: weapon/armor с on_auction=FALSE НЕ прячем — их каталожный item_id
+    # может не совпадать с аукционным (catalog↔auction id mismatch): API отдаёт 0/0
+    # по легаси/вариантному id, хотя ствол реально торгуется под другим id. До резолва
+    # id-проблемы держим оружие/броню видимыми, чтобы не терять живой каталог.
+    _gear_exempt = or_(
+        MasterItem.category.like("weapon%"),
+        MasterItem.category.like("armor%"),
+    )
     query = select(MasterItem).where(
-        MasterItem.on_auction.is_not(False),
+        or_(MasterItem.on_auction.is_not(False), _gear_exempt),
         or_(
             MasterItem.on_auction.is_(True),
             MasterItem.bind_state.is_(None),
