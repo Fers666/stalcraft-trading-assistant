@@ -15,6 +15,7 @@ from typing import Optional
 
 from app.services.analytics.pricing import (
     classify_risk, compute_reference, make_sell_options, evaluate_lot_profit,
+    weighted_reference, _build_sales_filter, matching_lot_prices,
     STALE_SECONDS, _is_artefact, _lot_quality_enchant, _is_liquid,
 )
 
@@ -38,20 +39,9 @@ def buymin_key(user_id: int, item_id: str, region: str, quality_filter, enchant_
 
 def _filtered_median_now(raw_lots: list, master, entry, is_art: bool, now: datetime) -> Optional[float]:
     """Медиана текущих цен лотов снэпшота, совпадающих по quality/enchant фильтрам entry."""
-    prices = []
-    for lot in raw_lots:
-        buyout = lot.get("buyoutPrice", 0)
-        amount = lot.get("amount", 1)
-        if buyout <= 0 or amount <= 0:
-            continue
-        if not _is_liquid(lot, now):
-            continue
-        qlt_val, enchant = _lot_quality_enchant(lot, master, is_art)
-        if entry.quality_filter is not None and qlt_val != entry.quality_filter:
-            continue
-        if entry.enchant_filter is not None and enchant != entry.enchant_filter:
-            continue
-        prices.append(buyout // amount)
+    prices = matching_lot_prices(
+        raw_lots, master, entry.quality_filter, entry.enchant_filter, now,
+    )
     return float(_statistics.median(prices)) if prices else None
 
 
@@ -112,16 +102,18 @@ async def compute_signals_for_entry(
     Вычисляет выгодные лоты для одной watchlist-записи.
 
     Возвращает dict {lots, sell_options, volume_7d, volatility_7d, ref, ref_source,
-    trend, risk, total_profitable_amount, saturation_ratio, computed_at}
+    ref_confidence, ref_samples, trend, trend_pct, median_7d, risk,
+    total_profitable_amount, saturation_ratio, computed_at}
     или None если данных недостаточно или снэпшот устарел (> STALE_SECONDS).
 
-    ref берётся из pricing.compute_reference(): приоритет — median_price_7d из
-    market_statistics (стабильный исторический ориентир, независимый от текущего
-    скана лотов — иначе профит математически невозможен, см. pricing.py).
-    Медиана текущего снэпшота используется только как trend-guard.
+    ref берётся из pricing.compute_reference(): приоритет — взвешенная по
+    свежести медиана реальных продаж за 7д (плоская медиана 7д остаётся
+    фоллбеком, текущий минимум лотов — только при полном отсутствии истории,
+    иначе профит математически невозможен, см. pricing.py).
+    Медиана активных лотов снэпшота — только фоллбек-метка тренда.
     """
     from app.models.models import SalesHistory
-    from sqlalchemy import select, or_
+    from sqlalchemy import select
 
     if snap is None or not snap.raw_lots:
         return None
@@ -145,41 +137,41 @@ async def compute_signals_for_entry(
 
     current_min = snap.best_liquid_price_per_unit or snap.best_price_per_unit
 
+    cutoff_7d  = now - timedelta(days=7)
+    cutoff_24h = now - timedelta(hours=24)
+
     if entry.quality_filter is None and entry.enchant_filter is None:
-        median_hist = float(stats.median_price_7d) if stats and stats.median_price_7d else None
-        median_now  = float(snap.median_price_per_unit) if snap.median_price_per_unit else None
-        ref_info = compute_reference(median_hist, median_now, current_min)
+        ref_info = compute_reference(
+            weighted_hist=float(stats.reference_price) if stats and stats.reference_price else None,
+            median_hist=float(stats.median_price_7d) if stats and stats.median_price_7d else None,
+            sample_count=volume_7d,
+            median_24h=float(stats.median_price_24h) if stats and stats.median_price_24h else None,
+            sample_count_24h=(stats.sales_volume_24h or 0) if stats else 0,
+            median_now=float(snap.median_price_per_unit) if snap.median_price_per_unit else None,
+            current_min=current_min,
+        )
         vol_for_opts = volume_7d
     else:
-        # С фильтрами: медиана реальных продаж с нужным quality/enchant
-        cutoff_7d = now - timedelta(days=7)
-        q = select(SalesHistory.price_per_unit).where(
-            SalesHistory.item_id   == entry.item_id,
-            SalesHistory.region    == entry.region,
-            SalesHistory.sale_time >= cutoff_7d,
+        # Фоллбек-минимум под тем же фильтром: глобальный минимум по предмету
+        # относится к другому товару (у Магмы это 145 тыс. против 9.5 млн для
+        # «Особый») и как опора дал бы бессмысленный ref.
+        filtered_lot_prices = matching_lot_prices(
+            snap.raw_lots, master, entry.quality_filter, entry.enchant_filter, now,
         )
-        if entry.quality_filter is not None:
-            if entry.quality_filter == 0:
-                q = q.where(or_(
-                    SalesHistory.additional_info["qlt"].astext.is_(None),
-                    SalesHistory.additional_info["qlt"].astext == "0",
-                ))
-            else:
-                q = q.where(
-                    SalesHistory.additional_info["qlt"].astext == str(entry.quality_filter)
-                )
-        if entry.enchant_filter is not None:
-            if entry.enchant_filter == 0:
-                q = q.where(or_(
-                    SalesHistory.additional_info["ptn"].astext.is_(None),
-                    SalesHistory.additional_info["ptn"].astext == "0",
-                ))
-            else:
-                q = q.where(
-                    SalesHistory.additional_info["ptn"].astext == str(entry.enchant_filter)
-                )
+        current_min = min(filtered_lot_prices) if filtered_lot_prices else None
+        # С фильтрами: опорная цена по реальным продажам с нужным quality/enchant.
+        # sale_time нужен для взвешивания по свежести — без него ref вырождается
+        # в плоскую медиану 7д и на падающем рынке завышает прибыль.
+        rows = (await db.execute(
+            select(SalesHistory.sale_time, SalesHistory.price_per_unit).where(
+                SalesHistory.item_id   == entry.item_id,
+                SalesHistory.region    == entry.region,
+                SalesHistory.sale_time >= cutoff_7d,
+                *_build_sales_filter(entry.quality_filter, entry.enchant_filter),
+            )
+        )).all()
 
-        prices = (await db.execute(q)).scalars().all()
+        prices = [r.price_per_unit for r in rows]
 
         if prices:
             median_hist = float(_statistics.median(prices))
@@ -190,11 +182,24 @@ async def compute_signals_for_entry(
                 msg_volatility = round(_statistics.stdev(prices) / avg7 * 100, 2) if avg7 > 0 else None
             else:
                 msg_volatility = None
-            median_now = _filtered_median_now(snap.raw_lots, master, entry, is_art, now)
-            ref_info = compute_reference(median_hist, median_now, current_min)
+
+            prices_24h = [r.price_per_unit for r in rows if r.sale_time >= cutoff_24h]
+            wr = weighted_reference([(r.sale_time, r.price_per_unit) for r in rows], now)
+            ref_info = compute_reference(
+                weighted_hist=wr["ref"] if wr else None,
+                median_hist=median_hist,
+                sample_count=vol,
+                median_24h=float(_statistics.median(prices_24h)) if prices_24h else None,
+                sample_count_24h=len(prices_24h),
+                median_now=_filtered_median_now(snap.raw_lots, master, entry, is_art, now),
+                current_min=current_min,
+            )
         else:
-            median_hist = float(stats.median_price_7d) if stats and stats.median_price_7d else None
-            ref_info = compute_reference(median_hist, None, current_min)
+            ref_info = compute_reference(
+                median_hist=float(stats.median_price_7d) if stats and stats.median_price_7d else None,
+                sample_count=volume_7d,
+                current_min=current_min,
+            )
             vol = volume_7d
         vol_for_opts = vol if prices else None
 
@@ -262,7 +267,11 @@ async def compute_signals_for_entry(
         "volatility_7d":   msg_volatility,
         "ref":             ref,
         "ref_source":      ref_source,
+        "ref_confidence":  ref_info["confidence"],
+        "ref_samples":     ref_info["samples"],
         "trend":           trend,
+        "trend_pct":       ref_info["trend_pct"],
+        "median_7d":       ref_info["median_7d"],
         "risk":            risk,
         "total_profitable_amount": total_profitable_amount,
         "saturation_ratio": saturation_ratio,

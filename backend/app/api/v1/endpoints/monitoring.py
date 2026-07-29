@@ -8,11 +8,14 @@ from datetime import datetime, timezone, timedelta
 import statistics as _statistics
 
 from app.db.session import get_db
-from app.models.models import User, MarketStatistics, CollectedData, SalesHistory
+from app.models.models import User, MarketStatistics, CollectedData, SalesHistory, MasterItem
 from app.core.dependencies import get_current_user
 from app.core.tiers import get_tier_limits, max_stats_hours
 from app.services.profitable_lots import signals_key
-from app.services.analytics.pricing import make_sell_options, classify_risk, GLITCH_RATIO, _build_sales_filter
+from app.services.analytics.pricing import (
+    make_sell_options, classify_risk, compute_reference, weighted_reference,
+    matching_lot_prices, _build_sales_filter,
+)
 from app.services.analytics.market_stats import (
     derive_sell_timing, derive_buy_timing,
     _calculate_batch_stats, _avg_sell_time_from_buyouts,
@@ -25,6 +28,7 @@ class MonitoringItemResponse(BaseModel):
     item_id: str
     region: str
     avg_price_24h: float | None = None
+    median_price_24h: float | None = None
     min_price_24h: int | None = None
     max_price_24h: int | None = None
     sales_volume_24h: int | None = None
@@ -49,6 +53,18 @@ class MonitoringItemResponse(BaseModel):
     weekend_bonus_percent: float | None
     avg_sell_time_hours: float | None
     sell_options: list | None
+    # Цены продажи от ТЕКУЩЕГО минимума лотов — режим «Сейчас» в карточке.
+    # sell_options считаются от опорной цены (взвешенная медиана продаж за 7д).
+    sell_options_now: list | None = None
+    current_min_price: int | None = None
+    # Опорная цена и тренд — см. pricing.compute_reference.
+    # reference_price НЕ равна median_price_7d: та остаётся описательной статистикой.
+    reference_price: int | None = None
+    reference_source: str | None = None
+    reference_confidence: str | None = None
+    reference_samples: int | None = None
+    trend: str | None = None
+    trend_pct: float | None = None
     batch_stats: dict | None = None
     demand_signals: dict | None = None
     risk_level: str | None = None
@@ -81,6 +97,15 @@ def _mask_stats_windows(response: "MonitoringItemResponse", allowed_windows: tup
         response.price_volatility_7d = None
         response.sell_options = None
         response.risk_level = None
+        # Всё производное от 7-дневного окна: опорная цена и тренд считаются
+        # относительно медианы 7д, поэтому маскируются вместе с ней.
+        response.sell_options_now = None
+        response.reference_price = None
+        response.reference_source = None
+        response.reference_confidence = None
+        response.reference_samples = None
+        response.trend = None
+        response.trend_pct = None
     if "30d" not in allowed_windows:
         response.sales_volume_30d = None
         response.price_volatility_30d = None
@@ -146,6 +171,14 @@ async def get_item_stats(
             weekend_bonus_percent=None,
             avg_sell_time_hours=None,
             sell_options=fresh_sell_options,
+            # Цены здесь и так от текущего снапшота — «Сейчас» обязан их видеть,
+            # иначе UI печатает «нет свежего снапшота» ровно при его наличии
+            sell_options_now=fresh_sell_options,
+            current_min_price=int(current_min) if current_min else None,
+            reference_price=int(current_min) if current_min else None,
+            reference_source="current_fallback" if current_min else None,
+            reference_confidence="low" if current_min else None,
+            reference_samples=0,
             batch_stats=None,
             demand_signals=None,
             risk_level=None,
@@ -153,30 +186,42 @@ async def get_item_stats(
         )
         return _mask_stats_windows(response, limits.stats_windows)
 
-    # Без фильтров — возвращаем статистику со свежими sell_options из последнего снапшота.
-    # sell_options в MarketStatistics пересчитываются раз в час — при быстром падении рынка
-    # они устаревают и дают ложные "выгодные лоты". Перегенерируем здесь каждый запрос.
-    if quality_filter is None and enchant_filter is None:
-        latest_snap = (await db.execute(
-            select(CollectedData).where(
-                CollectedData.user_id == None,
-                CollectedData.item_id == item_id,
-                CollectedData.region  == region.upper(),
-            ).order_by(CollectedData.collect_time.desc()).limit(1)
-        )).scalar_one_or_none()
+    # Снапшот нужен обеим веткам: даёт текущий минимум лотов (режим «Сейчас»)
+    # и фоллбек-опору, когда истории продаж по фильтру нет.
+    latest_snap = (await db.execute(
+        select(CollectedData).where(
+            CollectedData.user_id == None,
+            CollectedData.item_id == item_id,
+            CollectedData.region  == region.upper(),
+        ).order_by(CollectedData.collect_time.desc()).limit(1)
+    )).scalar_one_or_none()
 
-        fresh_sell_options = stats.sell_options  # fallback: сохранённые
-        median_ref = float(stats.median_price_7d) if stats.median_price_7d else None
-        if latest_snap:
-            current_min = (
-                latest_snap.best_liquid_price_per_unit or latest_snap.best_price_per_unit
-            )
-            # Sanity check: глитч-лоты (цена < GLITCH_RATIO от медианы) — игнорируем, используем медиану
-            if current_min and median_ref and current_min < median_ref * GLITCH_RATIO:
-                current_min = None
-            ref = float(current_min) if current_min else median_ref
-            if ref:
-                fresh_sell_options = _make_sell_options(ref, stats.sales_volume_7d or 0)
+    if quality_filter is None and enchant_filter is None:
+        current_min = (
+            latest_snap.best_liquid_price_per_unit or latest_snap.best_price_per_unit
+        ) if latest_snap else None
+
+        # reference_price считается часовой задачей по всем продажам за 7д.
+        # Не пересчитываем здесь: при полураспаде веса в 48ч отсутствие последнего
+        # часа несущественно, а запрос всей истории на каждый поллинг (30с) — дорог.
+        ref_info = compute_reference(
+            weighted_hist=float(stats.reference_price) if stats.reference_price else None,
+            median_hist=float(stats.median_price_7d) if stats.median_price_7d else None,
+            sample_count=stats.sales_volume_7d or 0,
+            median_24h=float(stats.median_price_24h) if stats.median_price_24h else None,
+            sample_count_24h=stats.sales_volume_24h or 0,
+            median_now=float(latest_snap.median_price_per_unit) if latest_snap and latest_snap.median_price_per_unit else None,
+            current_min=float(current_min) if current_min else None,
+        )
+
+        fresh_sell_options = (
+            _make_sell_options(ref_info["ref"], stats.sales_volume_7d or 0)
+            if ref_info else stats.sell_options
+        )
+        sell_options_now = (
+            _make_sell_options(float(current_min), stats.sales_volume_7d or 0)
+            if current_min else None
+        )
 
         response = MonitoringItemResponse(
             item_id=stats.item_id,
@@ -206,6 +251,15 @@ async def get_item_stats(
             weekend_bonus_percent=float(stats.weekend_bonus_percent) if stats.weekend_bonus_percent else None,
             avg_sell_time_hours=float(stats.avg_sell_time_hours) if stats.avg_sell_time_hours else None,
             sell_options=fresh_sell_options,
+            sell_options_now=sell_options_now,
+            current_min_price=int(current_min) if current_min else None,
+            median_price_24h=float(stats.median_price_24h) if stats.median_price_24h else None,
+            reference_price=ref_info["ref"] if ref_info else None,
+            reference_source=ref_info["source"] if ref_info else None,
+            reference_confidence=ref_info["confidence"] if ref_info else None,
+            reference_samples=ref_info["samples"] if ref_info else None,
+            trend=ref_info["trend"] if ref_info else None,
+            trend_pct=ref_info["trend_pct"] if ref_info else None,
             batch_stats=stats.batch_stats,
             demand_signals=stats.demand_signals,
             risk_level=classify_risk(float(stats.price_volatility_7d) if stats.price_volatility_7d else None),
@@ -216,6 +270,7 @@ async def get_item_stats(
     # С фильтрами — пробуем SalesHistory (на случай если когда-нибудь API начнёт
     # возвращать qlt/ptn в истории), затем фолбэк на raw_lots снэпшотов.
     now = datetime.now(timezone.utc)
+    cutoff_24h = now - timedelta(hours=24)
     cutoff_7d  = now - timedelta(days=7)
     cutoff_30d = now - timedelta(days=30)
 
@@ -246,16 +301,53 @@ async def get_item_stats(
     # qlt/ptn попадает в additional_info при матчинге продажи с лотом из снэпшота.
     # Чем дольше работает коллектор, тем больше покрытие.
     filtered_median          = None
+    filtered_median_24h      = None
     filtered_volume          = 0
     filtered_sales_30d       = 0
     filtered_opts            = []
     filtered_volatility_7d   = None
     filtered_volatility_30d  = None
 
+    # Текущий минимум лотов под тем же фильтром качества/заточки: режим «Сейчас»
+    # и фоллбек-опора, если продаж по фильтру ещё нет.
+    filtered_current_min = None
+    if latest_snap and latest_snap.raw_lots:
+        master = (await db.execute(
+            select(MasterItem).where(MasterItem.item_id == item_id)
+        )).scalar_one_or_none()
+        if master:
+            lot_prices = matching_lot_prices(
+                latest_snap.raw_lots, master, quality_filter, enchant_filter, now,
+            )
+            filtered_current_min = min(lot_prices) if lot_prices else None
+
+    prices_24h = [r.price_per_unit for r in rows if r.sale_time >= cutoff_24h]
+
     if prices_7d:
-        filtered_median  = _statistics.median(prices_7d)
-        filtered_volume  = len(prices_7d)
-        filtered_opts    = _make_sell_options(filtered_median, filtered_volume)
+        filtered_median = _statistics.median(prices_7d)
+        filtered_volume = len(prices_7d)
+        if prices_24h:
+            filtered_median_24h = _statistics.median(prices_24h)
+
+    # Опорная цена — как и в ветке без фильтров, через единый compute_reference.
+    # Раньше здесь стояла голая медиана 7д без всякой поправки на свежесть:
+    # на падающем рынке она обещала прибыль, которой уже нет.
+    wr = weighted_reference([(r.sale_time, r.price_per_unit) for r in rows_7d], now)
+    ref_info = compute_reference(
+        weighted_hist=wr["ref"] if wr else None,
+        median_hist=float(filtered_median) if filtered_median else None,
+        sample_count=filtered_volume,
+        median_24h=float(filtered_median_24h) if filtered_median_24h else None,
+        sample_count_24h=len(prices_24h),
+        current_min=float(filtered_current_min) if filtered_current_min else None,
+    )
+    if ref_info:
+        filtered_opts = _make_sell_options(ref_info["ref"], filtered_volume)
+
+    filtered_opts_now = (
+        _make_sell_options(float(filtered_current_min), filtered_volume)
+        if filtered_current_min else None
+    )
 
     if prices_30d:
         filtered_sales_30d = len(prices_30d)
@@ -283,7 +375,9 @@ async def get_item_stats(
         avg_price_24h=float(stats.avg_price_24h) if stats.avg_price_24h else None,
         min_price_24h=int(stats.min_price_24h) if stats.min_price_24h else None,
         max_price_24h=int(stats.max_price_24h) if stats.max_price_24h else None,
-        sales_volume_24h=stats.sales_volume_24h,
+        # Объём 24ч — по отфильтрованной выборке: UI гейтит по нему линию «24ч»
+        # и метку тренда, агрегат по всему предмету дал бы ложный «объём есть»
+        sales_volume_24h=len(prices_24h),
         avg_price_48h=float(stats.avg_price_48h) if stats.avg_price_48h else None,
         min_price_48h=int(stats.min_price_48h) if stats.min_price_48h else None,
         max_price_48h=int(stats.max_price_48h) if stats.max_price_48h else None,
@@ -305,6 +399,15 @@ async def get_item_stats(
         weekend_bonus_percent=sell_timing["weekend_bonus_percent"],
         avg_sell_time_hours=filtered_avg_sell_time,
         sell_options=filtered_opts or None,
+        sell_options_now=filtered_opts_now,
+        current_min_price=int(filtered_current_min) if filtered_current_min else None,
+        median_price_24h=float(filtered_median_24h) if filtered_median_24h else None,
+        reference_price=ref_info["ref"] if ref_info else None,
+        reference_source=ref_info["source"] if ref_info else None,
+        reference_confidence=ref_info["confidence"] if ref_info else None,
+        reference_samples=ref_info["samples"] if ref_info else None,
+        trend=ref_info["trend"] if ref_info else None,
+        trend_pct=ref_info["trend_pct"] if ref_info else None,
         batch_stats=filtered_batch,
         demand_signals=stats.demand_signals,
         risk_level=classify_risk(filtered_volatility_7d),
@@ -462,6 +565,9 @@ class SignalLot(BaseModel):
     profit_per_hour: float | None = None
     tier_used: str | None = None
     sell_price_used: int | None = None
+    # Цена продажи, при которой прибыль после комиссии = 0 (pricing.evaluate_lot_profit)
+    breakeven_per_unit: int | None = None
+    ref_used: int | None = None
 
 
 class SignalsResponse(BaseModel):
@@ -471,7 +577,11 @@ class SignalsResponse(BaseModel):
     volatility_7d: float | None
     ref: int | None
     ref_source: str | None = None
+    ref_confidence: str | None = None
+    ref_samples: int | None = None
     trend: str | None = None
+    trend_pct: float | None = None
+    median_7d: int | None = None
     risk: str | None = None
     total_profitable_amount: int | None = None
     saturation_ratio: float | None = None
@@ -491,9 +601,14 @@ async def get_signals(
 
     Обновляется коллектором после каждого успешного сбора снапшота (~каждые 1-2 мин).
     Та же логика что и Telegram-уведомления — рассинхрон невозможен.
+
+    Производные 7-дневного окна маскируются по тарифу так же, как в
+    /monitoring/item: иначе закрытая там статистика утекала бы через сигналы.
     """
     import redis.asyncio as aioredis
     from app.core.config import settings
+
+    allows_7d = "7d" in get_tier_limits(current_user).stats_windows
 
     key = signals_key(
         current_user.id, item_id, region.upper(), quality_filter, enchant_filter
@@ -503,15 +618,20 @@ async def get_signals(
         raw = await r.get(key)
         if raw:
             data = json.loads(raw)
+            masked = (lambda v: v if allows_7d else None)
             return SignalsResponse(
                 lots         = data.get("lots", []),
-                sell_options = data.get("sell_options"),
-                volume_7d    = data.get("volume_7d"),
-                volatility_7d= data.get("volatility_7d"),
-                ref          = data.get("ref"),
-                ref_source   = data.get("ref_source"),
-                trend        = data.get("trend"),
-                risk         = data.get("risk"),
+                sell_options = masked(data.get("sell_options")),
+                volume_7d    = masked(data.get("volume_7d")),
+                volatility_7d= masked(data.get("volatility_7d")),
+                ref          = masked(data.get("ref")),
+                ref_source   = masked(data.get("ref_source")),
+                ref_confidence = masked(data.get("ref_confidence")),
+                ref_samples  = masked(data.get("ref_samples")),
+                trend        = masked(data.get("trend")),
+                trend_pct    = masked(data.get("trend_pct")),
+                median_7d    = masked(data.get("median_7d")),
+                risk         = masked(data.get("risk")),
                 total_profitable_amount = data.get("total_profitable_amount"),
                 saturation_ratio        = data.get("saturation_ratio"),
                 computed_at  = data.get("computed_at"),

@@ -125,7 +125,11 @@ OAuth2 Client Credentials flow для Stalcraft API.
 
 **Константы:**
 - `COMMISSION = 0.05` — комиссия аукциона
-- `GLITCH_RATIO = 0.05`, `TREND_DROP_RATIO = 0.75` — пороги для `compute_reference`
+- `GLITCH_RATIO = 0.05` — глитч-цена, отбрасывается в `compute_reference`
+- `REF_HALF_LIFE_HOURS = 48.0` — период полураспада веса сделки в `weighted_reference`
+- `MIN_REF_SAMPLES = 3` — меньше → `confidence="low"` (ref всё равно считается)
+- `TREND_SOFT_RATIO = 0.95` — `median_24h / median_7d` ниже → `trend="falling"`
+- `TREND_DROP_RATIO = 0.75` — тот же порог по медиане **асков**, фоллбек-метка тренда
 - `STALE_SECONDS = 90` — снэпшот старше → сигналу не доверяем
 - `HIGH_VOLATILITY = 30.0`, `MED_VOLATILITY = 15.0` — пороги `classify_risk`
 - `RISK_MARGIN_MULT = {low: 1.0, medium: 1.3, high: 1.6}` — множитель требуемой маржи
@@ -133,12 +137,26 @@ OAuth2 Client Credentials flow для Stalcraft API.
 
 **Функции:**
 - `classify_risk(volatility_pct)` → `low`/`medium`/`high` по волатильности 7д
-- `compute_reference(median_hist, median_now, current_min)` — опорная цена `ref`:
-  приоритет `median_price_7d` (стабильный исторический ориентир, независимый от
-  текущего скана — иначе профит математически невозможен). `median_now` (медиана
-  текущего снэпшота) — только trend-guard: если `median_now < median_hist × 0.75`,
-  рынок "просел" (`trend="falling"`), `ref` корректируется консервативно вниз.
-  Возвращает `{ref, source: "history"|"current_fallback", trend}`.
+- `weighted_median(pairs)` / `weighted_reference(samples, now, half_life_hours)` —
+  медиана продаж за 7д, взвешенная по возрасту сделки (`вес = 0.5 ** (age_h / 48)`).
+  Плоская медиана 7д на трендовом рынке отражает цену ~3.5-дневной давности и на
+  падающем рынке обещает прибыль, которой уже нет. Возвращает `{ref, samples, confidence}`.
+- `compute_reference(*, weighted_hist, median_hist, sample_count, median_24h, sample_count_24h, median_now, current_min)`
+  — **единая** опорная цена `ref` для карточки, сигналов, часовой статистики и Радара
+  (keyword-only: сигнатура менялась, позиционные вызовы должны падать явно).
+  Приоритет: `weighted_hist` → `median_hist` (плоская медиана 7д) → `current_min`
+  (только если истории нет вовсе — иначе профит математически невозможен).
+  `trend` — **метка, не корректирует ref**: по `median_24h / median_hist` с порогом
+  `TREND_SOFT_RATIO` и **только при `sample_count_24h >= MIN_REF_SAMPLES`** (одна-две
+  сделки за сутки — выброс, а не уровень рынка: метка получалась противоположной
+  реальности, а на графике инвертировалась покраска точек). Иначе фоллбек по
+  `median_now` (медиана асков) с порогом `TREND_DROP_RATIO`, без публикации процента.
+  Глитч-цены отбрасываются здесь же.
+  Возвращает `{ref, source: "weighted_history"|"history"|"current_fallback", trend,
+  trend_pct, confidence, samples, median_7d}`. Если результат не `None` — `ref` всегда `int > 0`.
+- `matching_lot_prices(raw_lots, master, quality_filter, enchant_filter, now)` — цены
+  за штуку ликвидных лотов снэпшота под фильтром качества/заточки; общая основа для
+  «текущего минимума» (`monitoring.py`) и «медианы текущих цен» (`profitable_lots._filtered_median_now`).
 - `make_sell_options(ref, volume_7d, time_price_pairs=None)` — 3 ценовые точки
   fast/normal/premium (`ref × 0.97/1.00/1.05`) с прогнозом времени (см. ниже,
   логика идентична `market_stats._calculate_sell_options`)
@@ -148,7 +166,10 @@ OAuth2 Client Credentials flow для Stalcraft API.
   профит считается от тира **"fast"**; при ≥`MIN_BATCH_SAMPLES` реальных продажах
   в том же бакете (`market_statistics.batch_stats`) цена продажи корректируется
   пропорционально медианной цене пачки; требуемая маржа = `min_margin_pct × RISK_MARGIN_MULT[risk]`.
-  Возвращает `None` если невыгодно, иначе `{profit, profit_pct, profit_per_hour, tier_used, sell_price_used}`.
+  Возвращает `None` если невыгодно, иначе `{profit, profit_pct, profit_per_hour, tier_used,
+  sell_price_used, breakeven_per_unit, ref_used}`. `breakeven_per_unit = buyout / (1 − COMMISSION)`
+  — цена продажи с нулевой прибылью; считается **только здесь** и растекается через
+  `signals` → Redis → API → UI (на фронте не пересчитывается).
 - `format_hours(hours)` — человекочитаемое форматирование времени (`~3 ч`, `~2 дня`, ...)
 
 ---

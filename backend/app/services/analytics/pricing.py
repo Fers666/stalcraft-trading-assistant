@@ -24,8 +24,15 @@ from app.models.models import SalesHistory
 
 COMMISSION       = 0.05   # комиссия аукциона при продаже
 GLITCH_RATIO     = 0.05   # current_min < hist_median * GLITCH_RATIO -> игнорируем current_min (глитч-цена)
-TREND_DROP_RATIO = 0.75   # median_now < median_hist * TREND_DROP_RATIO -> рынок "просел"
+TREND_DROP_RATIO = 0.75   # median_now(аски) < median_hist * этого -> рынок "просел" (фоллбек-метка тренда)
 STALE_SECONDS    = 90     # снэпшот старше этого -> сигналу не доверяем
+
+# Опорная цена (ref) — взвешенная по свежести медиана продаж за 7д.
+# Плоская медиана за 7 дней на трендовом рынке отражает цену ~3.5-дневной
+# давности: на падающем рынке она обещает прибыль, которой уже нет.
+REF_HALF_LIFE_HOURS = 48.0  # период полураспада веса сделки
+MIN_REF_SAMPLES     = 3     # меньше -> confidence="low" (но ref всё равно считаем)
+TREND_SOFT_RATIO    = 0.95  # median_24h / median_7d ниже этого -> тренд "falling"
 
 HIGH_VOLATILITY  = 30.0
 MED_VOLATILITY   = 15.0
@@ -114,6 +121,37 @@ def _is_liquid(lot: dict, now: datetime) -> bool:
         return True
 
 
+def matching_lot_prices(
+    raw_lots: list,
+    master,
+    quality_filter: Optional[int],
+    enchant_filter: Optional[int],
+    now: datetime,
+) -> list[int]:
+    """
+    Цены за штуку ликвидных лотов снэпшота, подходящих под фильтры качества/заточки.
+
+    Общая основа для «текущего минимума» и «медианы текущих цен» под фильтром —
+    иначе каждый вызывающий заводит свою копию перебора raw_lots.
+    """
+    is_art = _is_artefact(master.category)
+    prices: list[int] = []
+
+    for lot in raw_lots or []:
+        buyout = lot.get("buyoutPrice", 0)
+        amount = lot.get("amount", 1)
+        if buyout <= 0 or amount <= 0 or not _is_liquid(lot, now):
+            continue
+        qlt_val, enchant = _lot_quality_enchant(lot, master, is_art)
+        if quality_filter is not None and qlt_val != quality_filter:
+            continue
+        if enchant_filter is not None and enchant != enchant_filter:
+            continue
+        prices.append(buyout // amount)
+
+    return prices
+
+
 def classify_risk(volatility_pct: Optional[float]) -> str:
     """low/medium/high по волатильности цены за 7д (в процентах)."""
     if volatility_pct is None:
@@ -136,42 +174,146 @@ def format_hours(hours: float) -> str:
     return f"~{round(days)} дня" if days < 5 else f"~{round(days)} дней"
 
 
-def compute_reference(
-    median_hist: Optional[float],
-    median_now: Optional[float],
-    current_min: Optional[float],
+def weighted_median(pairs: list[tuple[float, float]]) -> Optional[float]:
+    """
+    Медиана значений с весами: точка, где накопленный вес достигает половины.
+
+    При точном равенстве половине — среднее с соседом, иначе результат
+    прыгает на чётных выборках и перестаёт совпадать с обычной медианой
+    при одинаковых весах.
+    """
+    usable = [(v, w) for v, w in pairs if w > 0]
+    if not usable:
+        return None
+
+    usable.sort(key=lambda p: p[0])
+    half = sum(w for _, w in usable) / 2
+
+    cum = 0.0
+    for i, (value, weight) in enumerate(usable):
+        cum += weight
+        if cum > half:
+            return value
+        if cum == half:
+            return (value + usable[i + 1][0]) / 2 if i + 1 < len(usable) else value
+
+    return usable[-1][0]
+
+
+def weighted_reference(
+    samples: list[tuple[datetime, float]],
+    now: datetime,
+    half_life_hours: float = REF_HALF_LIFE_HOURS,
 ) -> Optional[dict]:
     """
-    Опорная цена (ref) для расчёта sell_options.
+    Опорная цена по продажам с экспоненциальным затуханием веса по возрасту:
+    вес = 0.5 ** (age_hours / half_life_hours).
 
-    median_hist — медиана продаж за 7д (MarketStatistics.median_price_7d),
-                  стабильный ориентир, независимый от текущего скана лотов.
-    median_now  — медиана ТЕКУЩЕГО снэпшота (CollectedData.median_price_per_unit
-                  либо аналог по тем же фильтрам качества/заточки) —
-                  используется только как trend-guard, не как сам ref.
-    current_min — текущий минимум среди лотов, фоллбек если истории продаж нет.
+    samples — пары (sale_time, price_per_unit) за окно ref (обычно 7д).
 
-    Возвращает {"ref": int, "source": "history"|"current_fallback", "trend": ...}
-    или None если нет вообще никакого ориентира.
+    Реагирует на тренд плавно и без порогов, а на малой выборке деградирует
+    мягко: 2-3 случайные свежие сделки не уводят ориентир целиком, потому что
+    в расчёте участвует всё окно — просто с меньшим весом.
+
+    Возвращает {"ref": float, "samples": int, "confidence": "high"|"low"}
+    или None если продаж нет.
     """
-    if median_hist:
-        ref = float(median_hist)
-        trend = "stable"
-        if median_now and median_hist > 0:
+    pairs: list[tuple[float, float]] = []
+    for sale_time, price in samples:
+        if not price or price <= 0:
+            continue
+        age_hours = max(0.0, (now - sale_time).total_seconds() / 3600)
+        pairs.append((float(price), 0.5 ** (age_hours / half_life_hours)))
+
+    ref = weighted_median(pairs)
+    if ref is None:
+        return None
+
+    return {
+        "ref": ref,
+        "samples": len(pairs),
+        "confidence": "high" if len(pairs) >= MIN_REF_SAMPLES else "low",
+    }
+
+
+def compute_reference(
+    *,
+    weighted_hist: Optional[float] = None,
+    median_hist:   Optional[float] = None,
+    sample_count:  int = 0,
+    median_24h:    Optional[float] = None,
+    sample_count_24h: int = 0,
+    median_now:    Optional[float] = None,
+    current_min:   Optional[float] = None,
+) -> Optional[dict]:
+    """
+    Единая опорная цена (ref) для sell_options — один источник формулы
+    для карточки предмета, сигналов, часовой статистики и Радара.
+
+    weighted_hist — weighted_reference(...)["ref"], основной источник.
+    median_hist   — плоская медиана продаж за 7д: фоллбек и база для тренда.
+                    Как ref используется, только если взвешенной нет.
+    median_24h    — медиана реальных сделок за 24ч, основной сигнал тренда.
+                    Учитывается только при sample_count_24h >= MIN_REF_SAMPLES:
+                    на одной-двух сделках медиана суток — это выброс, а не уровень
+                    рынка, и метка тренда получалась противоположной реальности.
+    median_now    — медиана АКТИВНЫХ лотов (аски). Фоллбек-сигнал тренда, когда
+                    сделок за 24ч нет или их слишком мало. Систематически выше цен
+                    реальных продаж, поэтому ref не двигает.
+    current_min   — минимум среди лотов: фоллбек, если истории продаж нет вовсе.
+
+    Возвращает dict с ref/source/trend/trend_pct/confidence/samples/samples_24h/median_7d
+    или None, если ориентира нет вообще. Если результат не None — ref всегда int > 0.
+
+    Тренд — только метка: опорную цену двигает взвешивание по свежести,
+    а не пороговый guard (он срабатывал лишь при обвале и пропускал
+    обычные просадки на 5-15%).
+    """
+    # Глитч-лоты (цена в разы ниже исторической) не должны становиться ориентиром
+    hist = weighted_hist or median_hist
+    if current_min and hist and current_min < hist * GLITCH_RATIO:
+        current_min = None
+
+    if weighted_hist:
+        ref, source = float(weighted_hist), "weighted_history"
+    elif median_hist:
+        ref, source = float(median_hist), "history"
+    elif current_min:
+        ref, source = float(current_min), "current_fallback"
+    else:
+        return None
+
+    trend, trend_pct = "unknown", None
+    if median_hist and median_hist > 0:
+        # Тонкая суточная выборка — норма для фильтрованных бакетов (одно качество
+        # с заточкой): одна сделка-выброс не должна объявляться уровнем рынка.
+        if median_24h and sample_count_24h >= MIN_REF_SAMPLES:
+            trend_pct = round((median_24h / median_hist - 1) * 100, 2)
+            ratio = median_24h / median_hist
+            trend = (
+                "falling" if ratio < TREND_SOFT_RATIO
+                else "rising" if ratio > 1 / TREND_SOFT_RATIO
+                else "stable"
+            )
+        elif median_now:
+            # Только аски: порог грубее, процент не публикуем — это не цены сделок
             ratio = median_now / median_hist
-            if ratio < TREND_DROP_RATIO:
-                trend = "falling"
-                # рынок просел — не верим в полный возврат к старой медиане,
-                # но и не считаем текущую просадку новой нормой целиком
-                ref = max(median_now, median_hist * TREND_DROP_RATIO)
-            elif ratio > 1 / TREND_DROP_RATIO:
-                trend = "rising"
-        return {"ref": int(ref), "source": "history", "trend": trend}
+            trend = (
+                "falling" if ratio < TREND_DROP_RATIO
+                else "rising" if ratio > 1 / TREND_DROP_RATIO
+                else "stable"
+            )
 
-    if current_min:
-        return {"ref": int(current_min), "source": "current_fallback", "trend": "unknown"}
-
-    return None
+    return {
+        "ref":        max(1, int(ref)),
+        "source":     source,
+        "trend":      trend,
+        "trend_pct":  trend_pct,
+        "confidence": "high" if sample_count >= MIN_REF_SAMPLES else "low",
+        "samples":    sample_count,
+        "samples_24h": sample_count_24h,
+        "median_7d":  int(median_hist) if median_hist else None,
+    }
 
 
 def make_sell_options(
@@ -297,4 +439,8 @@ def evaluate_lot_profit(
         "profit_per_hour": round(profit_per_hour, 2) if profit_per_hour is not None else None,
         "tier_used":       "fast",
         "sell_price_used": int(sell_price),
+        # Цена продажи, при которой прибыль после комиссии равна нулю.
+        # Единственное место расчёта: ключ растекается в signals -> Redis -> API -> UI.
+        "breakeven_per_unit": int(buyout_per_unit / (1 - COMMISSION)),
+        "ref_used":           int(normal["price_per_unit"]),
     }

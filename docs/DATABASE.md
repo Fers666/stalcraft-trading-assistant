@@ -242,6 +242,7 @@ UNIQUE по `(user_id, item_id, region)` — одна запись на пред
 | `avg_price_24h` | numeric(12,2) | Средняя цена продажи за последние 24ч |
 | `min_price_24h` | bigint | Минимальная цена за 24ч |
 | `max_price_24h` | bigint | Максимальная цена за 24ч |
+| `median_price_24h` | numeric(12,2) | Медианная цена за 24ч (миграция 0037) — краткосрочный ориентир и база расчёта `trend` |
 | `sales_volume_24h` | integer | Количество продаж за 24ч |
 | `avg_price_48h` | numeric(12,2) | Средняя цена продажи за последние 48ч (миграция 0027, под тарифы `advanced`+) |
 | `min_price_48h` | bigint | Минимальная цена за 48ч |
@@ -263,7 +264,8 @@ UNIQUE по `(user_id, item_id, region)` — одна запись на пред
 | `buy_hours_by_day` | jsonb | Лучший час покупки для каждого дня: `{"Monday": 2, "Tuesday": 3, ...}` |
 | `weekend_bonus_percent` | numeric(5,2) | Разница средней цены в выходные vs будни (%) |
 | `avg_sell_time_hours` | numeric(8,2) | Среднее время продажи в часах (из snapshot-history matching) |
-| `sell_options` | jsonb | **3 варианта цены с прогнозом времени** (см. ниже) |
+| `reference_price` | bigint | **Опорная цена `sell_options`** (миграция 0037): взвешенная по свежести медиана продаж за 7д, `pricing.weighted_reference`. **НЕ равна `median_price_7d`** — та остаётся описательной статистикой для отображения |
+| `sell_options` | jsonb | **3 варианта цены с прогнозом времени** (см. ниже), считаются от `reference_price` |
 | `batch_stats` | jsonb | Статистика по пачкам (резерв) |
 | `demand_signals` | jsonb | Информационный сигнал спроса (см. ниже) |
 | `calculated_at` | timestamptz | Время последнего пересчёта |
@@ -531,6 +533,7 @@ P&L/медиан никогда не реализовывалась).
 | `0034_buy_alerts.py` | Раздел «Закупки // Buy Sniper»: drop `sell_recommendations` + `user_inventory` (старый «Склад»), create `buy_alerts` (FK→users CASCADE+index, FK→user_watchlist CASCADE UNIQUE, `target_price`, `is_active`) |
 | `0035_push_subscriptions.py` | Новая таблица `push_subscriptions` (web push, ПК/Android/iOS): `user_id` FK→users CASCADE+index, `endpoint` UNIQUE, `p256dh`/`auth`/`user_agent`, `created_at`/`last_used_at` |
 | `0036_master_items_on_auction.py` | Поля `master_items.on_auction` (bool nullable), `auction_checked_at` (timestamptz), `history_total`/`lots_total` (int) + индекс `ix_master_on_auction` — реальная торгуемость по Stalcraft API вместо эвристики `bind_state` (задача `audit_auction_status`) |
+| `0037_market_stats_reference_price.py` | Поля `market_statistics.median_price_24h` (numeric) и `reference_price` (bigint) — опорная цена `sell_options` как взвешенная по свежести медиана продаж 7д вместо плоской `median_price_7d`. Без бэкфилла: часовой `calculate_market_stats` заполнит, до этого потребители падают на `median_price_7d` |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 

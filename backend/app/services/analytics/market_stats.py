@@ -23,7 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import (
     CollectedData, SalesHistory, MarketStatistics, UserWatchlist,
 )
-from app.services.analytics.pricing import make_sell_options, format_hours, COMMISSION
+from app.services.analytics.pricing import (
+    make_sell_options, format_hours, COMMISSION, compute_reference, weighted_reference,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -325,14 +327,16 @@ async def calculate_market_stats(
     batch_stats = _calculate_batch_stats(sales_30d)
 
     # ── 5. Прогноз времени продажи (sell_options) ─────────────────────────────
-    sell_options = await _calculate_sell_options(
+    sell_options, ref_info = await _calculate_sell_options(
         db=db,
         item_id=item_id,
         region=region,
         sales_30d=sales_30d,
         prices_7d=prices_7d,
         s7d=s7d,
+        s24=s24,
         now=now,
+        cutoff_7d=cutoff_7d,
         cutoff_30d=cutoff_30d,
     )
 
@@ -361,6 +365,7 @@ async def calculate_market_stats(
         existing.user_id = None  # исправляем legacy-записи с user_id != None
 
     existing.avg_price_24h       = s24.get("avg")
+    existing.median_price_24h    = s24.get("median")
     existing.min_price_24h       = s24.get("min")
     existing.max_price_24h       = s24.get("max")
     existing.sales_volume_24h    = s24.get("count", 0)
@@ -385,6 +390,12 @@ async def calculate_market_stats(
     existing.weekend_bonus_percent = weekend_bonus
     existing.avg_sell_time_hours = avg_sell_time
     existing.batch_stats         = batch_stats
+    # Только настоящая взвешенная медиана продаж. Фоллбеки (плоская медиана 7д,
+    # минимум активных лотов) не сохраняем: потребители читают колонку как
+    # weighted_hist, и записанный сюда аск выдавал бы себя за цену сделок.
+    existing.reference_price     = (
+        ref_info["ref"] if ref_info and ref_info["source"] == "weighted_history" else None
+    )
     existing.sell_options        = sell_options
     existing.demand_signals      = demand_signals
     existing.calculated_at       = now
@@ -545,11 +556,16 @@ async def _calculate_sell_options(
     sales_30d: list,
     prices_7d: list,
     s7d: dict,
+    s24: dict,
     now: datetime,
+    cutoff_7d: datetime,
     cutoff_30d: datetime,
-) -> list[dict]:
+) -> tuple[list[dict], dict | None]:
     """
-    Возвращает 3 варианта цены продажи с прогнозом времени.
+    Возвращает (3 варианта цены продажи с прогнозом времени, ref_info).
+
+    ref_info — результат pricing.compute_reference; вызывающий сохраняет из него
+    reference_price. Опорная цена НЕ равна median_price_7d: см. weighted_reference.
 
     Источники прогноза времени (от лучшего к худшему):
     1. Реальные пары (price, time_on_market) из sales_history где есть lot_start
@@ -589,18 +605,31 @@ async def _calculate_sell_options(
     sales_volume_7d = s7d.get("count", 0) or 0
 
     if not median_7d and not current_min_liquid:
-        return []
+        return [], None
 
-    # ── 3. Три ценовые точки ──────────────────────────────────────────────────
-    # Все три варианта относительно текущей минимальной ликвидной цены.
-    # Это гарантирует: fast < normal < premium всегда,
-    # и каждый вариант имеет понятный смысл для продавца.
-    #
-    # ref = текущий минимум ликвидных лотов (реальная рыночная цена прямо сейчас)
-    ref = int(current_min_liquid or median_7d)
+    # ── 3. Опорная цена и три ценовые точки ───────────────────────────────────
+    # ref — взвешенная по свежести медиана реальных продаж за 7д. Плоская
+    # медиана 7д на трендовом рынке отражает цену ~3.5-дневной давности и
+    # обещает прибыль, которой уже нет; текущий минимум лотов — это аск, а не
+    # цена сделки. Единая формула для карточки, сигналов и Радара — pricing.py.
+    wr = weighted_reference(
+        [(s.sale_time, s.price_per_unit) for s in sales_30d if s.sale_time >= cutoff_7d],
+        now,
+    )
+    ref_info = compute_reference(
+        weighted_hist=wr["ref"] if wr else None,
+        median_hist=float(median_7d) if median_7d else None,
+        sample_count=wr["samples"] if wr else 0,
+        median_24h=float(s24["median"]) if s24.get("median") else None,
+        sample_count_24h=s24.get("count", 0) or 0,
+        current_min=float(current_min_liquid) if current_min_liquid else None,
+    )
+    if ref_info is None:
+        return [], None
+    ref = ref_info["ref"]
 
     fast_price    = int(ref * 0.97)  # -3%: твой лот дешевле всех → купят первым
-    normal_price  = int(ref * 1.00)  #  ±0%: по рыночной цене
+    normal_price  = int(ref * 1.00)  #  ±0%: по опорной цене
     premium_price = int(ref * 1.05)  # +5%: выше рынка → ждёшь когда чужие раскупят
 
     # ── 4. Прогноз времени ────────────────────────────────────────────────────
@@ -633,12 +662,12 @@ async def _calculate_sell_options(
             make_option("fast",    "Быстро",   fast_price,    fast_hours),
             make_option("normal",  "Нормально",normal_price,  normal_hours),
             make_option("premium", "Выгодно",  premium_price, premium_hours),
-        ]
+        ], ref_info
 
     # medium (10-30% покрытия, ≥3 точки) — pricing.make_sell_options интерполирует
     # время по среднему из time_price_pairs; low — оценка по объёму продаж/день
     pairs_for_medium = time_price_pairs if (coverage >= 0.10 and matched_count >= 3) else None
-    return make_sell_options(ref, sales_volume_7d, pairs_for_medium)
+    return make_sell_options(ref, sales_volume_7d, pairs_for_medium), ref_info
 
 
 def _estimate_hours(

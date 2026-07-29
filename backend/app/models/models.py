@@ -199,6 +199,7 @@ class MarketStatistics(Base):
     item_id             = Column(String(50), nullable=False)
     region              = Column(String(10), nullable=False)
     avg_price_24h       = Column(Numeric(12, 2))
+    median_price_24h    = Column(Numeric(12, 2))    # краткосрочный ориентир + база тренда
     min_price_24h       = Column(BigInteger)
     max_price_24h       = Column(BigInteger)
     sales_volume_24h    = Column(Integer)
@@ -223,6 +224,10 @@ class MarketStatistics(Base):
     weekend_bonus_percent = Column(Numeric(5, 2))
     avg_sell_time_hours = Column(Numeric(8, 2))
     batch_stats         = Column(JSONB)
+    # Опорная цена sell_options: взвешенная по свежести медиана продаж за 7д
+    # (pricing.weighted_reference). НЕ равна median_price_7d — та остаётся
+    # описательной статистикой для отображения.
+    reference_price     = Column(BigInteger)
     sell_options        = Column(JSONB)
     demand_signals      = Column(JSONB)             # {"recent_bulk_share_24h", "baseline_bulk_share_29d", "bulk_spike"}
     calculated_at       = Column(DateTime(timezone=True), server_default=func.now())

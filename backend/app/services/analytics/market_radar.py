@@ -59,7 +59,7 @@ from app.core.config import settings
 from app.models.models import UserWatchlist, MasterItem, MarketStatistics, SalesHistory, CollectedData
 from app.services.analytics.pricing import (
     _build_sales_filter, _lot_quality_enchant, _is_artefact, _is_liquid,
-    make_sell_options, evaluate_lot_profit,
+    make_sell_options, evaluate_lot_profit, weighted_reference,
 )
 
 logger = logging.getLogger(__name__)
@@ -335,30 +335,38 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
         master = items_by_id.get(row.item_id)
         has_filter = row.quality_filter is not None or row.enchant_filter is not None
 
+        # ref_price — опорная цена для оценки выгодности (та же, что в карточке
+        # предмета), avg_price — то, что показывается в списке. Раньше совпадали,
+        # из-за чего Радар считал выгодные лоты по плоской медиане 7д и давал
+        # систематически больше сигналов, чем карточка того же предмета.
         if not has_filter:
             stats = stats_by_id.get(row.item_id)
             avg_price = float(stats.avg_price_24h) if stats and stats.avg_price_24h is not None else None
+            ref_price = float(stats.reference_price) if stats and stats.reference_price else avg_price
             sales_volume = stats.sales_volume_24h if stats else None
             bulk_spike = (stats.demand_signals or {}).get("bulk_spike") if stats and stats.demand_signals else None
             price_window = "24h"
         else:
             extra_conds = _build_sales_filter(row.quality_filter, row.enchant_filter)
-            prices = (await db.execute(
-                select(SalesHistory.price_per_unit).where(
+            sales = (await db.execute(
+                select(SalesHistory.sale_time, SalesHistory.price_per_unit).where(
                     SalesHistory.item_id == row.item_id,
                     SalesHistory.sale_time >= cutoff_7d,
                     *extra_conds,
                 )
-            )).scalars().all()
+            )).all()
+            prices = [s.price_per_unit for s in sales]
             avg_price = float(_statistics.median(prices)) if prices else None
+            wr = weighted_reference([(s.sale_time, s.price_per_unit) for s in sales], now)
+            ref_price = wr["ref"] if wr else avg_price
             sales_volume = len(prices) if prices else None
             bulk_spike = None
             price_window = "7d"
 
-        if avg_price is None:
+        if avg_price is None or ref_price is None:
             profitable_offers_count = None
         else:
-            sell_options = make_sell_options(int(avg_price), sales_volume)
+            sell_options = make_sell_options(int(ref_price), sales_volume)
             profitable_offers_count = await _count_profitable_offers(
                 db, row.item_id, row.quality_filter, row.enchant_filter,
                 master, sell_options,
