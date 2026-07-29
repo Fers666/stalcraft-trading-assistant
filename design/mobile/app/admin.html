@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SC Trading — Админ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../v5/assets/tokens.css">
+<link rel="stylesheet" href="../assets/mobile.css">
+<style>
+.compart{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.compart>div{background:var(--s1);padding:12px 14px}
+.bar{height:5px;background:var(--s2);border-radius:1px;overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%}
+.uctl{margin-top:11px;padding-top:11px;border-top:1px solid var(--line);display:none;flex-direction:column;gap:10px}
+.uc.open .uctl{display:flex}
+.uc .expand{transition:transform var(--fast) var(--ease)}
+.uc.open .expand{transform:rotate(180deg)}
+.ctlrow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ctlrow .input{height:38px;flex:1;min-width:0}
+.online{width:7px;height:7px;flex:none}
+</style>
+</head>
+<body>
+<div id="mshell"></div>
+<main class="mmain">
+  <div class="pg-h" style="padding-left:2px;padding-right:2px">
+    <span class="kick">Админ // Access Control</span>
+    <h1 style="font-size:var(--fs-16);letter-spacing:.04em;margin-top:4px">Управление доступом</h1>
+    <div class="sub">Подтверждение регистраций, тарифы, аддоны и системные метрики терминала.</div>
+  </div>
+
+  <div class="gap12">
+    <div class="statusgrid" id="ustat"></div>
+    <div class="compart">
+      <div><span class="kick">Тарифы</span><div class="dc-chips" id="tierchips" style="margin-top:8px"></div></div>
+      <div><span class="kick">Rate limit API</span>
+        <div class="mono" style="font-size:var(--fs-14);margin-top:8px" id="rlval"></div>
+        <div class="bar"><i id="rlbar"></i></div>
+      </div>
+    </div>
+    <button type="button" class="qbtn" id="refresh" style="align-self:flex-start"><svg width="14" height="14" viewBox="0 0 13 13" fill="none"><path d="M11 6.5a4.5 4.5 0 1 1-1.32-3.18" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M11 1v2.5H8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>Пересобрать историю (артефакты)</button>
+
+    <section class="sp" style="background:var(--s1);border:1px solid var(--line);border-radius:var(--r);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)"><span class="kick" style="color:var(--gold-2)">Авто-подтверждение регистрации</span></div>
+      <div style="padding:14px" class="gap12">
+        <label class="sw"><span class="t">Авто-подтверждение</span><span class="tgl"><input type="checkbox" id="autoappr"><span class="tr"></span></span></label>
+        <div class="frow"><label class="kick" for="deftier">Тариф по умолчанию</label><select class="input" id="deftier"><option value="base">Базовая</option><option value="advanced">Продвинутая</option><option value="advanced_plus" selected>Продвинутая+</option><option value="advanced_max">Продвинутая макс</option></select></div>
+        <div class="frow"><label class="kick" for="defdays">Дней (пусто = бессрочно)</label><input class="input mono" id="defdays" type="number" placeholder="бессрочно"></div>
+        <button type="button" class="gbtn" id="savereg" style="align-self:flex-start">Сохранить</button>
+      </div>
+    </section>
+
+    <div class="segbar" id="filter">
+      <button type="button" class="seg on" data-f="pending">Ожидают</button>
+      <button type="button" class="seg" data-f="approved">Одобрены</button>
+      <button type="button" class="seg" data-f="all">Все</button>
+    </div>
+    <div class="gap8" id="users"></div>
+  </div>
+</main>
+
+<script src="../../v5/assets/data.js"></script>
+<script src="../../v5/assets/app.js"></script>
+<script src="../assets/mshell.js"></script>
+<script>
+(function(){
+"use strict";
+var A=window.SC_APP, S=window.SC_MSHELL, esc=A.esc, fmtN=A.fmtN;
+S.render("admin");
+var TIERS=[["base","Базовая","--q-default"],["advanced","Продвинутая","--q-stalker"],["advanced_plus","Продвинутая+","--gold"],["advanced_max","Продвинутая макс","--gold-hi"]];
+var TLBL={base:"Базовая",advanced:"Продвинутая",advanced_plus:"Продвинутая+",advanced_max:"Продвинутая макс"};
+function tcolor(t){ for(var i=0;i<TIERS.length;i++) if(TIERS[i][0]===t) return TIERS[i][2]; return "--faint"; }
+
+var UID=1;
+var USERS=[
+  {id:UID++,username:"trader_01",email:"trader01@mail.ru",admin:true,approved:true,tier:"advanced_max",expires:null,tg:"trader_01",online:true,last:null,wl:18,wlLimit:25,radar:true},
+  {id:UID++,username:"snayper",email:"snayper@gmail.com",admin:false,approved:true,tier:"advanced_plus",expires:"2026-09-01",tg:"snayper_pro",online:false,last:"2026-07-20T10:30:00",wl:12,wlLimit:20,radar:false},
+  {id:UID++,username:"loot_hunter",email:"loot@yandex.ru",admin:false,approved:true,tier:"advanced",expires:"2026-08-10",tg:null,online:true,last:null,wl:7,wlLimit:10,radar:false},
+  {id:UID++,username:"newbie_x",email:"newbie@mail.ru",admin:false,approved:false,tier:"base",expires:null,tg:null,online:false,last:"2026-07-19T22:15:00",wl:0,wlLimit:6,radar:false},
+  {id:UID++,username:"zone_walker",email:"walker@proton.me",admin:false,approved:false,tier:"base",expires:null,tg:"zonewalker",online:false,last:"2026-07-20T08:05:00",wl:0,wlLimit:6,radar:false}
+];
+var filter="pending", openIds={};
+
+function fmtDate(iso){ if(!iso) return "—"; var d=new Date(iso); return String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0")+"."+d.getFullYear(); }
+function fmtRel(iso){ if(!iso) return "никогда"; var m=Math.floor((Date.parse("2026-07-20T11:00:00")-Date.parse(iso))/60000); if(m<1) return "сейчас"; if(m<60) return m+" мин назад"; var h=Math.floor(m/60); if(h<24) return h+" ч назад"; return Math.floor(h/24)+" дн назад"; }
+function st(k,v,cls){ return '<div class="st"><span class="k">'+k+'</span><span class="v '+(cls||"")+'">'+v+'</span></div>'; }
+
+function renderStats(){
+  var pend=USERS.filter(function(u){return !u.approved;}).length, appr=USERS.filter(function(u){return u.approved;}).length, online=USERS.filter(function(u){return u.online;}).length;
+  document.getElementById("ustat").innerHTML=st("Всего",fmtN(USERS.length),"")+st("Ожидают",fmtN(pend),"a")+st("Одобрены",fmtN(appr),"g")+st("Онлайн",fmtN(online),"g");
+  var byTier={}; USERS.forEach(function(u){ byTier[u.tier]=(byTier[u.tier]||0)+1; });
+  document.getElementById("tierchips").innerHTML=TIERS.filter(function(t){return byTier[t[0]];}).map(function(t){ return '<span class="chip" style="color:var('+t[2]+');border-color:color-mix(in srgb,var('+t[2]+') 45%,transparent)">'+t[1]+': '+byTier[t[0]]+'</span>'; }).join("");
+  var used=54, cap=400, pct=used/cap*100;
+  document.getElementById("rlval").innerHTML=used+' / '+cap+' <span style="font-size:var(--fs-11);color:var(--faint)">запр/мин</span>';
+  var bar=document.getElementById("rlbar"); bar.style.width=pct+"%"; bar.style.background="var(--green)";
+}
+
+function userCard(u){
+  var status=u.approved?'<span class="chip fresh">одобрен</span>':'<span class="chip" style="color:var(--amber);border-color:var(--amber-line)">ожидает</span>';
+  var tc=tcolor(u.tier);
+  var extendBtns=["+1д","+1нед","+1мес"].map(function(l){ return '<button type="button" class="seg" data-ext="'+l+'">'+l+'</button>'; }).join("");
+  var tierOpts=TIERS.map(function(t){ return '<option value="'+t[0]+'"'+(t[0]===u.tier?" selected":"")+'>'+t[1]+'</option>'; }).join("");
+  return '<div class="dcard uc'+(openIds[u.id]?" open":"")+'" data-uid="'+u.id+'">'+
+    '<div class="dc-top"><div class="dc-main"><div class="dc-name">'+esc(u.username)+(u.admin?' <span class="chip gold" style="vertical-align:middle">admin</span>':'')+'</div>'+
+      '<div class="dc-sub">'+esc(u.email)+'</div>'+
+      '<div class="dc-chips">'+status+'<span class="chip" style="color:var('+tc+');border-color:color-mix(in srgb,var('+tc+') 45%,transparent)">'+TLBL[u.tier]+'</span>'+
+        '<span class="chip mono"><span class="online" style="background:var('+(u.online?'--green':'--faint')+');box-shadow:'+(u.online?'0 0 6px var(--green)':'none')+'"></span>'+(u.online?"онлайн":fmtRel(u.last))+'</span>'+
+        '<span class="chip mono">'+u.wl+'/'+u.wlLimit+' карт.</span></div></div>'+
+      '<button type="button" class="ibtn toggle" aria-label="Управление"><svg class="expand" width="16" height="16" viewBox="0 0 14 14" fill="none"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>'+
+    '<div class="uctl">'+
+      '<div class="frow"><span class="kick">Telegram · срок</span><div class="dc-sub"><span class="mono">'+(u.tg?"@"+esc(u.tg):"—")+'</span> · до <span class="mono">'+(u.expires?fmtDate(u.expires):"бессрочно")+'</span></div></div>'+
+      '<div class="ctlrow"><select class="input" data-tiersel>'+tierOpts+'</select><button type="button" class="qbtn sm" data-tierapply>Сменить</button></div>'+
+      '<div class="frow"><span class="kick">Продлить срок</span><div class="segbar">'+extendBtns+'<button type="button" class="seg" data-perp>Бессрочно</button></div></div>'+
+      '<div class="ctlrow"><input class="input mono" type="number" placeholder="лимит избранного" data-ovr value="'+u.wlLimit+'"><button type="button" class="qbtn sm" data-ovrapply>Применить</button></div>'+
+      '<label class="sw"><span class="t">Аддон «Радар рынка»</span><span class="tgl"><input type="checkbox" data-radar'+(u.radar?" checked":"")+'><span class="tr"></span></span></label>'+
+      '<div>'+(u.approved
+        ? '<button type="button" class="dbtn'+(u.admin?" ":"")+'" data-revoke'+(u.admin?" disabled style=\"opacity:.5\"":"")+'>Отозвать доступ</button>'
+        : '<button type="button" class="gbtn" data-approve>Одобрить</button>')+'</div>'+
+    '</div></div>';
+}
+
+function renderUsers(){
+  var list=USERS.filter(function(u){ if(filter==="pending") return !u.approved; if(filter==="approved") return u.approved; return true; });
+  var box=document.getElementById("users");
+  if(!list.length){ box.innerHTML='<div class="t-empty">'+(filter==="pending"?"Нет пользователей, ожидающих одобрения":"Нет пользователей")+'</div>'; return; }
+  box.innerHTML=list.map(userCard).join("");
+  Array.prototype.forEach.call(box.querySelectorAll(".uc"), function(card){
+    var id=Number(card.getAttribute("data-uid")), u=null; for(var i=0;i<USERS.length;i++) if(USERS[i].id===id) u=USERS[i];
+    card.querySelector(".toggle").addEventListener("click", function(){ openIds[id]=!openIds[id]; card.classList.toggle("open"); });
+    card.querySelector("[data-tierapply]").addEventListener("click", function(){ u.tier=card.querySelector("[data-tiersel]").value; A.toast("Тариф изменён на «"+TLBL[u.tier]+"»"); renderStats(); renderUsers(); });
+    Array.prototype.forEach.call(card.querySelectorAll("[data-ext]"), function(b){ b.addEventListener("click", function(){ A.toast("Срок продлён на "+b.getAttribute("data-ext")); }); });
+    card.querySelector("[data-perp]").addEventListener("click", function(){ u.expires=null; A.toast("Тариф стал бессрочным"); renderUsers(); });
+    card.querySelector("[data-ovrapply]").addEventListener("click", function(){ var v=Math.round(Number(card.querySelector("[data-ovr]").value)); if(isFinite(v)&&v>=0){ u.wlLimit=v; A.toast("Лимит избранного обновлён"); renderUsers(); } });
+    card.querySelector("[data-radar]").addEventListener("change", function(e){ u.radar=e.target.checked; A.toast(u.radar?"Радар выдан":"Радар отозван"); });
+    var appr=card.querySelector("[data-approve]"); if(appr) appr.addEventListener("click", function(){ u.approved=true; A.toast("Пользователь одобрен"); renderStats(); renderUsers(); });
+    var rev=card.querySelector("[data-revoke]"); if(rev&&!u.admin) A.armConfirm(rev, function(){ u.approved=false; A.toast("Доступ отозван"); renderStats(); renderUsers(); }, "Точно?");
+  });
+}
+
+Array.prototype.forEach.call(document.querySelectorAll("#filter .seg"), function(b){
+  b.addEventListener("click", function(){ filter=b.getAttribute("data-f"); Array.prototype.forEach.call(document.querySelectorAll("#filter .seg"), function(x){ x.classList.toggle("on",x===b); }); renderUsers(); });
+});
+document.getElementById("refresh").addEventListener("click", function(){ A.toast("Задача пересборки истории запущена"); });
+document.getElementById("savereg").addEventListener("click", function(){ A.toast("Настройки регистрации сохранены"); });
+renderStats(); renderUsers();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SC Trading — Помощь</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../v5/assets/tokens.css">
+<link rel="stylesheet" href="../assets/mobile.css">
+<style>
+.pub-top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:10px;height:calc(50px + var(--safe-t));padding:var(--safe-t) 12px 0;background:var(--s1);border-bottom:1px solid var(--line)}
+.pub-top .brand{display:flex;align-items:center;gap:8px}
+.pub-top .lg-o{stroke:var(--gold)}.pub-top .lg-i{fill:var(--gold);fill-opacity:.22;stroke:var(--gold-2)}
+.pub-top b{font-family:var(--head);font-weight:700;font-size:var(--fs-15);letter-spacing:.07em}
+.pub-body{max-width:720px;margin:0 auto;padding:16px 12px calc(var(--safe-b) + 28px)}
+.pub-body h1{font-family:var(--head);font-weight:700;font-size:var(--fs-26);letter-spacing:.02em;margin-bottom:4px}
+.pub-body .lead{color:var(--faint);font-size:var(--fs-125);margin-bottom:8px}
+.scroll-x td.tk{color:var(--text);font-family:var(--ui)}
+</style>
+</head>
+<body class="no-shell">
+<div class="pub-top">
+  <a class="brand" href="index.html"><svg width="24" height="24" viewBox="0 0 26 26" fill="none"><path class="lg-o" d="M13 1.5 L24.5 13 L13 24.5 L1.5 13 Z" stroke-width="1.6"/><path class="lg-i" d="M13 6.5 L19.5 13 L13 19.5 L6.5 13 Z" stroke-width="1"/></svg><b>SC TRADING</b></a>
+  <a class="qbtn sm" href="favorites.html" style="margin-left:auto">В терминал</a>
+</div>
+<main class="pub-body">
+  <h1>Помощь / FAQ</h1>
+  <div class="lead">Как работает терминал перепродажи для аукциона STALZONE.</div>
+  <div id="faq"></div>
+
+  <div class="faq-group">Сравнение тарифов</div>
+  <div class="scroll-x">
+    <table>
+      <thead><tr><th>Возможность</th><th>Базовая</th><th>Продвинутая</th><th>Продвинутая+</th></tr></thead>
+      <tbody>
+        <tr><td class="tk">Избранное</td><td class="mono">6</td><td class="mono">10</td><td class="mono">20</td></tr>
+        <tr><td class="tk">Графики</td><td class="mono">24ч / 48ч</td><td class="mono">+ 7д</td><td class="mono">+ 30д</td></tr>
+        <tr><td class="tk">Поиск лотов</td><td>—</td><td>—</td><td class="mono">да</td></tr>
+        <tr><td class="tk">Закупки (Buy Sniper)</td><td>—</td><td>—</td><td class="mono">да</td></tr>
+        <tr><td class="tk">Радар рынка</td><td colspan="3" class="mono">аддон (докупается отдельно)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</main>
+
+<script>
+var GROUPS=[
+  {g:"Основы",items:[
+    ["Что делает SC Trading?","Терминал находит выгодные лоты для перепродажи на аукционе STALZONE: собирает цены, считает медиану, показывает, где купить дёшево и когда выгоднее продать."],
+    ["Откуда берутся данные?","Из публичного API аукциона. Срез обновляется автоматически; в шапке терминала видно время последнего среза."]
+  ]},
+  {g:"Избранное и аналитика",items:[
+    ["Как понять, что лот выгодный?","Лот подсвечивается, если цена за штуку заметно ниже медианы 7 дней. Порог «выгодности» настраивается в Настройках."],
+    ["Что такое «Варианты продажи»?","Три сценария (Быстро / Нормально / Выгодно): за сколько выставить, что получишь после комиссии 5% и примерный срок продажи."]
+  ]},
+  {g:"Закупки и уведомления",items:[
+    ["Как работают «Закупки»?","Задаёшь порог ₽/шт по товару из Избранного. Когда самый дешёвый лот падает до порога — приходит алерт в Telegram «пора покупать»."],
+    ["Зачем привязывать Telegram?","Без привязки алерты «Закупок» и сигналы о выгодных лотах приходить не будут. Привязка — в Настройках, кодом за 10 минут."]
+  ]},
+  {g:"Тарифы",items:[
+    ["Чем отличаются тарифы?","Лимитом Избранного и глубиной графиков. Поиск лотов и Закупки открываются с тарифа ПРОДВИНУТАЯ+. Радар рынка — отдельный аддон."]
+  ]}
+];
+var box=document.getElementById("faq");
+box.innerHTML=GROUPS.map(function(gr){
+  return '<div class="faq-group">'+gr.g+'</div>'+gr.items.map(function(it){
+    return '<div class="acc"><button type="button" class="acc-h"><span class="q">'+it[0]+'</span><span class="ch"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></button><div class="acc-b">'+it[1]+'</div></div>';
+  }).join("");
+}).join("");
+Array.prototype.forEach.call(box.querySelectorAll(".acc-h"), function(b){
+  b.addEventListener("click", function(){ b.parentNode.classList.toggle("open"); });
+});
+</script>
+</body>
+</html>

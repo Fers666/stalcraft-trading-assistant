@@ -13,3 +13,6 @@ backend/app/static/
 celerybeat-schedule
 backend/celerybeat-schedule
 graphify-out/
+
+# Local-only deploy secrets (SSH connection data) — NEVER push
+.claude/skills/prod-deploy/

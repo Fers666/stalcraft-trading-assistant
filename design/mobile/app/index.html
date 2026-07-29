@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SC Trading — терминал перепродажи для аукциона STALZONE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../v5/assets/tokens.css">
+<link rel="stylesheet" href="../assets/mobile.css">
+<style>
+.pub-bg{position:fixed;inset:0;z-index:-1;background:
+  radial-gradient(120% 60% at 50% 0%,var(--gold-dim),transparent 60%),
+  repeating-linear-gradient(45deg,var(--grid) 0 1px,transparent 1px 44px),
+  repeating-linear-gradient(-45deg,var(--grid) 0 1px,transparent 1px 44px),var(--s0)}
+.pub-top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:10px;height:calc(52px + var(--safe-t));padding:var(--safe-t) 14px 0;background:color-mix(in srgb,var(--s1) 86%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.pub-top .brand{display:flex;align-items:center;gap:8px}
+.pub-top .lg-o{stroke:var(--gold)}.pub-top .lg-i{fill:var(--gold);fill-opacity:.22;stroke:var(--gold-2)}
+.pub-top b{font-family:var(--head);font-weight:700;font-size:var(--fs-15);letter-spacing:.07em}
+.pub{max-width:720px;margin:0 auto;padding:0 16px calc(var(--safe-b) + 40px)}
+.hero{padding:36px 0 28px;text-align:center}
+.h-badge{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border:1px solid var(--gold-line);background:var(--gold-dim);border-radius:var(--r);font-family:var(--head);font-weight:600;font-size:var(--fs-10);letter-spacing:.16em;text-transform:uppercase;color:var(--gold-2)}
+.h-badge .dot{width:6px;height:6px;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+.hero h1{font-family:var(--head);font-weight:700;font-size:40px;line-height:1.05;letter-spacing:.01em;margin:16px 0 12px}
+.hero h1 em{font-style:normal;color:var(--gold-hi);text-shadow:0 0 26px var(--gold-glow)}
+.hero p{color:var(--mut);font-size:var(--fs-14);line-height:1.6;max-width:44ch;margin:0 auto 22px}
+.hero .cta{display:flex;flex-direction:column;gap:10px}
+.sig-w{margin:26px 0 4px;background:var(--s1);border:1px solid var(--line);border-radius:var(--r);padding:14px;text-align:left}
+.sig-w .wl{display:flex;align-items:center;gap:7px;font-family:var(--head);font-weight:700;font-size:var(--fs-10);letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin-bottom:10px}
+.sig-w .wl .dot{width:6px;height:6px;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+.statbar{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin:8px 0 40px}
+.statbar .s{background:var(--s1);padding:16px 12px;text-align:center}
+.statbar .s .v{font-family:var(--mono);font-weight:700;font-size:var(--fs-28);color:var(--gold-hi);text-shadow:0 0 18px var(--gold-glow)}
+.statbar .s .k{font-family:var(--head);font-weight:600;font-size:var(--fs-10);letter-spacing:.13em;text-transform:uppercase;color:var(--faint);margin-top:4px}
+.sec-t{font-family:var(--head);font-weight:700;font-size:var(--fs-26);letter-spacing:.02em;text-align:center;margin:0 0 6px}
+.sec-s{text-align:center;color:var(--faint);font-size:var(--fs-125);margin-bottom:20px}
+.feat{display:flex;flex-direction:column;gap:10px;margin-bottom:44px}
+.fcard{background:var(--s1);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.fcard .fi{width:38px;height:38px;display:grid;place-items:center;background:var(--gold-dim);border:1px solid var(--gold-line);border-radius:var(--r);color:var(--gold-2);margin-bottom:11px}
+.fcard h3{font-family:var(--head);font-weight:700;font-size:var(--fs-16);letter-spacing:.02em;margin-bottom:5px}
+.fcard p{color:var(--mut);font-size:var(--fs-125);line-height:1.55}
+.steps{display:flex;flex-direction:column;gap:12px;margin-bottom:44px}
+.step{display:flex;gap:14px;align-items:flex-start}
+.step .n{flex:none;width:36px;height:36px;display:grid;place-items:center;font-family:var(--mono);font-weight:700;font-size:var(--fs-16);color:var(--gold-hi);border:1px solid var(--gold-line);background:var(--gold-dim);border-radius:var(--r)}
+.step h3{font-family:var(--head);font-weight:700;font-size:var(--fs-14);letter-spacing:.03em;margin-bottom:3px}
+.step p{color:var(--mut);font-size:var(--fs-125);line-height:1.5}
+.plans{display:flex;flex-direction:column;gap:12px;margin-bottom:36px}
+.plan{background:var(--s1);border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.plan.hl{border-color:var(--gold-line)}
+.plan .pt{font-family:var(--head);font-weight:700;font-size:var(--fs-11);letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+.plan.hl .pt{color:var(--gold-2)}
+.plan .pp{font-family:var(--mono);font-weight:700;font-size:var(--fs-28);margin:6px 0 12px}
+.plan .pp span{font-size:var(--fs-12);color:var(--faint);font-weight:400}
+.plan ul{list-style:none;margin:0 0 16px;padding:0;display:flex;flex-direction:column;gap:8px}
+.plan li{display:flex;gap:8px;font-size:var(--fs-125);color:var(--mut)}
+.plan li svg{flex:none;color:var(--green);margin-top:2px}
+.pub-foot{text-align:center;color:var(--faint);font-size:var(--fs-11);font-family:var(--mono);padding-top:24px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body class="no-shell">
+<div class="pub-bg" aria-hidden="true"></div>
+<div class="pub-top">
+  <a class="brand" href="index.html"><svg width="24" height="24" viewBox="0 0 26 26" fill="none"><path class="lg-o" d="M13 1.5 L24.5 13 L13 24.5 L1.5 13 Z" stroke-width="1.6"/><path class="lg-i" d="M13 6.5 L19.5 13 L13 19.5 L6.5 13 Z" stroke-width="1"/></svg><b>SC TRADING</b></a>
+  <a class="qbtn sm" href="login.html" style="margin-left:auto">Войти</a>
+</div>
+
+<main class="pub">
+  <section class="hero">
+    <span class="h-badge"><span class="dot"></span>ANOMALY → DATA → PROFIT</span>
+    <h1>Находи <em>выгодные лоты</em> на аукционе STALZONE</h1>
+    <p>Терминал собирает цены, считает медиану и подсвечивает лоты, которые можно перепродать с прибылью. Ты видишь, где купить дёшево и когда продать дороже.</p>
+    <div class="cta">
+      <a href="register.html" class="gbtn btn-full">Начать бесплатно</a>
+      <a href="login.html" class="qbtn btn-full">Войти в терминал</a>
+    </div>
+    <div class="sig-w" id="sigw">
+      <div class="wl"><span class="dot"></span>Живой сигнал</div>
+      <div id="sigslot"></div>
+    </div>
+  </section>
+
+  <div class="statbar">
+    <div class="s"><div class="v mono">400<span style="font-size:var(--fs-12)">/мин</span></div><div class="k">лимит API</div></div>
+    <div class="s"><div class="v mono">5 мин</div><div class="k">частота среза</div></div>
+    <div class="s"><div class="v mono">2 236</div><div class="k">предметов в базе</div></div>
+    <div class="s"><div class="v mono">48ч</div><div class="k">жизнь лота</div></div>
+  </div>
+
+  <h2 class="sec-t">Что умеет терминал</h2>
+  <div class="sec-s">Всё для перепродажи — в одном месте</div>
+  <div class="feat" id="feat"></div>
+
+  <h2 class="sec-t">Как это работает</h2>
+  <div class="sec-s">Три шага до первой сделки</div>
+  <div class="steps">
+    <div class="step"><span class="n">1</span><div><h3>Добавь предметы в Избранное</h3><p>Из Каталога или Поиска лотов — терминал начнёт собирать по ним цены и статистику.</p></div></div>
+    <div class="step"><span class="n">2</span><div><h3>Смотри аналитику</h3><p>Медиана, графики, риск, лучшие часы покупки и продажи, распределение по пачкам.</p></div></div>
+    <div class="step"><span class="n">3</span><div><h3>Покупай по сигналу</h3><p>Задай порог в «Закупках» — алерт в Telegram придёт, когда лот подешевеет до твоей цены.</p></div></div>
+  </div>
+
+  <h2 class="sec-t">Тарифы</h2>
+  <div class="sec-s">Начни бесплатно, расширяй по мере роста</div>
+  <div class="plans" id="plans"></div>
+
+  <div class="pub-foot">SC TRADING TERMINAL · прототип мобильной версии · площадка: аукцион STALZONE</div>
+</main>
+
+<script src="../../v5/assets/data.js"></script>
+<script src="../../v5/assets/app.js"></script>
+<script>
+(function(){
+"use strict";
+var D=window.SC_DATA, A=window.SC_APP, esc=A.esc;
+
+/* фичи */
+var FEAT=[
+  ["Аналитика по каждому предмету","Медиана 7д, коридор мин–макс, волатильность-риск, лучшие часы сделок — всё на реальных данных аукциона.","M4 13l4-4 3 3 5-6"],
+  ["Поиск выгодных лотов","Живые лоты по любому предмету с подсветкой профита против медианы и лучшей цены выкупа.","M6.5 3a4.5 4.5 0 1 0 3 8"],
+  ["Снайпер закупки","Порог ₽/шт по товару — алерт в Telegram, когда цена падает до твоей.","M10 2v3M10 15v3M2 10h3M15 10h3"],
+  ["Радар рынка","За чем следят трейдеры площадки: рейтинг по подпискам и всплески оптовых сделок.","M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16"]
+];
+document.getElementById("feat").innerHTML=FEAT.map(function(f){
+  return '<div class="fcard"><div class="fi"><svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="'+f[2]+'" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div><h3>'+f[0]+'</h3><p>'+f[1]+'</p></div>';
+}).join("");
+
+/* тарифы */
+var CK='<svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M2.5 7.5l3 3 6-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+var PLANS=[
+  {t:"Базовая",p:"0",u:"₽",hl:false,f:["6 предметов в Избранном","Графики 24ч / 48ч","Аналитика и варианты продажи"]},
+  {t:"Продвинутая+",p:"590",u:"₽/мес",hl:true,f:["20 предметов в Избранном","Графики до 30 дней","Поиск лотов + Закупки","Алерты в Telegram"]},
+  {t:"Продвинутая макс",p:"990",u:"₽/мес",hl:false,f:["25 предметов в Избранном","Всё из Продвинутая+","Приоритетная поддержка"]}
+];
+document.getElementById("plans").innerHTML=PLANS.map(function(p){
+  return '<div class="plan'+(p.hl?" hl":"")+'"><div class="pt">'+p.t+'</div><div class="pp">'+p.p+' <span>'+p.u+'</span></div>'+
+    '<ul>'+p.f.map(function(x){ return '<li>'+CK+'<span>'+x+'</span></li>'; }).join("")+'</ul>'+
+    '<a href="register.html" class="'+(p.hl?"gbtn":"qbtn")+' btn-full">Выбрать</a></div>';
+}).join("");
+
+/* живой сигнал (ротация) */
+var items=(D.favorites||[]).filter(function(f){ return A.goodCount(f)>0; });
+if(!items.length) items=(D.favorites||[]).slice(0,5);
+var idx=0, timer=null, slot=document.getElementById("sigslot");
+function drawSig(){
+  var f=items[idx%items.length]; if(!f) return;
+  var r=A.rankOf(f), n=A.goodCount(f), s=f.stats;
+  slot.innerHTML='<div class="dcard" style="background:var(--s2)"><div class="dc-top">'+A.iconHtml(f,"dc-ico")+
+    '<div class="dc-main"><div class="dc-name">'+esc(f.nameRu)+'</div><div class="dc-sub"><span style="color:var(--qc);--qc:var('+r.v+')">'+r.name+'</span> · <span class="mono">'+esc(f.region)+'</span></div></div>'+
+    '<div class="dc-right"><div class="dc-price plain" style="font-size:var(--fs-14)">'+A.fmtCompact(s.medianPrice7d||0)+'</div>'+(n>0?'<span class="badge-g">+'+n+' лот.</span>':'<span class="dc-sub">медиана 7д</span>')+'</div></div></div>';
+}
+function rotate(){ idx++; drawSig(); }
+drawSig();
+timer=setInterval(rotate, 4000);
+document.getElementById("sigw").addEventListener("mouseenter", function(){ clearInterval(timer); });
+document.getElementById("sigw").addEventListener("mouseleave", function(){ timer=setInterval(rotate, 4000); });
+})();
+</script>
+</body>
+</html>

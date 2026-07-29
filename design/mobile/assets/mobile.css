@@ -1,0 +1,436 @@
+/* ============================================================
+   SC TRADING · МОБИЛЬНЫЙ прототип · «ТЕРМИНАЛ»
+   mobile.css — reset + мобильный словарь компонентов.
+   Требует ../v5/assets/tokens.css. Цвета — ТОЛЬКО var(--…).
+   Правило ревью «Терминала»: хекс/rgba здесь = дефект.
+   Отличие от base.css: НЕТ min-width:1240px. Раскладка в одну
+   колонку, нижний таб-бар, bottom-sheet, карточки-из-строк.
+   ============================================================ */
+
+/* ============ ГЕОМЕТРИЯ ОБОЛОЧКИ ============ */
+:root{
+  --mtop-h:52px;          /* высота верхнего минибара */
+  --mtab-h:58px;          /* высота нижнего таб-бара (без safe-area) */
+  --pad:12px;             /* внешние поля страницы */
+  --safe-t:env(safe-area-inset-top,0px);
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+
+/* ============ RESET / ФУНДАМЕНТ ============ */
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scrollbar-gutter:stable;-webkit-text-size-adjust:100%}
+html,body{margin:0}
+body{
+  background:var(--s0);color:var(--text);
+  font-family:var(--ui);font-size:var(--fs-13);line-height:1.45;
+  padding-top:calc(var(--mtop-h) + var(--safe-t));
+  padding-bottom:calc(var(--mtab-h) + var(--safe-b));
+  overflow-x:hidden;                 /* body НИКОГДА не скроллится вбок */
+}
+body.no-shell{padding-top:0;padding-bottom:0}   /* публичные страницы */
+::selection{background:var(--gold-dim);color:var(--gold-2)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+a{color:inherit;text-decoration:none}
+img{display:block}
+h1,h2,h3{margin:0}
+input,select,textarea{font:inherit}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes sheet-up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes fade-in{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}
+}
+
+/* фолбэк-глиф иконки предмета */
+.fb{
+  display:none;place-items:center;width:100%;height:100%;
+  font-family:var(--head);font-weight:700;color:var(--s0);background:var(--qc,var(--q-default));
+}
+.kick{font-family:var(--head);font-weight:600;font-size:var(--fs-10);letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+
+/* ============ ВЕРХНИЙ МИНИБАР (fixed) ============ */
+.mtop{
+  position:fixed;inset:0 0 auto 0;z-index:40;
+  height:calc(var(--mtop-h) + var(--safe-t));padding:var(--safe-t) 12px 0;
+  display:flex;align-items:center;gap:10px;
+  background:var(--s1);border-bottom:1px solid var(--line);
+}
+.mbrand{display:flex;align-items:center;gap:8px;flex:none}
+.mbrand .lg-o{stroke:var(--gold)}
+.mbrand .lg-i{fill:var(--gold);fill-opacity:.22;stroke:var(--gold-2)}
+.mbrand b{font-family:var(--head);font-weight:700;font-size:var(--fs-15);letter-spacing:.07em;color:var(--text)}
+.mtop-r{margin-left:auto;display:flex;align-items:center;gap:8px}
+.mplan{
+  font-family:var(--head);font-weight:700;font-size:var(--fs-10);letter-spacing:.09em;
+  color:var(--gold-2);border:1px solid var(--gold-line);background:var(--gold-dim);
+  padding:3px 7px;border-radius:var(--r);white-space:nowrap;
+}
+.memis{display:flex;align-items:center;gap:5px;padding:4px 7px;background:var(--s2);border:1px solid var(--line);border-radius:var(--r)}
+.memis .dot{width:6px;height:6px;background:var(--amber);box-shadow:0 0 8px var(--amber);animation:pulse 2.4s infinite}
+.memis .v{font-family:var(--mono);font-size:var(--fs-105);color:var(--amber);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ibtn{
+  width:38px;height:38px;flex:none;display:grid;place-items:center;
+  border:1px solid transparent;border-radius:var(--r);color:var(--faint);
+  transition:color var(--fast) var(--ease),background-color var(--fast) var(--ease),border-color var(--fast) var(--ease);
+}
+.ibtn:hover,.ibtn:active{color:var(--gold-2);background:var(--s2);border-color:var(--line-hi)}
+
+/* ============ ЛЕНТА СИГНАЛОВ (скроллится вместе с контентом) ============ */
+.msignals{display:flex;flex-direction:column;gap:6px;padding:10px var(--pad) 2px}
+.msignals:empty{display:none}
+.msig-h{display:flex;align-items:center;gap:8px}
+.msig-h .t{font-family:var(--head);font-weight:700;font-size:var(--fs-11);letter-spacing:.2em;color:var(--faint);text-transform:uppercase}
+.msig-h .live{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:var(--fs-11);color:var(--green);font-variant-numeric:tabular-nums}
+.msig-h .live::before{content:"";width:6px;height:6px;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+.msig-track{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.msig-track::-webkit-scrollbar{display:none}
+.msig{
+  flex:none;display:flex;align-items:center;gap:8px;min-width:190px;max-width:80vw;padding:8px 10px;
+  background:var(--s1);border:1px solid var(--line);border-radius:var(--r);
+}
+.msig.on{border-color:var(--gold-line);background:var(--gold-dim)}
+.sig-ico{width:30px;height:30px;flex:none;position:relative;background:var(--s2);border:1px solid var(--line);display:grid;place-items:center}
+.sig-ico img{width:26px;height:26px;object-fit:contain}
+.sig-ico .fb{font-size:13px;position:absolute;inset:0}
+.msig .m{flex:1;min-width:0;line-height:1.3}
+.msig .nm{display:block;font-size:var(--fs-125);font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msig .sb{display:block;font-family:var(--mono);font-size:var(--fs-105);color:var(--faint)}
+.msig .badge{flex:none;font-family:var(--mono);font-size:var(--fs-105);font-weight:700;color:var(--green);background:var(--green-dim);border:1px solid var(--green-line);padding:1px 6px;border-radius:var(--r)}
+.msig-empty{font-size:var(--fs-12);color:var(--faint);padding:2px}
+
+/* ============ НИЖНИЙ ТАБ-БАР (fixed) ============ */
+.mtab{
+  position:fixed;inset:auto 0 0 0;z-index:41;
+  height:calc(var(--mtab-h) + var(--safe-b));padding-bottom:var(--safe-b);
+  display:grid;grid-template-columns:repeat(5,1fr);
+  background:var(--s1);border-top:1px solid var(--line);
+}
+.mtab a{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--faint);position:relative;min-height:44px;
+  transition:color var(--fast) var(--ease);
+}
+.mtab a .lab{font-family:var(--head);font-weight:600;font-size:var(--fs-10);letter-spacing:.05em;text-transform:uppercase}
+.mtab a svg{width:22px;height:22px}
+.mtab a:active{color:var(--mut)}
+.mtab a[aria-current="page"]{color:var(--gold-2)}
+.mtab a[aria-current="page"]::before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:26px;height:2px;background:var(--gold-hi);box-shadow:0 0 10px var(--gold-glow)}
+.mtab a .tlock{position:absolute;top:8px;right:calc(50% - 20px);color:var(--faint)}
+
+/* ============ BOTTOM SHEET (шит «Ещё», фильтры, модалки app.js) ============ */
+.msheet-ov,.modal-ov{
+  position:fixed;inset:0;z-index:60;background:var(--overlay-hi);
+  display:flex;align-items:flex-end;animation:fade-in var(--fast) var(--ease);
+}
+.msheet,.modal{
+  width:100%;max-height:88vh;overflow-y:auto;
+  background:var(--s1);border-top:2px solid var(--gold);border-radius:var(--r-lg) var(--r-lg) 0 0;
+  padding-bottom:calc(12px + var(--safe-b));animation:sheet-up var(--mid) var(--ease);
+}
+.msheet-h,.modal-h{
+  position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:10px;
+  padding:14px 16px 12px;background:var(--s1);border-bottom:1px solid var(--line);
+}
+.msheet-h h3,.modal-h h3{flex:1;font-family:var(--head);font-weight:700;font-size:var(--fs-14);letter-spacing:.06em;text-transform:uppercase;color:var(--text)}
+.msheet-grab{width:36px;height:4px;background:var(--line-hi);border-radius:2px;margin:8px auto 0}
+.msheet-b,.modal-b{padding:14px 16px}
+.modal-f{display:flex;gap:8px;padding:4px 16px 14px}
+.modal-f button{flex:1}
+/* ссылки-разделы в шите «Ещё» */
+.msheet-nav{display:flex;flex-direction:column;padding:6px 8px 4px}
+.msheet-nav a{
+  display:flex;align-items:center;gap:12px;padding:13px 12px;min-height:48px;border-radius:var(--r);
+  color:var(--text);border-left:2px solid transparent;
+  transition:background-color var(--fast) var(--ease);
+}
+.msheet-nav a:active{background:var(--s2)}
+.msheet-nav a[aria-current="page"]{background:var(--gold-dim);border-left-color:var(--gold-hi);color:var(--gold-2)}
+.msheet-nav a svg{width:20px;height:20px;flex:none;color:var(--faint)}
+.msheet-nav a[aria-current="page"] svg{color:var(--gold-2)}
+.msheet-nav a .nl{flex:1;font-family:var(--head);font-weight:600;font-size:var(--fs-14);letter-spacing:.05em;text-transform:uppercase}
+.msheet-nav a.locked{color:var(--faint)}
+.msheet-nav a.danger{color:var(--red)}
+.msheet-nav a.danger svg{color:var(--red)}
+.msheet-sep{height:1px;background:var(--line);margin:6px 12px}
+
+/* ============ ГЛАВНЫЙ КОНТЕЙНЕР ============ */
+.mmain{padding:0 var(--pad) 20px;max-width:720px;margin:0 auto}
+.mmain>*{min-width:0}
+
+/* ============ ПАНЕЛЬ / ЗАГОЛОВКИ ============ */
+.panel{background:var(--s1);border:1px solid var(--line);border-radius:var(--r)}
+.pg-h{padding:14px 14px 12px}
+.pg-h h1{font-family:var(--head);font-weight:700;font-size:var(--fs-26);letter-spacing:.03em;line-height:1.05;margin-top:3px}
+.pg-h .sub{font-size:var(--fs-12);color:var(--faint);margin-top:5px;line-height:1.5}
+.pg-h .pr{margin-top:12px}
+.sec-h{display:flex;align-items:center;gap:8px;padding:11px 14px 6px}
+.sec-h h2{font-family:var(--head);font-weight:700;font-size:var(--fs-12);letter-spacing:.13em;text-transform:uppercase;color:var(--mut)}
+.sec-h .cnt{font-family:var(--mono);font-size:var(--fs-105);color:var(--green);background:var(--green-dim);border:1px solid var(--green-line);padding:0 6px;border-radius:var(--r)}
+.sec-h .hint{margin-left:auto;font-size:var(--fs-11);color:var(--faint)}
+
+/* стопка секций (замена 2×2 grid-2) */
+.mstack{display:flex;flex-direction:column;gap:10px}
+.cell{background:var(--s1);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.cell-b{padding:0 12px 14px}
+
+/* ============ СТАТУС-СТРОКА → СЕТКА ============ */
+.statusgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.statusgrid.c3{grid-template-columns:repeat(3,1fr)}
+.st{background:var(--s2);padding:9px 11px;min-width:0}
+.st .k{display:block;font-family:var(--head);font-weight:600;font-size:var(--fs-10);letter-spacing:.13em;text-transform:uppercase;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st .v{display:block;font-family:var(--mono);font-size:var(--fs-14);color:var(--text);font-variant-numeric:tabular-nums;margin-top:3px}
+.st .v .u{font-size:var(--fs-11);color:var(--faint)}
+.st .v.g{color:var(--green)}
+.st .v.a{color:var(--amber)}
+.st .v.r{color:var(--red)}
+.st .v.gold{color:var(--gold-hi);text-shadow:0 0 14px var(--gold-glow)}
+
+/* ============ КАРТОЧКА-ИЗ-СТРОКИ (.dcard) — ключевой приём ============ */
+.dlist{display:flex;flex-direction:column;gap:8px}
+.dcard{
+  display:block;width:100%;text-align:left;
+  background:var(--s2);border:1px solid var(--line);border-radius:var(--r);
+  padding:11px 12px;transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease);
+}
+button.dcard,a.dcard{cursor:pointer}
+button.dcard:active,a.dcard:active{background:var(--s3)}
+.dcard.on{background:var(--gold-dim);border-color:var(--gold-line);box-shadow:inset 2px 0 0 var(--gold-hi)}
+.dcard.lit{border-color:var(--gold-line);box-shadow:inset 2px 0 0 var(--gold-hi)}
+.dc-top{display:flex;align-items:flex-start;gap:10px}
+.dc-ico{width:38px;height:38px;flex:none;position:relative;background:var(--s1);border:1px solid var(--line);display:grid;place-items:center}
+.dc-ico img{width:32px;height:32px;object-fit:contain}
+.dc-ico .fb{font-size:16px;position:absolute;inset:0}
+.dc-main{flex:1;min-width:0}
+.dc-name{font-size:var(--fs-14);font-weight:600;color:var(--text);line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dc-id{font-family:var(--mono);font-size:var(--fs-105);color:var(--faint)}
+.dc-right{flex:none;text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.dc-price{font-size:var(--fs-16);font-weight:700;color:var(--gold-hi);text-shadow:0 0 16px var(--gold-glow);line-height:1.1}
+.dc-price.plain{color:var(--text);text-shadow:none}
+.dc-sub{font-size:var(--fs-105);color:var(--faint)}
+.dc-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px}
+/* строка ключ→значение внутри карточки */
+.dc-kv{display:grid;grid-template-columns:1fr auto;gap:5px 10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.dc-kv dt{font-size:var(--fs-11);color:var(--faint);white-space:nowrap}
+.dc-kv dd{margin:0;font-family:var(--mono);font-size:var(--fs-125);font-variant-numeric:tabular-nums;text-align:right;color:var(--text)}
+.dc-kv dd.pos{color:var(--green)}
+.dc-kv dd.neg{color:var(--red)}
+.dc-kv dd.gold{color:var(--gold-hi)}
+.dc-kv dd.dim{color:var(--faint)}
+.dc-foot{display:flex;gap:8px;margin-top:11px}
+.dc-foot>*{flex:1}
+
+/* ============ ЧИПЫ ============ */
+.chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--ui);font-size:var(--fs-11);font-weight:500;color:var(--mut);border:1px solid var(--line);background:var(--s1);padding:2px 8px;border-radius:var(--r);white-space:nowrap}
+.chip.mono{font-family:var(--mono);color:var(--mut);font-variant-numeric:tabular-nums}
+.chip.q{color:var(--qc,var(--q-default));border-color:color-mix(in srgb,var(--qc,var(--q-default)) 45%,transparent);font-weight:600}
+.chip.q .qd{width:6px;height:6px;background:var(--qc,var(--q-default));box-shadow:0 0 6px var(--qc,var(--q-default))}
+.chip.gold{color:var(--gold-2);border-color:var(--gold-line);background:var(--gold-dim)}
+.chip.fresh{color:var(--green);border-color:var(--green-line)}
+.chip.pin{color:var(--gold-2);border-color:var(--gold-line);background:var(--gold-dim);font-family:var(--head);font-weight:700;font-size:var(--fs-10);letter-spacing:.08em}
+.chip.draft{color:var(--red);border-color:var(--red-line);background:var(--red-dim);font-family:var(--head);font-weight:700;font-size:var(--fs-10);letter-spacing:.06em}
+.risk{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:var(--fs-105);padding:2px 7px;border-radius:var(--r);font-variant-numeric:tabular-nums}
+.risk b{font-family:var(--head);font-weight:700;letter-spacing:.06em}
+.risk.lo{color:var(--green);background:var(--green-dim);border:1px solid var(--green-line)}
+.risk.md{color:var(--amber);background:var(--amber-dim);border:1px solid var(--amber-line)}
+.risk.hi{color:var(--red);background:var(--red-dim);border:1px solid var(--red-line)}
+.badge-g{font-family:var(--mono);font-size:var(--fs-105);font-weight:700;color:var(--green);background:var(--green-dim);border:1px solid var(--green-line);padding:0 6px;border-radius:var(--r);font-variant-numeric:tabular-nums}
+
+/* ============ КНОПКИ (тач-цели ≥44px для primary) ============ */
+.gbtn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 16px;
+  font-family:var(--head);font-weight:700;font-size:var(--fs-125);letter-spacing:.08em;text-transform:uppercase;
+  color:var(--gold-2);background:var(--gold-dim);border:1px solid var(--gold-line);border-radius:var(--r);
+  transition:background-color var(--fast) var(--ease),color var(--fast) var(--ease);
+}
+.gbtn:active{background:var(--gold);color:var(--s0)}
+.gbtn:disabled{opacity:.5}
+.qbtn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 14px;
+  font-family:var(--head);font-weight:600;font-size:var(--fs-12);letter-spacing:.06em;text-transform:uppercase;
+  color:var(--mut);background:var(--s2);border:1px solid var(--line);border-radius:var(--r);
+  transition:color var(--fast) var(--ease),border-color var(--fast) var(--ease);
+}
+.qbtn:active{color:var(--text);border-color:var(--line-hi)}
+.dbtn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 12px;
+  font-family:var(--head);font-weight:600;font-size:var(--fs-12);letter-spacing:.04em;text-transform:uppercase;
+  color:var(--red);background:var(--red-dim);border:1px solid var(--red-line);border-radius:var(--r);
+  transition:background-color var(--fast) var(--ease);
+}
+.dbtn.armed{background:var(--red);color:var(--s0)}
+.gbtn.sm,.qbtn.sm,.dbtn.sm{min-height:36px;font-size:var(--fs-11);padding:0 11px}
+.btn-full{width:100%}
+
+/* ============ ПОЛЯ ВВОДА / ПОИСК ============ */
+.search{
+  display:flex;align-items:center;gap:9px;padding:0 12px;height:46px;
+  background:var(--s2);border:1px solid var(--line);border-radius:var(--r);
+}
+.search:focus-within{border-color:var(--gold)}
+.search svg{flex:none;color:var(--faint)}
+.search input{flex:1;min-width:0;background:none;border:0;color:var(--text);font-size:16px}
+.search input::placeholder{color:var(--faint)}
+.input,select.input{
+  width:100%;height:46px;padding:0 12px;font-size:16px;color:var(--text);
+  background:var(--s2);border:1px solid var(--line);border-radius:var(--r);
+}
+.input.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.input:focus,select.input:focus{border-color:var(--gold)}
+select.input{cursor:pointer;color:var(--mut)}   /* нативная стрелка (как desktop base.css) — мобильно-нативный пикер */
+textarea.input{height:auto;min-height:120px;padding:10px 12px;line-height:1.5;resize:vertical}
+.frow{display:flex;flex-direction:column;gap:6px}
+.frow>.kick{margin-bottom:1px}
+.fnote{font-size:var(--fs-11);color:var(--faint)}
+.fnote.warn{color:var(--amber)}
+label.sw{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:46px;padding:0 12px;background:var(--s2);border:1px solid var(--line);border-radius:var(--r)}
+label.sw .t{font-size:var(--fs-125);color:var(--text)}
+/* тумблер */
+.tgl{position:relative;width:42px;height:24px;flex:none}
+.tgl input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}
+.tgl .tr{position:absolute;inset:0;background:var(--s3);border:1px solid var(--line-hi);border-radius:var(--r);transition:background-color var(--fast) var(--ease),border-color var(--fast) var(--ease)}
+.tgl .tr::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;background:var(--faint);border-radius:1px;transition:transform var(--fast) var(--ease),background-color var(--fast) var(--ease)}
+.tgl input:checked+.tr{background:var(--gold-dim);border-color:var(--gold-line)}
+.tgl input:checked+.tr::after{transform:translateX(18px);background:var(--gold-2)}
+
+/* ============ ТАБЫ (окна графика, фильтры) ============ */
+.tabs{display:flex;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.tabs [role="tab"]{
+  flex:1;min-height:38px;padding:0 6px;display:inline-flex;align-items:center;justify-content:center;gap:4px;
+  font-family:var(--head);font-weight:600;font-size:var(--fs-11);letter-spacing:.08em;text-transform:uppercase;
+  color:var(--mut);background:var(--s2);transition:color var(--fast) var(--ease),background-color var(--fast) var(--ease);
+}
+.tabs [role="tab"][aria-selected="true"]{background:var(--gold);color:var(--s0)}
+.tabs [role="tab"] .tlock{display:inline-flex}
+
+/* сегментный фильтр (чипы-переключатели) */
+.segbar{display:flex;gap:7px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.segbar::-webkit-scrollbar{display:none}
+.seg{
+  flex:none;min-height:34px;padding:0 12px;display:inline-flex;align-items:center;gap:6px;
+  font-family:var(--head);font-weight:600;font-size:var(--fs-11);letter-spacing:.05em;text-transform:uppercase;
+  color:var(--mut);background:var(--s2);border:1px solid var(--line);border-radius:var(--r);white-space:nowrap;
+}
+.seg[aria-pressed="true"],.seg.on{color:var(--gold-2);border-color:var(--gold-line);background:var(--gold-dim)}
+
+/* ============ ГРАФИК + ГЕЙТ ============ */
+.c-meta{display:flex;flex-wrap:wrap;gap:8px 12px;padding:8px 12px 4px;font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);font-variant-numeric:tabular-nums}
+.c-meta b{color:var(--text);font-weight:500}
+.c-meta .lg{display:inline-flex;align-items:center;gap:5px}
+.c-meta .sw{width:12px;height:0;border-top:2px solid var(--faint)}
+.c-meta .sw.dot{width:7px;height:7px;border:0;border-radius:50%}
+.c-meta .sw.dot.g{background:var(--green);box-shadow:0 0 6px var(--green)}
+.c-meta .sw.dot.gd{background:var(--gold-1)}
+.c-meta .sw.band{height:8px;border:0;background:var(--gold-dim);border-top:1px solid var(--gold-line-soft);border-bottom:1px solid var(--gold-line-soft)}
+.c-meta .sw.line{border-top:2px solid var(--gold-2)}
+.chart-wrap{position:relative;margin:2px 12px 12px;background:var(--s2);border:1px solid var(--line);min-height:180px}
+.chart-wrap svg{display:block;width:100%;height:auto}
+.chart-wrap.gated svg{filter:blur(6px)}
+.chart-empty{display:grid;place-items:center;min-height:180px;padding:16px;text-align:center;color:var(--faint);font-size:var(--fs-12)}
+.gate{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:16px;background:var(--overlay)}
+.gate .kick{color:var(--faint)}
+.gate .big{font-family:var(--head);font-weight:700;font-size:var(--fs-16);letter-spacing:.06em;color:var(--text)}
+.gate svg{color:var(--gold-2)}
+
+/* полностраничный замок (Лоты/Радар вне тарифа) */
+.pagelock{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;min-height:60vh;padding:32px 20px}
+.pagelock svg{color:var(--gold-2)}
+.pagelock .kick{color:var(--faint)}
+.pagelock h2{font-family:var(--head);font-weight:700;font-size:var(--fs-16);letter-spacing:.05em;color:var(--text)}
+.pagelock p{font-size:var(--fs-125);color:var(--faint);max-width:44ch;line-height:1.55}
+
+/* ============ ВАРИАНТЫ ПРОДАЖИ / ПАЧКИ ============ */
+.sellgrid{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line)}
+.sell{background:var(--s2);padding:11px 12px}
+.sell .name{font-family:var(--head);font-weight:700;font-size:var(--fs-11);letter-spacing:.14em;text-transform:uppercase;margin-bottom:7px}
+.sell.f .name{color:var(--mut)}.sell.n .name{color:var(--gold-2)}.sell.p .name{color:var(--gold-hi)}
+.sell dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px}
+.sell dt{font-size:var(--fs-11);color:var(--faint)}
+.sell dd{margin:0;font-family:var(--mono);font-size:var(--fs-125);font-variant-numeric:tabular-nums;text-align:right;color:var(--text)}
+.sell dd.pos{color:var(--green)}.sell dd.neg{color:var(--red)}
+.sell .conf{margin-top:7px;padding-top:6px;border-top:1px solid var(--line);font-family:var(--mono);font-size:var(--fs-105);color:var(--faint)}
+.sell-note{background:var(--s1);padding:14px;text-align:center;color:var(--faint);font-size:var(--fs-12)}
+.batch{display:grid;grid-template-columns:58px 1fr auto;gap:6px 9px;align-items:center;padding:0 12px 6px}
+.batch .bl{font-family:var(--mono);font-size:var(--fs-11);color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
+.batch .bar{height:13px;background:var(--s2);border:1px solid var(--line);position:relative}
+.batch .bar i{position:absolute;inset:1px auto 1px 1px;background:linear-gradient(90deg,var(--gold-1),var(--gold));min-width:2px;transition:width var(--mid) var(--ease)}
+.batch .bar.top i{background:linear-gradient(90deg,var(--gold),var(--gold-hi))}
+.batch .bv{font-family:var(--mono);font-size:var(--fs-11);color:var(--faint);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.batch .bv b{color:var(--text);font-weight:500}
+.batch-note{padding:2px 12px 12px;font-family:var(--mono);font-size:var(--fs-11);color:var(--faint);font-variant-numeric:tabular-nums}
+
+/* ============ ПУСТЫЕ СОСТОЯНИЯ / СКЕЛЕТОН ============ */
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:40px 24px;min-height:220px}
+.empty .big{font-family:var(--head);font-weight:700;font-size:var(--fs-16);letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+.empty .note{font-size:var(--fs-12);color:var(--faint);max-width:46ch;line-height:1.55}
+.t-empty{padding:24px;text-align:center;color:var(--faint);font-size:var(--fs-12)}
+.skel{background:linear-gradient(90deg,var(--s2),var(--s3),var(--s2));background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:var(--r)}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+/* ============ МАСТЕР-ДЕТАЛЬ (Избранное) ============ */
+.mview{display:none}
+.mview.on{display:block}
+.detail-bar{display:flex;align-items:center;gap:8px;padding:2px 0 12px}
+.back{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px 0 8px;color:var(--mut);font-family:var(--head);font-weight:600;font-size:var(--fs-12);letter-spacing:.05em;text-transform:uppercase;border:1px solid var(--line);border-radius:var(--r);background:var(--s2)}
+.back:active{background:var(--s3)}
+
+/* ============ ПАГИНАЦИЯ ============ */
+.pager{display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 0 2px}
+.pager .pinfo{font-family:var(--mono);font-size:var(--fs-12);color:var(--faint);font-variant-numeric:tabular-nums}
+.pg-btn{min-width:44px;min-height:40px;display:grid;place-items:center;color:var(--mut);background:var(--s2);border:1px solid var(--line);border-radius:var(--r)}
+.pg-btn:disabled{opacity:.4}
+
+/* ============ ТОСТ ============ */
+.toast-stack{position:fixed;left:12px;right:12px;bottom:calc(var(--mtab-h) + var(--safe-b) + 12px);z-index:70;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toast{
+  max-width:100%;background:var(--s3);border:1px solid var(--line-hi);border-left:2px solid var(--gold-hi);border-radius:var(--r);
+  padding:11px 14px;font-size:var(--fs-125);color:var(--text);animation:fade-in var(--fast) var(--ease);
+}
+
+/* ============ SYSBAR (футер) ============ */
+.sysbar{margin:16px var(--pad) 0;padding:10px 12px;background:var(--s1);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-wrap:wrap;gap:4px 14px;font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);font-variant-numeric:tabular-nums}
+.sysbar b{color:var(--mut);font-weight:500}
+
+/* ============ ДЕРЕВО КАТЕГОРИЙ (в шите) ============ */
+.cattree{display:flex;flex-direction:column}
+.cattree button{display:flex;align-items:center;gap:9px;width:100%;min-height:46px;padding:0 12px;text-align:left;color:var(--mut);border-bottom:1px solid var(--line)}
+.cattree button:active{background:var(--s2)}
+.cattree button.on{color:var(--gold-2);background:var(--gold-dim)}
+.cattree button .cn{flex:1;font-size:var(--fs-125)}
+.cattree button .cc{font-family:var(--mono);font-size:var(--fs-105);color:var(--faint)}
+.cattree button.sub{padding-left:28px;font-size:var(--fs-12)}
+
+/* ============ АККОРДЕОН (FAQ) ============ */
+.acc{border:1px solid var(--line);border-radius:var(--r);background:var(--s1);overflow:hidden}
+.acc+.acc{margin-top:8px}
+.acc-h{display:flex;align-items:center;gap:10px;width:100%;min-height:52px;padding:12px 14px;text-align:left}
+.acc-h .q{flex:1;font-family:var(--head);font-weight:600;font-size:var(--fs-14);letter-spacing:.02em;color:var(--text)}
+.acc-h .ch{flex:none;color:var(--faint);transition:transform var(--fast) var(--ease)}
+.acc.open .acc-h .ch{transform:rotate(180deg);color:var(--gold-2)}
+.acc-b{display:none;padding:0 14px 14px;font-size:var(--fs-125);color:var(--mut);line-height:1.6}
+.acc.open .acc-b{display:block}
+.faq-group{font-family:var(--head);font-weight:700;font-size:var(--fs-11);letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:18px 2px 8px}
+
+/* прокручиваемая таблица (сравнение тарифов в FAQ) */
+.scroll-x{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r)}
+.scroll-x table{border-collapse:collapse;min-width:520px;width:100%}
+.scroll-x th,.scroll-x td{padding:9px 12px;border-bottom:1px solid var(--line);font-size:var(--fs-12);text-align:left;white-space:nowrap}
+.scroll-x thead th{font-family:var(--head);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);background:var(--s2)}
+.scroll-x td.mono{font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--text)}
+
+/* мелкие утилиты */
+.row{display:flex;align-items:center;gap:8px}
+.wrap{flex-wrap:wrap}
+.grow{flex:1;min-width:0}
+.gap8{display:flex;flex-direction:column;gap:8px}
+.gap10{display:flex;flex-direction:column;gap:10px}
+.gap12{display:flex;flex-direction:column;gap:12px}
+.mt12{margin-top:12px}
+.note-box{background:var(--gold-dim);border:1px solid var(--gold-line);border-radius:var(--r);padding:10px 12px;font-size:var(--fs-12);color:var(--mut);line-height:1.5}
+.note-box b{color:var(--gold-2);font-weight:600;font-family:var(--mono)}
+.alert{border-radius:var(--r);padding:10px 12px;font-size:var(--fs-12);line-height:1.5}
+.alert.warn{color:var(--amber);background:var(--amber-dim);border:1px solid var(--amber-line)}
+.alert.err{color:var(--red);background:var(--red-dim);border:1px solid var(--red-line)}
+.alert a{color:inherit;text-decoration:underline}

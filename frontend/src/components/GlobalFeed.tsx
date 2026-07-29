@@ -1,7 +1,7 @@
-import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Box, Skeleton } from '@mui/material'
-import { useFeedStore, QLT_NAMES } from '../store/feedStore'
+import { QLT_NAMES } from '../store/feedStore'
+import { useFeedPolling } from '../hooks/useFeedPolling'
 import { iconUrl, qualityColor } from '../utils/i18n'
 import { tokens, fs } from '../theme'
 
@@ -90,35 +90,8 @@ function FeedLabel({ lastRefresh, hasItems }: { lastRefresh: Date | null; hasIte
 
 export default function GlobalFeed() {
   const navigate  = useNavigate()
-  const {
-    watchlist, feedItems, lastLotRefresh, initialized,
-    loadWatchlistAndStats, loadAllLots,
-  } = useFeedStore()
-
-  // Stats: каждые 5 мин
-  useEffect(() => {
-    loadWatchlistAndStats()
-    const t = setInterval(() => loadWatchlistAndStats(true), 5 * 60 * 1000)
-    return () => clearInterval(t)
-  }, [loadWatchlistAndStats])
-
-  const watchlistIds = watchlist.map((w) => w.id).join(',')
-
-  // Лоты: каждые 30 сек
-  useEffect(() => {
-    if (!watchlistIds) return
-    loadAllLots()
-    const t = setInterval(loadAllLots, 30_000)
-    return () => clearInterval(t)
-  }, [watchlistIds, loadAllLots])
-
-  // Быстрый опрос пока есть непроверенные позиции
-  useEffect(() => {
-    const hasPending = watchlist.some(e => !e.last_successful_check)
-    if (!hasPending) return
-    const t = setInterval(() => loadWatchlistAndStats(true), 30_000)
-    return () => clearInterval(t)
-  }, [watchlistIds, loadWatchlistAndStats])
+  // Дата-слой и опрос вынесены в useFeedPolling (поведение идентично).
+  const { watchlist, feedItems, lastLotRefresh, initialized } = useFeedPolling()
 
   if (!initialized || watchlist.length === 0) return null
 

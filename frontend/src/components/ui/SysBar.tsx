@@ -3,6 +3,7 @@ import { useFeedStore } from '../../store/feedStore'
 import { useAuthStore } from '../../store/authStore'
 import { tokens, fs } from '../../theme'
 import { TIER_LABELS, type Tier } from '../../constants/tiers'
+import LayoutSwitchControl from '../mobile/LayoutSwitchControl'
 
 // Футер-строка терминала — контракт .sysbar (base.css:337-342).
 // «SC TRADING TERMINAL · срез данных HH:MM · регион RU · тариф N».
@@ -61,6 +62,12 @@ export default function SysBar({ sx }: SysBarProps) {
       <Box component="span">регион <Val>RU</Val></Box>
       {dot}
       <Box component="span">тариф <Val>{tierLabel}{radarSuffix}</Val></Box>
+
+      {/* Переключатель раскладки — точка входа в мобильную версию с десктопа */}
+      <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <Box component="span" sx={{ color: tokens.text2, letterSpacing: '0.04em' }}>версия</Box>
+        <LayoutSwitchControl size="sm" />
+      </Box>
     </Box>
   )
 }

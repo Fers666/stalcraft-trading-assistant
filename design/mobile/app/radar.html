@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SC Trading — Радар рынка</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../v5/assets/tokens.css">
+<link rel="stylesheet" href="../assets/mobile.css">
+<style>
+.rk{font-family:var(--mono);font-weight:700;font-size:var(--fs-16);color:var(--faint);font-variant-numeric:tabular-nums;flex:none;min-width:26px}
+.rk.top{color:var(--gold-2)}.rk.one{color:var(--gold-hi);text-shadow:0 0 14px var(--gold-glow)}
+.ri{width:38px;height:38px;flex:none;position:relative;background:var(--s1);border:1px solid var(--line);display:grid;place-items:center}
+.ri img{width:32px;height:32px;object-fit:contain}.ri .fb{font-size:16px;position:absolute;inset:0}
+.spike{font-family:var(--mono);font-size:var(--fs-10);font-weight:700;letter-spacing:.08em;color:var(--amber);background:var(--amber-dim);border:1px solid var(--amber-line);padding:2px 7px;border-radius:var(--r)}
+</style>
+</head>
+<body>
+<div id="mshell"></div>
+<main class="mmain" id="app">
+  <div class="pg-h" style="padding-left:2px;padding-right:2px">
+    <span class="kick">Радар рынка // Market Radar</span>
+    <h1 style="font-size:var(--fs-16);letter-spacing:.04em;margin-top:4px">Топ отслеживаемых</h1>
+    <div class="sub">За чем следят трейдеры площадки: рейтинг по подпискам, всплески оптовых сделок и выгодные лоты прямо сейчас.</div>
+    <div class="dc-chips" id="hchips" style="margin-top:10px"></div>
+  </div>
+  <div class="dlist" id="rlist"></div>
+  <nav class="pager" id="pager"></nav>
+</main>
+<main class="mmain" id="lockwrap" hidden><div class="pagelock" id="lockbox"></div></main>
+
+<script src="../../v5/assets/data.js"></script>
+<script src="../../v5/assets/app.js"></script>
+<script src="../assets/mshell.js"></script>
+<script>
+(function(){
+"use strict";
+var D=window.SC_DATA, A=window.SC_APP, S=window.SC_MSHELL;
+var esc=A.esc, fmtN=A.fmtN, fmtCompact=A.fmtCompact, PAGE=20;
+try{ if(localStorage.getItem("sc_demo_radar")===null) localStorage.setItem("sc_demo_radar","1"); }catch(e){}
+S.render("radar");
+
+var WATCH={dm6l2:6,"96z7y":5,m22k:4,"033k":3,qoq6:3,kqr0:2,wglp:2}, NEWW={dm6l2:2,kqr0:1,m22k:1}, SPIKE={"033k":1,"96z7y":1,m22k:1};
+function topCat(c){ return (c||"").split("/")[0]; }
+function hash(s){ var h=0; for(var i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h; }
+function median(a){ if(!a.length) return 0; var s=a.slice().sort(function(x,y){return x-y;}), m=s.length>>1; return s.length%2?s[m]:(s[m-1]+s[m])/2; }
+var GROUPS={}, ALL={p24:[],p7:[],v7:[]};
+(D.favorites||[]).forEach(function(f){ var k=topCat(f.category), g=GROUPS[k]=GROUPS[k]||{p24:[],p7:[],v7:[]}; [g,ALL].forEach(function(o){ o.p24.push(f.stats.avgPrice24h||0); o.p7.push(f.stats.avgPrice7d||0); o.v7.push(f.stats.salesVolume7d||0); }); });
+function catMed(cat){ var g=GROUPS[topCat(cat)]||ALL; return {p24:median(g.p24),p7:median(g.p7),v7:median(g.v7)}; }
+function jit(id,salt,lo,hi){ return lo+(hi-lo)*(hash(id+salt)%1000)/1000; }
+var ROWS=(D.favorites||[]).map(function(f){ return {id:f.itemId,nameRu:f.nameRu,color:f.color,icon:f.icon,enchant:f.enchantFilter,fav:true,watchers:WATCH[f.itemId]||1,neww:NEWW[f.itemId]||0,spike:!!SPIKE[f.itemId],p24:f.stats.avgPrice24h||0,p7:f.stats.avgPrice7d||0,v7:f.stats.salesVolume7d||0,good:A.goodCount(f)}; })
+  .concat((D.catalogExtra||[]).slice(0,17).map(function(it){ var m=catMed(it.category); return {id:it.itemId,nameRu:it.nameRu,color:it.color,icon:it.icon,enchant:null,fav:false,watchers:1,neww:0,spike:false,p24:Math.round(m.p24*jit(it.itemId,"p",0.55,1.35)),p7:Math.round(m.p7*jit(it.itemId,"p",0.55,1.35)),v7:Math.round(m.v7*jit(it.itemId,"v",0.5,1.4)),good:null}; }));
+ROWS.sort(function(a,b){ return b.watchers-a.watchers||b.v7-a.v7||a.nameRu.localeCompare(b.nameRu,"ru"); });
+var TOTAL=ROWS.length, SUBS=ROWS.reduce(function(s,r){return s+r.watchers;},0), pg=1;
+
+document.getElementById("hchips").innerHTML='<span class="chip mono">'+fmtN(SUBS)+' подписок</span><span class="chip gold">'+fmtN(TOTAL)+' предметов</span>';
+
+function kv(t,v,cls){ return '<dt>'+t+'</dt><dd class="'+(cls||"")+'">'+v+'</dd>'; }
+function rowHtml(r,idx){
+  var rank=String(idx+1).padStart(2,"0"), rk=A.rankOf(r);
+  var inner='<div class="dc-top"><span class="rk'+(idx===0?" one":(idx<3?" top":""))+'">'+rank+'</span>'+A.iconHtml(r,"ri")+
+    '<div class="dc-main"><div class="dc-name">'+esc(r.nameRu)+(r.enchant?' <span class="mono" style="color:var(--gold-2)">+'+r.enchant+'</span>':'')+'</div>'+
+    '<div class="dc-chips"><span class="chip q" style="--qc:var('+rk.v+')"><span class="qd"></span>'+rk.name+'</span>'+(r.spike?'<span class="spike">SPIKE</span>':'')+'</div></div>'+
+    (r.fav?'<svg width="16" height="16" viewBox="0 0 14 14" fill="none" style="color:var(--faint);flex:none;align-self:center"><path d="M5 2.5L9.5 7 5 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>':'')+'</div>'+
+    '<dl class="dc-kv">'+
+      kv("Подписок", fmtN(r.watchers)+(r.neww>0?' <span class="mono" style="color:var(--green)">+'+r.neww+'</span>':''),"")+
+      kv("Медиана 24ч", fmtCompact(r.p24),"gold")+
+      kv("Продаж 7д", fmtN(r.v7)+" шт","")+
+      kv("Выгодных лотов", r.good==null?"—":fmtN(r.good), r.good>0?"pos":"dim")+
+    '</dl>';
+  if(r.fav) return '<a class="dcard" href="favorites.html?item='+encodeURIComponent(r.id)+'" aria-label="'+esc(r.nameRu)+' — открыть в Избранном">'+inner+'</a>';
+  return '<div class="dcard">'+inner+'</div>';
+}
+function renderList(){
+  var from=(pg-1)*PAGE, to=Math.min(pg*PAGE,TOTAL);
+  document.getElementById("rlist").innerHTML=ROWS.slice(from,to).map(function(r,i){ return rowHtml(r,from+i); }).join("");
+  var pages=Math.ceil(TOTAL/PAGE), c=document.getElementById("pager");
+  if(pages<=1){ c.innerHTML=""; return; }
+  c.innerHTML='<button type="button" class="pg-btn" id="pprev"'+(pg===1?" disabled":"")+'>‹</button><span class="pinfo">'+pg+' / '+pages+'</span><button type="button" class="pg-btn" id="pnext"'+(pg===pages?" disabled":"")+'>›</button>';
+  document.getElementById("pprev").addEventListener("click", function(){ if(pg>1){pg--;renderList();window.scrollTo(0,0);} });
+  document.getElementById("pnext").addEventListener("click", function(){ if(pg<pages){pg++;renderList();window.scrollTo(0,0);} });
+}
+
+function locked(){ return !S.hasRadar(); }
+function renderLock(){
+  document.getElementById("lockbox").innerHTML=S.lockSvg(28,30,1.1)+'<span class="kick">Радар рынка</span><h2>Аддон не активирован</h2><p>«Радар рынка» — отдельный аддон. Включи его в меню «Ещё» → демо-режим, чтобы увидеть рейтинг отслеживаемых предметов.</p><button type="button" class="gbtn" id="lk-plans">Подключить аддон</button>';
+  document.getElementById("lk-plans").addEventListener("click", function(){ A.toast("Экран тарифов — вне охвата прототипа"); });
+}
+function applyLock(){ var l=locked(); document.getElementById("app").hidden=l; document.getElementById("lockwrap").hidden=!l; if(l) renderLock(); else renderList(); }
+window.addEventListener("sc:tier", applyLock);
+applyLock();
+})();
+</script>
+</body>
+</html>

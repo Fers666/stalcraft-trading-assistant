@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SC Trading — Вход</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../v5/assets/tokens.css">
+<link rel="stylesheet" href="../assets/mobile.css">
+<style>
+.auth{min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;padding:calc(var(--safe-t) + 20px) 18px calc(var(--safe-b) + 24px)}
+.auth-top{display:flex;align-items:center;gap:9px;justify-content:center;margin-bottom:auto}
+.auth-top .lg-o{stroke:var(--gold)}.auth-top .lg-i{fill:var(--gold);fill-opacity:.22;stroke:var(--gold-2)}
+.auth-top b{font-family:var(--head);font-weight:700;font-size:var(--fs-16);letter-spacing:.08em}
+.auth-top i{font-style:normal;font-family:var(--head);font-weight:600;font-size:var(--fs-10);letter-spacing:.22em;color:var(--faint);text-transform:uppercase}
+.card{background:var(--s1);border:1px solid var(--line);border-top:2px solid var(--gold);border-radius:var(--r);padding:22px 18px}
+.card h1{font-family:var(--head);font-weight:700;font-size:var(--fs-26);letter-spacing:.02em;text-align:center}
+.card .lead{text-align:center;color:var(--faint);font-size:var(--fs-125);margin:6px 0 20px}
+.auth-mid{width:100%;max-width:420px;margin:24px auto auto}
+.auth-alt{text-align:center;color:var(--faint);font-size:var(--fs-125);margin-top:16px}
+.auth-alt a{color:var(--gold-2)}
+</style>
+</head>
+<body class="no-shell">
+<div class="auth">
+  <a class="auth-top" href="index.html">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none"><path class="lg-o" d="M13 1.5 L24.5 13 L13 24.5 L1.5 13 Z" stroke-width="1.6"/><path class="lg-i" d="M13 6.5 L19.5 13 L13 19.5 L6.5 13 Z" stroke-width="1"/></svg>
+    <span style="line-height:1.05"><b>SC TRADING</b><br><i>Zone Terminal</i></span>
+  </a>
+  <div class="auth-mid">
+    <div class="card">
+      <h1>Вход</h1>
+      <div class="lead">Терминал перепродажи для аукциона STALZONE</div>
+      <form class="gap12" id="form">
+        <div class="frow"><label class="kick" for="email">Email</label><input class="input" id="email" type="email" value="trader01@mail.ru" autocomplete="username"></div>
+        <div class="frow"><label class="kick" for="pass">Пароль</label><input class="input" id="pass" type="password" value="demo1234" autocomplete="current-password"></div>
+        <button type="submit" class="gbtn btn-full">Войти</button>
+      </form>
+      <div class="auth-alt">Нет аккаунта? <a href="register.html">Зарегистрироваться</a></div>
+    </div>
+  </div>
+</div>
+<script src="../../v5/assets/data.js"></script>
+<script src="../../v5/assets/app.js"></script>
+<script>
+document.getElementById("form").addEventListener("submit", function(e){ e.preventDefault(); location.href="favorites.html"; });
+</script>
+</body>
+</html>

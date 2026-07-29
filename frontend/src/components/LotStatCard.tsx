@@ -6,35 +6,21 @@ import {
 import TrendingUpIcon from '@mui/icons-material/TrendingUp'
 import SearchIcon from '@mui/icons-material/Search'
 import DeleteIcon from '@mui/icons-material/Delete'
-import api from '../api/client'
 import { formatLastUpdate, qualityColor, iconUrl } from '../utils/i18n'
 import { fmtN, fmtP } from '../utils/format'
 import { tokens, fs } from '../theme'
-import { useAuthStore } from '../store/authStore'
+import { useLotStats, QLT_NAMES } from '../hooks/useLotStats'
 import Kick from './ui/Kick'
+import TrendBadge from './ui/TrendBadge'
 import LockIcon from './ui/LockIcon'
 import ItemIcon from './ui/ItemIcon'
 import StatusLine, { type StatusMetric } from './ui/StatusLine'
 import SortHeader from './ui/SortHeader'
 import SalesHistoryCharts from './SalesHistoryCharts'
 
-const COMMISSION = 0.05
-const MAX_PROFITABLE_LOTS = 10
-
-const QLT_NAMES: Record<number, string> = {
-  0: 'Обычный', 1: 'Необычный', 2: 'Особый',
-  3: 'Ветеран', 4: 'Мастер', 5: 'Легендарный',
-}
-
 const DAYS_RU: Record<string, string> = {
   Monday: 'Пн', Tuesday: 'Вт', Wednesday: 'Ср', Thursday: 'Чт',
   Friday: 'Пт', Saturday: 'Сб', Sunday: 'Вс',
-}
-
-const RISK_LABELS: Record<string, { label: string; tone: 'success' | 'warning' | 'error' }> = {
-  low:    { label: 'низкий риск',    tone: 'success' },
-  medium: { label: 'умеренный риск', tone: 'warning' },
-  high:   { label: 'высокий риск',   tone: 'error'   },
 }
 
 const RISK_TONE: Record<'success' | 'warning' | 'error', { color: string; dim: string; line: string }> = {
@@ -57,13 +43,6 @@ const CONF_LABELS: Record<string, string> = { low: 'низкая', medium: 'ср
 
 const SORT_DEFAULT_DIR: Record<string, 'asc' | 'desc'> = { price: 'asc', fast: 'desc', normal: 'desc', premium: 'desc' }
 
-function volatilityRisk(v: number | null): keyof typeof RISK_LABELS | null {
-  if (v == null) return null
-  if (v > 30) return 'high'
-  if (v > 15) return 'medium'
-  return 'low'
-}
-
 const TODAY_EN = new Date().toLocaleDateString('en-US', { weekday: 'long' })
 
 // .sec-h h2 — единый заголовок компартмент-ячейки (Rajdhani, uppercase, ls .14em)
@@ -74,69 +53,6 @@ const SEC_H_SX = {
 
 // содержимое каждой .cell компартмент-сетки .grid-2 (непрозрачный bg1 → 1px-щели)
 const CELL_SX = { background: tokens.bg1, p: '12px 16px 16px', minWidth: 0 } as const
-
-interface SellOption {
-  label: 'fast' | 'normal' | 'premium'
-  label_ru: string
-  price_per_unit: number
-  net_price_per_unit: number
-  estimated_hours: number
-  estimated_hours_display: string
-  confidence: 'low' | 'medium' | 'high'
-  data_points: number
-}
-
-interface MarketStats {
-  avg_price_7d: number | null
-  median_price_7d: number | null
-  sales_volume_7d: number | null
-  sales_volume_30d: number | null
-  avg_sell_time_hours: number | null
-  best_sell_hour: number | null
-  best_sell_day: string | null
-  best_buy_hour: number | null
-  best_buy_day: string | null
-  sell_hours_by_day: Record<string, number> | null
-  buy_hours_by_day: Record<string, number> | null
-  price_volatility_7d: number | null
-  price_volatility_30d: number | null
-  sell_options: SellOption[] | null
-  batch_stats: {
-    by_size: Record<string, { label: string; count: number; share_pct: number; avg_price_per_unit: number; median_price_per_unit: number }>
-    median_amount: number
-    bulk_discount_pct: number | null
-    batch_ratio_pct: number
-    most_popular_bucket: string
-    total_analyzed: number
-  } | null
-  calculated_at: string | null
-}
-
-interface LotItem {
-  buyout_price: number
-  amount: number
-  hours_remaining: number | null
-  is_expiring: boolean
-  quality_name: string | null
-  enchant_level: number | null
-}
-
-interface SignalLot {
-  start_time: string
-  buyout_per_unit: number
-  buyout_price: number
-  amount: number
-  quality_name: string | null
-  enchant: number | null
-}
-
-interface SignalsData {
-  lots: SignalLot[]
-  sell_options: SellOption[] | null
-  volume_7d: number | null
-  volatility_7d: number | null
-  computed_at: string | null
-}
 
 export interface LotStatCardProps {
   itemId: string
@@ -155,137 +71,27 @@ export default function LotStatCard({
   itemId, region, qualityFilter, enchantFilter, itemName, iconPath, minProfitMarginPercent = 0, fullWidth = false,
   onViewLots, onDelete,
 }: LotStatCardProps) {
-  const [stats, setStats]     = useState<MarketStats | null>(null)
-  const [lots, setLots]       = useState<LotItem[]>([])
-  const [signals, setSignals] = useState<SignalsData | null>(null)
-  const [loading, setLoading] = useState(true)
   const [timeMode, setTimeMode] = useState<'week' | 'today'>('today')
-  const [lotMode, setLotMode]   = useState<'current' | 'median'>('current')
+  // Дефолт — «Неделя»: это опорная цена, по которой бэкенд и отбирал лоты в
+  // список, поэтому колонки согласуются со счётчиком «N выгодных». «Сейчас»
+  // считает от минимального аска, а самый дешёвый лот в списке им и является —
+  // прибыль там отрицательна по построению, это осознанный what-if по клику.
+  const [lotMode, setLotMode]   = useState<'current' | 'median'>('median')
   const [sortState, setSortState] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'price', dir: 'asc' })
   const [selectedLotIdx, setSelectedLotIdx] = useState(0)
 
-  const statsWindows = useAuthStore(s => s.user?.stats_windows)
-  const sellOptionsLocked = !statsWindows?.includes('7d')
-  const risk30Locked = !statsWindows?.includes('30d')
+  // Единый дата-слой карточки (десктоп и мобайл делят useLotStats → идентичный расчёт)
+  const {
+    stats, lots, loading, sellOptions, sellOptionsAreCurrent, sellPrices, trend, median24h,
+    profitableLots, totalFilteredLots,
+    cheapestBuy, risk, risk30, sellOptionsLocked, risk30Locked, lastUpdated,
+  } = useLotStats({ itemId, region, qualityFilter, enchantFilter, minProfitMarginPercent, lotMode })
 
-  useEffect(() => {
-    if (!itemId) return
-    const params: Record<string, string | number> = { region }
-    if (qualityFilter !== null) params.quality_filter = qualityFilter
-    if (enchantFilter !== null) params.enchant_filter = enchantFilter
-
-    const fetchData = () => Promise.all([
-      api.get(`/monitoring/item/${itemId}`, { params }).catch(() => null),
-      api.get(`/lots/${itemId}`, { params }).catch(() => null),
-      api.get(`/monitoring/signals/${itemId}`, { params }).catch(() => null),
-    ]).then(([statsRes, lotsRes, sigRes]) => {
-      setStats(statsRes?.data ?? null)
-      setLots(lotsRes?.data?.lots ?? [])
-      setSignals(sigRes?.data ?? null)
-      setLoading(false)
-    })
-
-    setLoading(true)
-    fetchData()
-    // Сигналы пересчитываются на бэкенде каждые ~20 сек — синхронизируемся с этим циклом.
-    const interval = setInterval(fetchData, 30_000)
-    return () => clearInterval(interval)
-  }, [itemId, region, qualityFilter, enchantFilter])
-
-  const lastUpdated = signals?.computed_at ?? stats?.calculated_at ?? null
-
-  const riskKey   = stats ? volatilityRisk(stats.price_volatility_7d)  : null
-  const riskKey30 = stats ? volatilityRisk(stats.price_volatility_30d) : null
-  const risk   = riskKey   ? RISK_LABELS[riskKey]   : null
-  const risk30 = riskKey30 ? RISK_LABELS[riskKey30] : null
-
-  const sellPrices = useMemo(() => {
-    if (!stats?.sell_options) return null
-    if (lotMode === 'current') {
-      return stats.sell_options.map(o => ({ label: o.label, label_ru: o.label_ru, price: o.price_per_unit }))
-    }
-    const m = stats.median_price_7d
-    if (!m) return null
-    return [
-      { label: 'fast',    label_ru: 'Быстро',    price: Math.round(m * 0.97) },
-      { label: 'normal',  label_ru: 'Нормально', price: Math.round(m * 1.00) },
-      { label: 'premium', label_ru: 'Выгодно',   price: Math.round(m * 1.03) },
-    ]
-  }, [stats?.sell_options, stats?.median_price_7d, lotMode])
-
-  const profitableLots = useMemo(() => {
-    if (signals?.lots?.length) {
-      const opts = sellPrices ?? []
-      return signals.lots
-        .map(l => ({
-          buyout_price: l.buyout_price,
-          amount: l.amount,
-          quality_name: l.quality_name,
-          enchant_level: l.enchant ?? null,
-          buyPerUnit: l.buyout_per_unit,
-          profits: opts.map(sp => ({
-            label: sp.label, label_ru: sp.label_ru,
-            perUnit: Math.round(sp.price * (1 - COMMISSION) - l.buyout_per_unit),
-            total: Math.round((sp.price * (1 - COMMISSION) - l.buyout_per_unit) * l.amount),
-          })),
-        }))
-        .filter(l => {
-          const normalProfit = l.profits.find(p => p.label === 'normal')?.perUnit ?? -1
-          if (normalProfit <= 0) return false
-          if (minProfitMarginPercent > 0) {
-            const pct = (normalProfit / l.buyPerUnit) * 100
-            if (pct < minProfitMarginPercent) return false
-          }
-          return true
-        })
-        .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
-        .slice(0, MAX_PROFITABLE_LOTS)
-    }
-    if (!sellPrices || lots.length === 0) return []
-    const normalPrice = sellPrices.find(p => p.label === 'normal')?.price
-    if (!normalPrice) return []
-    return lots
-      .filter(l => {
-        if (l.is_expiring || l.buyout_price <= 0) return false
-        if (qualityFilter !== null && l.quality_name !== QLT_NAMES[qualityFilter]) return false
-        if (enchantFilter !== null && l.enchant_level !== enchantFilter) return false
-        return true
-      })
-      .map(l => {
-        const buyPerUnit = Math.floor(l.buyout_price / l.amount)
-        return {
-          ...l, buyPerUnit,
-          profits: sellPrices.map(sp => ({
-            label: sp.label, label_ru: sp.label_ru,
-            perUnit:  Math.round(sp.price * (1 - COMMISSION) - buyPerUnit),
-            total:    Math.round((sp.price * (1 - COMMISSION) - buyPerUnit) * l.amount),
-          })),
-        }
-      })
-      .filter(l => {
-        const normalProfit = l.profits.find(p => p.label === 'normal')?.perUnit ?? -1
-        if (normalProfit <= 0) return false
-        if (minProfitMarginPercent > 0) {
-          const pct = (normalProfit / l.buyPerUnit) * 100
-          if (pct < minProfitMarginPercent) return false
-        }
-        return true
-      })
-      .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
-      .slice(0, MAX_PROFITABLE_LOTS)
-  }, [signals, sellPrices, lots, qualityFilter, enchantFilter, minProfitMarginPercent])
-
-  const totalFilteredLots = useMemo(() => lots.filter(l => {
-    if (l.is_expiring) return false
-    if (qualityFilter !== null && l.quality_name !== QLT_NAMES[qualityFilter]) return false
-    if (enchantFilter !== null && l.enchant_level !== enchantFilter) return false
-    return true
-  }).length, [lots, qualityFilter, enchantFilter])
-
-  // Сброс выбора базового лота при каждом обновлении данных (новые лоты раз в 30с)
+  // Сброс выбора базового лота при изменении состава списка. Завязка на сам
+  // массив сбрасывала бы выбор каждые 30с — он новый на каждом поллинге.
   useEffect(() => {
     setSelectedLotIdx(0)
-  }, [profitableLots])
+  }, [profitableLots.length, itemId])
 
   const displayLots = useMemo(() => {
     const arr = [...profitableLots]
@@ -309,15 +115,11 @@ export default function LotStatCard({
     ? { quality: firstLot.quality_name, enchant: firstLot.enchant_level }
     : null
 
-  const cheapestBuy = lots
-    .filter(l => !l.is_expiring && l.buyout_price > 0)
-    .filter(l => qualityFilter === null || l.quality_name === QLT_NAMES[qualityFilter])
-    .filter(l => enchantFilter === null || l.enchant_level === enchantFilter)
-    .reduce<number | null>((min, l) => {
-      const p = Math.floor(l.buyout_price / l.amount)
-      return min === null || p < min ? p : min
-    }, null)
   const baseBuy = profitableLots[selectedLotIdx]?.buyPerUnit ?? cheapestBuy
+
+  const trendBadge = (
+    <TrendBadge trend={trend} median7d={stats?.median_price_7d} median24h={median24h} />
+  )
 
   const sellHour = timeMode === 'today'
     ? (stats?.sell_hours_by_day?.[TODAY_EN] ?? stats?.best_sell_hour)
@@ -444,6 +246,7 @@ export default function LotStatCard({
               <Box className="mono" sx={{ fontSize: fs.f28, fontWeight: 700, lineHeight: 1.05, color: tokens.goldHighlight, textShadow: `0 0 22px ${tokens.goldGlow}`, whiteSpace: 'nowrap' }}>
                 {fmtP(stats.median_price_7d)}
               </Box>
+              {trendBadge}
             </>
           )}
         </Box>
@@ -491,6 +294,12 @@ export default function LotStatCard({
                 </ToggleButtonGroup>
               </Box>
             </Box>
+
+            {lotMode === 'current' && sellOptionsAreCurrent && (
+              <Typography sx={{ fontSize: fs.f11, color: tokens.text2, mb: 1 }}>
+                Цены от текущего минимума рынка — продажа ниже него убыточна по определению.
+              </Typography>
+            )}
 
             {singleQuality && (
               <Typography sx={{ fontSize: fs.f12, color: tokens.text1, mb: 1 }}>
@@ -542,6 +351,13 @@ export default function LotStatCard({
                                 выкуп {fmtP(lot.buyout_price)}
                               </Box>
                             )}
+                            {lot.breakeven != null && (
+                              <Tooltip title="Цена продажи, при которой прибыль после комиссии равна нулю">
+                                <Box component="span" sx={{ display: 'block', color: tokens.text2, fontSize: fs.f11, cursor: 'help' }}>
+                                  безубыток {fmtP(lot.breakeven)}
+                                </Box>
+                              </Tooltip>
+                            )}
                           </TableCell>
                           <TableCell className="mono" sx={{ textAlign: 'right', color: tokens.text1 }}>{fmtN(lot.amount)}</TableCell>
                           <TableCell sx={{ textAlign: 'right' }}>
@@ -583,6 +399,7 @@ export default function LotStatCard({
               qualityFilter={qualityFilter}
               enchantFilter={enchantFilter}
               median={stats.median_price_7d ?? undefined}
+              median24h={median24h ?? undefined}
             />
           </Box>
 
@@ -600,7 +417,7 @@ export default function LotStatCard({
                   <Typography sx={{ fontSize: fs.f12, color: tokens.text2 }}>Недоступно на тарифе</Typography>
                 </Box>
               </Tooltip>
-            ) : stats.sell_options && stats.sell_options.length > 0 ? (
+            ) : sellOptions && sellOptions.length > 0 ? (
               <>
                 {baseBuy !== null && (
                   <Typography sx={{ fontSize: fs.f12, color: tokens.text2, mb: 1 }}>
@@ -608,11 +425,19 @@ export default function LotStatCard({
                     <Box component="span" className="mono" sx={{ fontWeight: 700, color: tokens.goldAccent }}>
                       {fmtP(baseBuy)}
                     </Box>
+                    {lotMode === 'current' && !sellOptionsAreCurrent && (
+                      <Box component="span" sx={{ color: tokens.text2 }}> · нет свежего снапшота, цены за неделю</Box>
+                    )}
+                  </Typography>
+                )}
+                {stats.reference_confidence === 'low' && stats.reference_samples != null && (
+                  <Typography sx={{ fontSize: fs.f11, color: tokens.warning, mb: 1 }}>
+                    Мало сделок ({fmtN(stats.reference_samples)}) — оценка приблизительная
                   </Typography>
                 )}
                 {/* .sellgrid — 3 равные колонки, 1px-щели через border-контейнер (прототип favorites.html) */}
                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: tokens.border, border: `1px solid ${tokens.border}` }}>
-                  {stats.sell_options.map(opt => {
+                  {sellOptions.map(opt => {
                     const profit = baseBuy !== null ? opt.net_price_per_unit - baseBuy : null
                     const isProfitable = profit !== null && profit > 0
                     const ddSx = { m: 0, fontSize: fs.f125, fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: tokens.text0, whiteSpace: 'nowrap' } as const

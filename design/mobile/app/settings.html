@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SC Trading — Настройки</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../v5/assets/tokens.css">
+<link rel="stylesheet" href="../assets/mobile.css">
+<style>
+.sp{background:var(--s1);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.sp-h{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.sp-h h2{font-family:var(--head);font-weight:700;font-size:var(--fs-12);letter-spacing:.13em;text-transform:uppercase;color:var(--mut)}
+.sp-h .tag{margin-left:auto}
+.sp-b{padding:14px}
+.tg-code{display:flex;align-items:center;gap:10px;background:var(--s2);border:1px solid var(--gold-line);border-radius:var(--r);padding:10px 12px}
+.tg-code .code{flex:1;font-family:var(--mono);font-weight:700;font-size:var(--fs-16);letter-spacing:.22em;color:var(--gold-2)}
+.tg-code .tm{font-family:var(--mono);font-size:var(--fs-12);color:var(--faint)}
+.kv2{display:grid;grid-template-columns:auto 1fr;gap:8px 12px;font-size:var(--fs-125)}
+.kv2 dt{color:var(--faint)}
+.kv2 dd{margin:0;text-align:right;font-family:var(--mono);color:var(--text);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div id="mshell"></div>
+<main class="mmain">
+  <div class="pg-h" style="padding-left:2px;padding-right:2px">
+    <span class="kick">Настройки // Preferences</span>
+    <h1 style="font-size:var(--fs-16);letter-spacing:.04em;margin-top:4px">Настройки</h1>
+  </div>
+
+  <div class="gap12">
+    <!-- Критерий выгодности -->
+    <section class="sp">
+      <div class="sp-h"><h2>Критерий выгодности</h2></div>
+      <div class="sp-b gap12">
+        <div class="frow"><label class="kick" for="th">Порог профита, % ниже медианы</label>
+          <input class="input mono" id="th" type="number" min="1" max="90" step="1" value="10"></div>
+        <div class="note-box" id="thnote"></div>
+      </div>
+    </section>
+
+    <!-- Уведомления Telegram -->
+    <section class="sp">
+      <div class="sp-h"><h2>Telegram-уведомления</h2><span class="chip" id="tgtag">не привязан</span></div>
+      <div class="sp-b gap12" id="tgbody"></div>
+    </section>
+
+    <!-- Тариф -->
+    <section class="sp">
+      <div class="sp-h"><h2>Тариф и лимиты</h2><span class="chip gold" id="tiertag"></span></div>
+      <div class="sp-b">
+        <dl class="kv2" id="tierkv"></dl>
+        <div class="fnote" style="margin-top:10px">Сменить тариф в прототипе — меню «Ещё» → демо-режим.</div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="../../v5/assets/data.js"></script>
+<script src="../../v5/assets/app.js"></script>
+<script src="../assets/mshell.js"></script>
+<script>
+(function(){
+"use strict";
+var A=window.SC_APP, S=window.SC_MSHELL;
+S.render("settings");
+var linked=false, notif=false;
+var LIMITS={base:6,advanced:10,advanced_plus:20,advanced_max:25};
+var WINDOWS={base:"24ч, 48ч",advanced:"+ 7 дней",advanced_plus:"+ 30 дней",advanced_max:"+ 30 дней"};
+
+/* критерий выгодности */
+function renderNote(){
+  var v=Math.max(1,Math.min(90,Math.round(Number(document.getElementById("th").value))||10));
+  document.getElementById("thnote").innerHTML='Лот считается выгодным, если цена за штуку на <b>'+v+'%</b> и более ниже медианы 7д. Эти лоты подсвечиваются в Избранном и учитываются в счётчике сигналов.';
+}
+document.getElementById("th").addEventListener("input", renderNote);
+
+/* telegram */
+function renderTg(){
+  var body=document.getElementById("tgbody"), tag=document.getElementById("tgtag");
+  document.getElementById("tgtag");
+  if(!linked){
+    tag.textContent="не привязан"; tag.className="chip";
+    body.innerHTML='<p class="fnote">Привяжи Telegram, чтобы получать алерты «Закупок» и сигналы о выгодных лотах.</p>'+
+      '<div class="tg-code"><span class="code" id="code">SC-4827</span><span class="tm" id="tm">10:00</span><button type="button" class="ibtn" id="copy" aria-label="Скопировать код"><svg width="16" height="16" viewBox="0 0 14 14" fill="none"><rect x="4.5" y="4.5" width="7.5" height="7.5" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 4.5V3a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v5.5a1 1 0 0 0 1 1h1.5" stroke="currentColor" stroke-width="1.3"/></svg></button></div>'+
+      '<p class="fnote">Отправь код боту <b>@sc_trading_bot</b> в течение 10 минут.</p>'+
+      '<div class="row" style="gap:8px"><button type="button" class="gbtn grow" id="getcode">Получить код</button><button type="button" class="qbtn grow" id="sim">(демо) Привязать</button></div>';
+    document.getElementById("copy").addEventListener("click", function(){ A.toast("Код SC-4827 скопирован"); });
+    document.getElementById("getcode").addEventListener("click", function(){ A.toast("Новый код сгенерирован · действует 10 мин"); });
+    document.getElementById("sim").addEventListener("click", function(){ linked=true; notif=true; renderTg(); A.toast("Telegram привязан (демо)"); });
+  } else {
+    tag.textContent="привязан"; tag.className="chip fresh";
+    body.innerHTML='<div class="row" style="justify-content:space-between"><span class="fnote">Аккаунт: <b class="mono" style="color:var(--text)">@trader_01</b></span></div>'+
+      '<label class="sw"><span class="t">Уведомления о выгодных лотах</span><span class="tgl"><input type="checkbox" id="notif"'+(notif?" checked":"")+'><span class="tr"></span></span></label>'+
+      '<button type="button" class="dbtn" id="unlink" style="align-self:flex-start">Отвязать Telegram</button>';
+    document.getElementById("notif").addEventListener("change", function(e){ notif=e.target.checked; A.toast(notif?"Уведомления включены":"Уведомления выключены"); });
+    A.armConfirm(document.getElementById("unlink"), function(){ linked=false; notif=false; renderTg(); A.toast("Telegram отвязан"); }, "Точно отвязать?");
+  }
+}
+
+/* тариф */
+function renderTier(){
+  var t=S.getTier();
+  document.getElementById("tiertag").textContent=S.tierName();
+  document.getElementById("tierkv").innerHTML=
+    '<dt>Тариф</dt><dd>'+S.tierName()+'</dd>'+
+    '<dt>Лимит избранного</dt><dd>'+LIMITS[t]+' карточек</dd>'+
+    '<dt>Окна графиков</dt><dd>'+WINDOWS[t]+'</dd>'+
+    '<dt>Радар рынка</dt><dd>'+(S.hasRadar()?"подключён":"—")+'</dd>';
+}
+
+window.addEventListener("sc:tier", renderTier);
+renderNote(); renderTg(); renderTier();
+})();
+</script>
+</body>
+</html>

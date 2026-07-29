@@ -40,6 +40,8 @@ interface Props {
   hideControls?: boolean
   /** Медиана 7д для линии-ориентира. Если не задана — берётся медиана окна. */
   median?: number
+  /** Медиана сделок за 24ч — вторая линия. Без данных линия не рисуется. */
+  median24h?: number
 }
 
 const HOURS_OPTIONS = [
@@ -71,10 +73,10 @@ const medianOf = (arr: number[]): number => {
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2
 }
 
-// Лог-домен по значениям (+ медиана): min×0.85 … max×1.15 (как charts.js:79,140)
-const logDomain = (values: number[], med: number): [number, number] => {
+// Лог-домен по значениям (+ линии-ориентиры): min×0.85 … max×1.15 (как charts.js:79,140)
+const logDomain = (values: number[], ...refs: number[]): [number, number] => {
   const vals = values.filter(v => v > 0)
-  if (med > 0) vals.push(med)
+  vals.push(...refs.filter(v => v > 0))
   if (!vals.length) return [1, 10]
   return [Math.max(1, Math.min(...vals) * 0.85), Math.max(...vals) * 1.15]
 }
@@ -82,7 +84,8 @@ const logDomain = (values: number[], med: number): [number, number] => {
 const axisTick = { fontSize: 11, fill: tokens.text2, fontFamily: tokens.fontMono }
 
 export default function PriceChart({
-  itemId, region, qualityFilter, enchantFilter, defaultHours = 48, hideControls = false, median,
+  itemId, region, qualityFilter, enchantFilter, defaultHours = 48, hideControls = false,
+  median, median24h,
 }: Props) {
   const [resp, setResp]       = useState<SalesChartResponse | null>(null)
   const [hours, setHours]     = useState(defaultHours)
@@ -145,10 +148,15 @@ export default function PriceChart({
     ? medianOf(scatterData.map(d => d.y))
     : medianOf(dailyData.map(d => d.avg ?? 0))
   const med = median && median > 0 ? median : windowMedian
+  // Фоллбека на медиану окна нет: линия «24ч» либо есть по реальным данным, либо её нет.
+  const med24 = median24h && median24h > 0 ? median24h : 0
+  // Точки красим относительно свежего уровня рынка: на падающем рынке всё
+  // оказывается «ниже медианы 7д», и зелёный цвет усиливает ложное «дёшево».
+  const colorRef = med24 > 0 ? med24 : med
 
-  const scatterDomain = logDomain(scatterData.map(d => d.y), med)
+  const scatterDomain = logDomain(scatterData.map(d => d.y), med, med24)
   const dailyValues = dailyData.flatMap(d => [d.min ?? 0, d.max ?? 0, d.avg ?? 0])
-  const dailyDomain = logDomain(dailyValues, med)
+  const dailyDomain = logDomain(dailyValues, med, med24)
 
   // Мета-строка + легенда
   let metaNode: React.ReactNode = undefined
@@ -159,10 +167,15 @@ export default function PriceChart({
       const min = Math.min(...prices)
       const avg = prices.reduce((s, v) => s + v, 0) / prices.length
       metaNode = `окно ${periodLabel} · ${resp!.total_count} сделок · мин ${fmtCompact(min)} · сред ${fmtCompact(avg)} · лог. шкала`
-      legend = [
-        { variant: 'g',  label: 'ниже медианы' },
-        { variant: 'gd', label: 'выше' },
-      ]
+      legend = med24 > 0
+        ? [
+            { variant: 'g',  label: 'ниже рынка 24ч' },
+            { variant: 'gd', label: 'выше' },
+          ]
+        : [
+            { variant: 'g',  label: 'ниже медианы' },
+            { variant: 'gd', label: 'выше' },
+          ]
     } else {
       const sales = dailyData.reduce((s, d) => s + d.count, 0)
       metaNode = `окно ${periodLabel} · ${dailyData.length} дн · продаж ${fmtN(sales)} · лог. шкала`
@@ -184,6 +197,25 @@ export default function PriceChart({
         value: `медиана ${fmtCompact(med)}`,
         position: 'insideTopRight',
         fill: tokens.goldAccent,
+        fontSize: 10,
+        fontFamily: tokens.fontMono,
+      }}
+    />
+  ) : null
+
+  // Свежий уровень рынка. На падающем рынке идёт заметно ниже золотой линии 7д —
+  // именно этот разрыв и объясняет, почему «выгодный» лот выгоден не так сильно.
+  const median24hRef = med24 > 0 ? (
+    <ReferenceLine
+      y={med24}
+      stroke={tokens.text1}
+      strokeDasharray="2 4"
+      strokeOpacity={0.7}
+      ifOverflow="extendDomain"
+      label={{
+        value: `24ч ${fmtCompact(med24)}`,
+        position: 'insideBottomRight',
+        fill: tokens.text1,
         fontSize: 10,
         fontFamily: tokens.fontMono,
       }}
@@ -255,7 +287,7 @@ export default function PriceChart({
                   return (
                     <Box className="mono" sx={{ background: tokens.bg3, border: `1px solid ${tokens.borderHi}`, borderRadius: `${tokens.radiusLg}px`, p: 1 }}>
                       <Typography sx={{ fontSize: fs.f11, color: tokens.text2, mb: 0.25 }}>{timeStr}</Typography>
-                      <Typography sx={{ fontSize: fs.f13, color: d.y < med ? tokens.success : tokens.gold, fontWeight: 700 }}>
+                      <Typography sx={{ fontSize: fs.f13, color: d.y < colorRef ? tokens.success : tokens.gold, fontWeight: 700 }}>
                         {fmtP(d.y)}
                       </Typography>
                       {d.amount > 1 && (
@@ -266,9 +298,10 @@ export default function PriceChart({
                 }}
               />
               {medianRef}
+              {median24hRef}
               <Scatter data={scatterData} fillOpacity={0.85}>
                 {scatterData.map((d, i) => (
-                  <Cell key={i} fill={med > 0 && d.y < med ? tokens.success : tokens.gold} />
+                  <Cell key={i} fill={colorRef > 0 && d.y < colorRef ? tokens.success : tokens.gold} />
                 ))}
               </Scatter>
             </ScatterChart>
@@ -300,6 +333,7 @@ export default function PriceChart({
                 }
               />
               {medianRef}
+              {median24hRef}
               <Area type="monotone" dataKey="range" stroke={tokens.goldLineSoft} strokeWidth={1} fill={tokens.goldDim} name="Коридор мин–макс" />
               <Line type="monotone" dataKey="avg" stroke={tokens.goldAccent} dot={{ r: 3, fill: tokens.goldAccent }} strokeWidth={2} name="Средняя цена" />
             </ComposedChart>

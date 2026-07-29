@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SC Trading — Лоты</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../v5/assets/tokens.css">
+<link rel="stylesheet" href="../assets/mobile.css">
+<style>
+.acwrap{position:relative}
+.ac{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:30;background:var(--s3);border:1px solid var(--line-hi);border-radius:var(--r);overflow:hidden;max-height:52vh;overflow-y:auto}
+.ac[hidden]{display:none}
+.aci{display:flex;align-items:center;gap:9px;width:100%;padding:11px 12px;text-align:left;min-height:48px;border-bottom:1px solid var(--line)}
+.aci:active{background:var(--gold-dim)}
+.aci .an{flex:1;min-width:0;font-size:var(--fs-125);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.aci .ac-c{font-size:var(--fs-105);color:var(--faint);white-space:nowrap}
+.aci .t-ico{width:30px;height:30px;flex:none;position:relative;background:var(--s2);border:1px solid var(--line);display:grid;place-items:center}
+.aci .t-ico img{width:26px;height:26px;object-fit:contain}.aci .t-ico .fb{font-size:12px;position:absolute;inset:0}
+.hcard .dc-ico{width:38px;height:38px}
+.r-ico{width:44px;height:44px;flex:none;position:relative;background:var(--s2);border:1px solid var(--line);display:grid;place-items:center}
+.r-ico img{width:38px;height:38px;object-fit:contain}.r-ico .fb{font-size:19px;position:absolute;inset:0}
+</style>
+</head>
+<body>
+<div id="mshell"></div>
+
+<main class="mmain" id="app">
+  <div class="pg-h" style="padding-left:2px;padding-right:2px">
+    <span class="kick">Поиск лотов // Lot Scanner</span>
+    <h1 style="font-size:var(--fs-16);letter-spacing:.04em;margin-top:4px">Поиск лотов</h1>
+    <div class="sub">Живые лоты по предмету — без добавления в Избранное. Кэш обновляется каждые 5 минут.</div>
+  </div>
+
+  <div class="gap8" style="margin-bottom:10px">
+    <div class="acwrap">
+      <div class="search">
+        <svg width="15" height="15" viewBox="0 0 13 13" fill="none" aria-hidden="true"><circle cx="5.5" cy="5.5" r="4.2" stroke="currentColor" stroke-width="1.5"/><path d="m9 9 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input id="q" type="search" placeholder="Найти предмет — от 2 символов…" aria-label="Поиск предмета" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="ac">
+      </div>
+      <div class="ac" id="ac" role="listbox" hidden></div>
+    </div>
+    <select class="input" id="reg" aria-label="Регион"><option>RU</option><option>EU</option><option>NA</option><option>SEA</option></select>
+  </div>
+
+  <div id="histwrap">
+    <div class="faq-group" style="margin-top:4px">История запросов</div>
+    <div class="dlist" id="hist"></div>
+  </div>
+
+  <section id="res" hidden>
+    <div class="panel" id="res-h" style="margin-bottom:10px"></div>
+    <div class="row wrap" style="gap:8px;margin-bottom:10px">
+      <button type="button" class="qbtn grow" id="filtbtn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1.5 3h11M3.5 7h7M6 11h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span id="filtlabel">Фильтры</span></button>
+      <button type="button" class="qbtn grow" id="sortbtn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M4 2v10M4 12l-2.5-2.5M4 2l2.5 2.5M10 12V2M10 2L7.5 4.5M10 12l2.5-2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="sortlabel">Цена ↑</span></button>
+    </div>
+    <div class="statusgrid c3" id="lstat" style="margin-bottom:10px"></div>
+    <div class="dlist" id="lrows"></div>
+    <nav class="pager" id="pager"></nav>
+  </section>
+</main>
+
+<!-- центральный locked-стейт -->
+<main class="mmain" id="lockwrap" hidden><div class="pagelock" id="lockbox"></div></main>
+
+<!-- шит фильтров -->
+<div class="msheet-ov" id="filt-ov" hidden>
+  <div class="msheet" role="dialog" aria-modal="true" aria-label="Фильтры и сортировка">
+    <div class="msheet-grab"></div>
+    <div class="msheet-h"><h3>Фильтры</h3><button type="button" class="ibtn" id="filt-close" aria-label="Закрыть"><svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></div>
+    <div class="msheet-b gap12" id="filt-body"></div>
+  </div>
+</div>
+
+<script src="../../v5/assets/data.js"></script>
+<script src="../../v5/assets/app.js"></script>
+<script src="../assets/mshell.js"></script>
+<script>
+(function(){
+"use strict";
+var D=window.SC_DATA, A=window.SC_APP, S=window.SC_MSHELL;
+var esc=A.esc, fmtN=A.fmtN, fmtP=A.fmtP, fmtLeft=A.fmtLeft, QNAME=A.QNAME;
+var QV=["--q-default","--q-newbie","--q-stalker","--q-veteran","--q-master","--q-legend"];
+var EXP_MS=7200000;
+S.render("lots");
+
+var CAT_RU={weapon:"Оружие",armor:"Броня",artefact:"Артефакт",attachment:"Обвес",bullet:"Патроны",misc:"Разное",other:"Прочее",device:"Устройство",grenade:"Гранаты",containers:"Контейнеры",backpacks:"Рюкзаки",assault_rifle:"Штурмовая винтовка",sniper_rifle:"Снайперская винтовка",pistol:"Пистолет",combat:"Боевая",biochemical:"Биохимический",thermal:"Термический"};
+function catRu(c){ if(!c) return "—"; return c.split("/").map(function(p){return CAT_RU[p]||p;}).join(" / "); }
+var POOL=(D.favorites||[]).map(function(f){ return {itemId:f.itemId,nameRu:f.nameRu,nameEn:f.nameEn,category:f.category,color:f.color,icon:f.icon,batch:!!(f.stats&&f.stats.batchStats)||/^(artefact|misc|bullet)/.test(f.category||""),fav:f}; }).concat(D.catalogExtra||[]);
+POOL.sort(function(a,b){ return a.nameRu.localeCompare(b.nameRu,"ru"); });
+function poolById(id){ for(var i=0;i<POOL.length;i++) if(POOL[i].itemId===id) return POOL[i]; return null; }
+function hash(s){ var h=0; for(var i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h; }
+function rng(seed){ var s=seed>>>0||1; return function(){ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+function medianNeighbors(cat){ var top=(cat||"").split("/")[0], meds=[]; (D.favorites||[]).forEach(function(f){ if((f.category||"").split("/")[0]===top&&f.stats&&f.stats.medianPrice7d) meds.push(f.stats.medianPrice7d); }); if(!meds.length)(D.favorites||[]).forEach(function(f){ if(f.stats&&f.stats.medianPrice7d) meds.push(f.stats.medianPrice7d); }); meds.sort(function(a,b){return a-b;}); return meds.length?meds[Math.floor(meds.length/2)]:25000; }
+var RANK_MUL={"default":1,rank_newbie:1.6,rank_stalker:3.2,rank_veteran:7,rank_master:14,rank_legend:30};
+function genLots(it){ var r=rng(hash(it.itemId+"·"+region)), med=medianNeighbors(it.category), base=Math.max(10,Math.round(med*(RANK_MUL[it.color||"default"]||1))), isArt=(it.category||"").indexOf("artefact")===0, n=6+Math.floor(r()*3), out=[], AMTS=[1,1,5,10,25,50];
+  for(var i=0;i<n;i++){ var amount=it.batch?AMTS[Math.floor(r()*AMTS.length)]:1, per=Math.max(2,Math.round(base*(0.85+r()*0.55))), qlt=isArt?(r()<0.55?0:(r()<0.7?1:2)):null, ptn=isArt?(r()<0.5?0:1+Math.floor(r()*8)):null;
+    out.push({i:i,buyout:per*amount,amount:amount,per:per,qlt:qlt,ptn:ptn,left:Math.round((0.6+r()*46)*3600000),item:it}); }
+  return out; }
+function lotsFor(it){ if(it.fav){ var isArt=(it.category||"").indexOf("artefact")===0; return A.lotsOf(it.fav).filter(function(l){return l.left>0;}).map(function(l){ l.i=l.idx; l.item=it; if(!isArt){l.qlt=null;l.ptn=null;} return l; }); } return genLots(it); }
+
+var mode="none", item=null, region="RU", lots=[], fq="all", fe="all";
+var sort={key:"buyout",dir:1}, pi=0, rpp=25, WL={}, fresh=false, token=0;
+var SORTS=[{key:"buyout",dir:1,label:"Цена ↑"},{key:"buyout",dir:-1,label:"Цена ↓"},{key:"per",dir:1,label:"Цена/шт ↑"},{key:"left",dir:1,label:"Скоро истекут"},{key:"amount",dir:-1,label:"Кол-во ↓"}];
+var sortI=0;
+
+/* ---- история ---- */
+var HIST_IDS=["jkq7","qoq6","m22k","kqr0","96z7y"];
+function renderHistory(){
+  var box=document.getElementById("hist");
+  box.innerHTML=HIST_IDS.map(function(id){ var it=poolById(id); if(!it) return "";
+    return '<button type="button" class="dcard hcard" data-id="'+esc(id)+'"><div class="dc-top">'+A.iconHtml(it,"dc-ico")+'<div class="dc-main"><div class="dc-name">'+esc(it.nameRu)+'</div><div class="dc-sub">'+esc(catRu(it.category))+'</div></div><svg width="16" height="16" viewBox="0 0 14 14" fill="none" style="color:var(--faint)"><path d="M5 2.5L9.5 7 5 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div></button>'; }).join("");
+  Array.prototype.forEach.call(box.querySelectorAll(".hcard"), function(b){ b.addEventListener("click", function(){ var it=poolById(b.getAttribute("data-id")); document.getElementById("q").value=it.nameRu; setItem(it); }); });
+}
+
+/* ---- автодополнение ---- */
+var sugs=[], qEl=document.getElementById("q"), acEl=document.getElementById("ac");
+function hideAc(){ sugs=[]; acEl.hidden=true; acEl.innerHTML=""; qEl.setAttribute("aria-expanded","false"); }
+function renderAc(){ if(!sugs.length){ hideAc(); return; }
+  acEl.innerHTML=sugs.map(function(it,i){ return '<button type="button" class="aci" data-i="'+i+'">'+A.iconHtml(it,"t-ico")+'<span class="an">'+esc(it.nameRu)+'</span><span class="ac-c">'+esc(catRu(it.category))+'</span></button>'; }).join("");
+  acEl.hidden=false; qEl.setAttribute("aria-expanded","true");
+  Array.prototype.forEach.call(acEl.querySelectorAll(".aci"), function(b){ b.addEventListener("click", function(){ pick(sugs[Number(b.getAttribute("data-i"))]); }); });
+}
+function pick(it){ qEl.value=it.nameRu; hideAc(); setItem(it); }
+qEl.addEventListener("input", function(){ var v=qEl.value.trim().toLowerCase(); if(mode==="item"){ mode="none"; item=null; renderAll(); } if(v.length<2){ hideAc(); return; } sugs=POOL.filter(function(it){ return (it.nameRu||"").toLowerCase().indexOf(v)>=0||(it.nameEn||"").toLowerCase().indexOf(v)>=0; }).slice(0,8); renderAc(); });
+qEl.addEventListener("keydown", function(e){ if(e.key==="Enter"&&sugs.length){ e.preventDefault(); pick(sugs[0]); } else if(e.key==="Escape") hideAc(); });
+document.addEventListener("click", function(e){ if(!document.querySelector(".acwrap").contains(e.target)) hideAc(); });
+
+/* ---- выбор предмета ---- */
+function setItem(it){ token++; mode="item"; item=it; lots=lotsFor(it); fq="all"; fe="all"; sortI=0; sort={key:"buyout",dir:1}; pi=0; WL={}; fresh=false; renderAll(); window.scrollTo(0,0); }
+document.getElementById("reg").addEventListener("change", function(e){ region=e.target.value; if(mode==="item"){ lots=lotsFor(item); pi=0; WL={}; fresh=false; renderAll(); } });
+
+/* ---- шапка результата ---- */
+function renderResHead(){
+  var head=document.getElementById("res-h");
+  head.innerHTML='<div class="c-head" style="padding:12px">'+A.iconHtml(item,"r-ico")+
+    '<div class="dc-main"><div class="dc-name" style="font-size:var(--fs-15)">'+esc(item.nameRu)+'</div>'+
+    '<div class="dc-sub">'+esc(catRu(item.category))+'</div>'+
+    '<div class="dc-chips"><span class="chip mono">'+esc(region)+'</span><span class="chip mono">'+fmtN(lots.length)+' лот.</span>'+
+    (fresh?'<span class="chip mono fresh">свежие</span>':'<span class="chip mono">кэш · 4 мин</span>')+'</div></div>'+
+    '<button type="button" class="ibtn" id="refresh" aria-label="Обновить"><svg width="16" height="16" viewBox="0 0 13 13" fill="none"><path d="M11 6.5a4.5 4.5 0 1 1-1.32-3.18" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M11 1v2.5H8.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>';
+  document.getElementById("refresh").addEventListener("click", function(){ fresh=true; renderResHead(); A.toast("Лоты обновлены из API"); });
+}
+
+/* ---- фильтр-шит ---- */
+function uniqVals(k){ var seen={}, out=[]; lots.forEach(function(l){ var v=l[k]; if(v==null||seen[v]) return; seen[v]=true; out.push(v); }); return out.sort(function(a,b){return a-b;}); }
+function openFilt(){
+  var qVals=uniqVals("qlt"), eVals=uniqVals("ptn"), body=document.getElementById("filt-body"), h="";
+  h+='<div class="frow"><span class="kick">Сортировка</span><div class="gap8" id="sortopts">'+SORTS.map(function(s,i){ return '<button type="button" class="seg'+(i===sortI?" on":"")+'" data-si="'+i+'" style="justify-content:flex-start;width:100%">'+s.label+'</button>'; }).join("")+'</div></div>';
+  if(qVals.length){ h+='<div class="frow"><label class="kick" for="f-q">Качество</label><select id="f-q" class="input"><option value="all">Все качества</option>'+qVals.map(function(v){ var n=lots.filter(function(l){return l.qlt===v;}).length; return '<option value="'+v+'"'+(String(v)===fq?" selected":"")+'>'+QNAME[v]+' ('+n+')</option>'; }).join("")+'</select></div>'; }
+  if(eVals.length){ h+='<div class="frow"><label class="kick" for="f-e">Заточка</label><select id="f-e" class="input"><option value="all">Все заточки</option>'+eVals.map(function(v){ var n=lots.filter(function(l){return l.ptn===v;}).length; return '<option value="'+v+'"'+(String(v)===fe?" selected":"")+'>'+(v===0?"Не точёный":"+"+v)+' ('+n+')</option>'; }).join("")+'</select></div>'; }
+  h+='<button type="button" class="gbtn btn-full" id="filt-apply">Показать лоты</button>';
+  body.innerHTML=h;
+  Array.prototype.forEach.call(body.querySelectorAll("[data-si]"), function(b){ b.addEventListener("click", function(){ sortI=Number(b.getAttribute("data-si")); Array.prototype.forEach.call(body.querySelectorAll("[data-si]"), function(x){ x.classList.toggle("on", x===b); }); }); });
+  document.getElementById("filt-apply").addEventListener("click", function(){
+    var fqEl=document.getElementById("f-q"), feEl=document.getElementById("f-e");
+    if(fqEl) fq=fqEl.value; if(feEl) fe=feEl.value;
+    var s=SORTS[sortI]; sort={key:s.key,dir:s.dir};
+    document.getElementById("sortlabel").textContent=s.label;
+    document.getElementById("filtlabel").textContent=(fq!=="all"||fe!=="all")?"Фильтры · вкл":"Фильтры";
+    pi=0; closeFilt(); renderTable();
+  });
+  document.getElementById("filt-ov").hidden=false;
+}
+function closeFilt(){ document.getElementById("filt-ov").hidden=true; }
+document.getElementById("filtbtn").addEventListener("click", openFilt);
+document.getElementById("sortbtn").addEventListener("click", openFilt);
+document.getElementById("filt-close").addEventListener("click", closeFilt);
+document.getElementById("filt-ov").addEventListener("click", function(e){ if(e.target===this) closeFilt(); });
+
+/* ---- таблица → карточки ---- */
+function sVal(l,k){ var v=l[k]; return v==null?-1:v; }
+function filteredSorted(){ var list=lots.filter(function(l){ if(fq!=="all"&&l.qlt!==Number(fq)) return false; if(fe!=="all"&&l.ptn!==Number(fe)) return false; return true; }); list.sort(function(a,b){ return (sVal(a,sort.key)-sVal(b,sort.key))*sort.dir||a.i-b.i; }); return list; }
+function wlKey(l){ return l.item.itemId+"_"+l.qlt+"_"+l.ptn; }
+function st(k,v,cls){ return '<div class="st"><span class="k">'+k+'</span><span class="v '+(cls||"")+'">'+v+'</span></div>'; }
+function renderTable(){
+  var list=filteredSorted(), total=list.length, from=pi*rpp, to=Math.min(total,from+rpp), rows=list.slice(from,to);
+  var minBuy=Infinity; list.forEach(function(l){ if(l.buyout<minBuy) minBuy=l.buyout; });
+  document.getElementById("lstat").innerHTML=st("Лотов",fmtN(total),"gold")+st("Мин. выкуп",list.length?A.fmtCompact(minBuy):"—","")+st("Регион",region,"");
+  var box=document.getElementById("lrows");
+  if(!rows.length){ box.innerHTML='<div class="empty"><span class="big">Нет лотов</span><span class="note">'+(lots.length?"Под фильтры ничего не подошло — сбрось качество или заточку.":"Активных лотов с выкупом сейчас нет.")+'</span></div>'; document.getElementById("pager").innerHTML=""; return; }
+  box.innerHTML=rows.map(function(l){
+    var exp=l.left<EXP_MS, best=l.buyout===minBuy, st=WL[wlKey(l)];
+    var wl=st==="added"?'<span class="chip gold">в избранном</span>':'<button type="button" class="ibtn wl" data-k="'+esc(wlKey(l))+'" aria-label="В избранное"><svg width="14" height="16" viewBox="0 0 12 14" fill="none"><path d="M2 1.5h8a.5.5 0 0 1 .5.5v10.6L6 9.6l-4.5 3V2a.5.5 0 0 1 .5-.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M6 3.8v3M4.5 5.3h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></button>';
+    return '<div class="dcard'+(best?" lit":"")+'"><div class="dc-top"><div class="dc-main">'+
+      '<div class="dc-name '+(best?'':'')+'" style="font-family:var(--mono);'+(best?'color:var(--gold-hi);text-shadow:0 0 14px var(--gold-glow)':'')+'">'+fmtP(l.buyout)+(best?' <span class="chip gold" style="vertical-align:middle">лучшая</span>':'')+'</div>'+
+      '<div class="dc-sub"><span class="mono">'+fmtN(l.amount)+' шт · '+fmtP(l.per)+'/шт</span></div>'+
+      '<div class="dc-chips">'+
+        (l.qlt!=null?'<span class="chip q" style="--qc:var('+QV[l.qlt]+')"><span class="qd"></span>'+QNAME[l.qlt]+'</span>':'')+
+        (l.ptn?'<span class="chip mono">+'+l.ptn+'</span>':'')+
+        '<span class="chip mono '+(exp?'':'')+'" style="'+(exp?'color:var(--amber);border-color:var(--amber-line)':'')+'">'+(exp?'истекает · ':'')+fmtLeft(l.left)+'</span>'+
+      '</div></div><div style="flex:none">'+wl+'</div></div></div>';
+  }).join("");
+  Array.prototype.forEach.call(box.querySelectorAll(".ibtn.wl"), function(b){
+    b.addEventListener("click", function(){ var k=b.getAttribute("data-k"), t=token; WL[k]="added"; A.toast("Добавлено в Избранное"); if(t===token) renderTable(); });
+  });
+  var c=document.getElementById("pager");
+  if(total<=rpp){ c.innerHTML=""; return; }
+  c.innerHTML='<button type="button" class="pg-btn" id="pprev"'+(pi===0?" disabled":"")+'>‹</button><span class="pinfo">'+fmtN(from+1)+'–'+fmtN(to)+' / '+fmtN(total)+'</span><button type="button" class="pg-btn" id="pnext"'+(to>=total?" disabled":"")+'>›</button>';
+  document.getElementById("pprev").addEventListener("click", function(){ if(pi>0){pi--;renderTable();window.scrollTo(0,0);} });
+  document.getElementById("pnext").addEventListener("click", function(){ pi++; renderTable(); window.scrollTo(0,0); });
+}
+
+/* ---- гейтинг ---- */
+function locked(){ return !S.tierAllows("30d"); }
+function renderLock(){
+  document.getElementById("lockbox").innerHTML=S.lockSvg(28,30,1.1)+'<span class="kick">Поиск лотов</span><h2>Тариф ПРОДВИНУТАЯ+</h2><p>Твой тариф — '+S.tierName()+'. Живые лоты по любому предмету аукциона открываются уровнем выше. Сменить тариф — в меню «Ещё» → демо-режим.</p><button type="button" class="gbtn" id="lk-plans">Смотреть тарифы</button>';
+  document.getElementById("lk-plans").addEventListener("click", function(){ A.toast("Экран тарифов — вне охвата прототипа"); });
+}
+function applyLock(){ var l=locked(); document.getElementById("app").hidden=l; document.getElementById("lockwrap").hidden=!l; if(l) renderLock(); }
+var booted=false;
+window.addEventListener("sc:tier", function(){ applyLock(); if(!locked()&&!booted) initDefault(); });
+
+/* ---- рендер ---- */
+function renderAll(){ var has=mode!=="none"; document.getElementById("histwrap").hidden=has; document.getElementById("res").hidden=!has; if(has){ renderResHead(); renderTable(); } }
+function initDefault(){ booted=true; renderHistory(); var want=null; try{ want=new URLSearchParams(location.search).get("item"); }catch(e){} var start=(want&&poolById(want)); if(start){ qEl.value=start.nameRu; setItem(start); } else renderAll(); }
+applyLock();
+if(!locked()) initDefault(); else renderHistory();
+})();
+</script>
+</body>
+</html>

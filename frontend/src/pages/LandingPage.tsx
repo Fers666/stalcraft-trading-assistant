@@ -15,7 +15,7 @@ const pulseDot = {
 
 // Центрирующая обёртка секций (.pub-wrap: max 1160, padding 0 32)
 function Wrap({ sx, ...rest }: BoxProps) {
-  return <Box sx={[{ maxWidth: 1160, mx: 'auto', px: '32px' }, ...(Array.isArray(sx) ? sx : sx ? [sx] : [])]} {...rest} />
+  return <Box sx={[{ maxWidth: 1160, mx: 'auto', px: { xs: '16px', md: '32px' } }, ...(Array.isArray(sx) ? sx : sx ? [sx] : [])]} {...rest} />
 }
 
 // Фолбэк-глиф иконки предмета (буква на цвете качества) — эталон .fb
@@ -180,8 +180,8 @@ export default function LandingPage() {
 
         {/* ══════════ HERO ══════════ */}
         <Wrap component="section" aria-label="Главный экран" sx={{
-          display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 384px', gap: '56px',
-          alignItems: 'center', pt: '76px', pb: '60px',
+          display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0,1fr) 384px' }, gap: { xs: '32px', md: '56px' },
+          alignItems: 'center', pt: { xs: '40px', md: '76px' }, pb: '60px',
         }}>
           <Box>
             {/* бейдж статуса */}
@@ -289,7 +289,7 @@ export default function LandingPage() {
 
         {/* ══════════ СТАТ-ПОЛОСА ══════════ */}
         <Wrap component="section" aria-label="Ключевые цифры">
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1px', background: T.border, border: `1px solid ${T.border}`, borderRadius: 1, overflow: 'hidden' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2,1fr)', sm: 'repeat(4,1fr)' }, gap: '1px', background: T.border, border: `1px solid ${T.border}`, borderRadius: 1, overflow: 'hidden' }}>
             {STATS.map((s) => (
               <Box key={s.label} sx={{ background: T.bg1, p: '18px 22px' }}>
                 <Box component="span" className="mono" sx={{ display: 'block', fontWeight: 500, fontSize: '24px', color: T.text0 }}>
@@ -412,7 +412,7 @@ export default function LandingPage() {
           <Box component="h2" sx={{ fontFamily: T.fontHead, fontWeight: 700, fontSize: '32px', letterSpacing: '0.05em', lineHeight: 1.05, color: T.text0, mb: '24px' }}>
             Как это работает
           </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 40px 1fr 40px 1fr', alignItems: 'start' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 40px 1fr 40px 1fr' }, alignItems: 'start' }}>
             {STEPS.map((st, i) => (
               <Box key={st.n} sx={{ display: 'contents' }}>
                 <Box sx={{ borderTop: `1px solid ${T.borderHi}`, pt: '14px', minWidth: 0 }}>
@@ -423,7 +423,7 @@ export default function LandingPage() {
                   <Box component="p" sx={{ m: 0, pr: '12px', color: T.text1, fontSize: fs.f125, lineHeight: 1.6 }}>{st.text}</Box>
                 </Box>
                 {i < STEPS.length - 1 && (
-                  <Box aria-hidden="true" className="mono" sx={{ display: 'grid', placeItems: 'center', pt: '22px', color: T.goldSoft, fontSize: '18px' }}>→</Box>
+                  <Box aria-hidden="true" className="mono" sx={{ display: { xs: 'none', md: 'grid' }, placeItems: 'center', pt: '22px', color: T.goldSoft, fontSize: '18px' }}>→</Box>
                 )}
               </Box>
             ))}
@@ -439,7 +439,7 @@ export default function LandingPage() {
             </Box>
           </Box>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '1px', background: T.border, border: `1px solid ${T.border}`, borderRadius: 1, overflow: 'hidden' }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2,1fr)', lg: 'repeat(4,1fr)' }, gap: '1px', background: T.border, border: `1px solid ${T.border}`, borderRadius: 1, overflow: 'hidden' }}>
             {PLANS.map((pl) => (
               <Box key={pl.name} sx={{
                 position: 'relative', background: pl.hot ? T.bg2 : T.bg1, p: '20px', display: 'flex', flexDirection: 'column', minWidth: 0,

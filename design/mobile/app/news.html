@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SC Trading — Новости</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../v5/assets/tokens.css">
+<link rel="stylesheet" href="../assets/mobile.css">
+<style>
+.nc{background:var(--s1);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.nc.pin{border-color:var(--gold-line)}
+.nc .strip{height:2px;background:linear-gradient(90deg,var(--gold-1),var(--gold),var(--gold-2))}
+.nc .b{padding:14px}
+.nc .title{font-family:var(--head);font-weight:700;font-size:var(--fs-16);color:var(--text);line-height:1.3;margin:8px 0 6px}
+.nc .body{font-size:var(--fs-125);color:var(--mut);line-height:1.6;white-space:pre-wrap;word-break:break-word}
+.nc .foot{display:flex;justify-content:space-between;gap:8px;margin-top:12px;font-family:var(--mono);font-size:var(--fs-105);color:var(--faint)}
+.tagsel{display:flex;flex-wrap:wrap;gap:7px}
+</style>
+</head>
+<body>
+<div id="mshell"></div>
+<main class="mmain">
+  <div class="row" style="justify-content:space-between;align-items:flex-start;padding:0 2px 12px">
+    <div class="pg-h" style="padding:0"><span class="kick">Новости</span><h1 style="font-size:var(--fs-16);letter-spacing:.04em;margin-top:4px">Объявления и обновления</h1></div>
+  </div>
+  <div class="row wrap" id="adminbar" style="gap:8px;margin-bottom:10px">
+    <button type="button" class="gbtn sm" id="newbtn"><svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M5.5 1v9M1 5.5h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Новость</button>
+    <button type="button" class="qbtn sm" id="draftbtn">Показать черновики</button>
+  </div>
+  <div id="formwrap"></div>
+  <div class="gap10" id="list"></div>
+  <div class="row" style="justify-content:center;margin-top:14px"><button type="button" class="qbtn" id="more" hidden>Загрузить ещё</button></div>
+</main>
+
+<script src="../../v5/assets/data.js"></script>
+<script src="../../v5/assets/app.js"></script>
+<script src="../assets/mshell.js"></script>
+<script>
+(function(){
+"use strict";
+var A=window.SC_APP, S=window.SC_MSHELL, esc=A.esc;
+S.render("news");
+var IS_ADMIN=true;
+var TAGS=["обновление","тарифы","техработы","важно"];
+var UID=100;
+var NEWS=[
+  {id:UID++,title:"Раздел «Закупки» доступен всем на тарифе ПРОДВИНУТАЯ+",content:"Снайпер выгодной покупки теперь ловит цену по всему Избранному. Задай порог ₽/шт — придёт алерт в Telegram, когда лот подешевеет.\n\nПорог можно менять на лету, а «горит» подсвечивает карточки, где цена уже достигнута.",tags:["обновление","важно"],pinned:true,published:true,created:"2026-07-18",updated:null,author:"Администратор"},
+  {id:UID++,title:"Обновили пересчёт медианы: меньше шума от выбросов",content:"Медиана 7д теперь устойчивее к единичным аномальным продажам. Коридор мин–макс на графиках 7Д/30Д стал точнее.",tags:["обновление"],pinned:false,published:true,created:"2026-07-15",updated:"2026-07-16",author:"Администратор"},
+  {id:UID++,title:"Плановые техработы 12 июля, 03:00–04:00 МСК",content:"Обновление БД и перезапуск сборщиков. Возможны короткие перерывы в аналитике. Данные не пострадают.",tags:["техработы"],pinned:false,published:true,created:"2026-07-10",updated:null,author:"Администратор"},
+  {id:UID++,title:"ЧЕРНОВИК · Новые тарифы осенью",content:"Готовим пересмотр линейки тарифов и аддонов. Подробности позже.",tags:["тарифы"],pinned:false,published:false,created:"2026-07-08",updated:null,author:"Администратор"}
+];
+var showDrafts=false, editId=null;
+
+function fmtDate(s){ var d=new Date(s+"T12:00:00"); return String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0")+"."+d.getFullYear(); }
+function visible(){ return NEWS.filter(function(n){ return n.published || (IS_ADMIN&&showDrafts); }); }
+
+function cardHtml(n){
+  var tags=(n.pinned?'<span class="chip pin">закреплено</span>':'')+(!n.published?'<span class="chip draft">черновик</span>':'')+n.tags.map(function(t){ return '<span class="chip">'+esc(t)+'</span>'; }).join("");
+  return '<article class="nc'+(n.pinned?" pin":"")+'">'+(n.pinned?'<div class="strip"></div>':'')+'<div class="b">'+
+    '<div class="dc-chips" style="margin-top:0">'+tags+
+      (IS_ADMIN?'<span style="margin-left:auto;display:flex;gap:6px"><button type="button" class="qbtn sm" data-edit="'+n.id+'">Ред.</button><button type="button" class="dbtn sm" data-del="'+n.id+'" aria-label="Удалить новость">Удл.</button></span>':'')+'</div>'+
+    '<div class="title">'+esc(n.title)+'</div>'+
+    '<div class="body">'+esc(n.content)+'</div>'+
+    '<div class="foot"><span>'+esc(n.author)+'</span><span>'+fmtDate(n.created)+(n.updated?' (ред. '+fmtDate(n.updated)+')':'')+'</span></div>'+
+    '</div></article>';
+}
+function renderList(){
+  document.getElementById("adminbar").style.display=IS_ADMIN?"flex":"none";
+  document.getElementById("draftbtn").textContent=showDrafts?"Скрыть черновики":"Показать черновики";
+  document.getElementById("draftbtn").classList.toggle("on",showDrafts);
+  var list=visible(), box=document.getElementById("list");
+  if(!list.length){ box.innerHTML='<div class="empty"><span class="big">Новостей пока нет</span></div>'; return; }
+  box.innerHTML=list.map(cardHtml).join("");
+  Array.prototype.forEach.call(box.querySelectorAll("[data-edit]"), function(b){ b.addEventListener("click", function(){ openForm(Number(b.getAttribute("data-edit"))); }); });
+  Array.prototype.forEach.call(box.querySelectorAll("[data-del]"), function(b){ var id=Number(b.getAttribute("data-del")); A.armConfirm(b, function(){ for(var i=0;i<NEWS.length;i++) if(NEWS[i].id===id){ NEWS.splice(i,1); break; } renderList(); A.toast("Новость удалена"); }, "Точно?"); });
+}
+
+/* ---- форма ---- */
+function openForm(id){
+  editId=id;
+  var n=id?NEWS.filter(function(x){return x.id===id;})[0]:{title:"",content:"",tags:[],pinned:false,published:true};
+  var wrap=document.getElementById("formwrap");
+  wrap.innerHTML='<div class="panel" style="border-color:var(--gold-line);margin-bottom:12px"><div style="padding:16px" class="gap12">'+
+    '<div class="kick" style="color:var(--gold-2)">'+(id?"Редактировать новость":"Новая новость")+'</div>'+
+    '<div class="frow"><label class="kick" for="f-title">Заголовок</label><input class="input" id="f-title" maxlength="300" value="'+esc(n.title)+'"></div>'+
+    '<div class="frow"><label class="kick" for="f-content">Содержание</label><textarea class="input" id="f-content">'+esc(n.content)+'</textarea></div>'+
+    '<div class="frow"><span class="kick">Теги</span><div class="tagsel" id="f-tags">'+TAGS.map(function(t){ return '<button type="button" class="seg'+(n.tags.indexOf(t)>=0?" on":"")+'" data-tag="'+esc(t)+'" aria-pressed="'+(n.tags.indexOf(t)>=0)+'">'+esc(t)+'</button>'; }).join("")+'</div></div>'+
+    '<label class="sw"><span class="t">Закрепить сверху</span><span class="tgl"><input type="checkbox" id="f-pin"'+(n.pinned?" checked":"")+'><span class="tr"></span></span></label>'+
+    '<label class="sw"><span class="t">Опубликовать</span><span class="tgl"><input type="checkbox" id="f-pub"'+(n.published?" checked":"")+'><span class="tr"></span></span></label>'+
+    '<div class="row" style="gap:8px"><button type="button" class="gbtn grow" id="f-save">Сохранить</button><button type="button" class="qbtn grow" id="f-cancel">Отмена</button></div>'+
+    '</div></div>';
+  Array.prototype.forEach.call(wrap.querySelectorAll("[data-tag]"), function(b){ b.addEventListener("click", function(){ var on=b.getAttribute("aria-pressed")!=="true"; b.setAttribute("aria-pressed",on); b.classList.toggle("on",on); }); });
+  document.getElementById("f-cancel").addEventListener("click", function(){ editId=null; wrap.innerHTML=""; });
+  document.getElementById("f-save").addEventListener("click", function(){
+    var title=document.getElementById("f-title").value.trim(), content=document.getElementById("f-content").value.trim();
+    if(!title){ A.toast("Заголовок не может быть пустым"); return; }
+    if(!content){ A.toast("Содержание не может быть пустым"); return; }
+    var tags=Array.prototype.map.call(wrap.querySelectorAll('[data-tag][aria-pressed="true"]'), function(b){ return b.getAttribute("data-tag"); });
+    var pin=document.getElementById("f-pin").checked, pub=document.getElementById("f-pub").checked;
+    var today="2026-07-20";
+    if(id){ var o=NEWS.filter(function(x){return x.id===id;})[0]; o.title=title; o.content=content; o.tags=tags; o.pinned=pin; o.published=pub; o.updated=today; }
+    else NEWS.unshift({id:UID++,title:title,content:content,tags:tags,pinned:pin,published:pub,created:today,updated:null,author:"Администратор"});
+    editId=null; wrap.innerHTML=""; renderList(); A.toast(id?"Новость обновлена":"Новость создана");
+  });
+  wrap.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+document.getElementById("newbtn").addEventListener("click", function(){ openForm(null); });
+document.getElementById("draftbtn").addEventListener("click", function(){ showDrafts=!showDrafts; renderList(); });
+renderList();
+})();
+</script>
+</body>
+</html>

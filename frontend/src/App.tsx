@@ -2,6 +2,16 @@ import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
 import Layout from './components/Layout'
+import ModeSwitch from './components/ModeSwitch'
+import MobileLayout from './components/mobile/MobileLayout'
+import MobileFavoritesPage from './pages/mobile/MobileFavoritesPage'
+import MobileCatalogPage from './pages/mobile/MobileCatalogPage'
+import MobileLotsPage from './pages/mobile/MobileLotsPage'
+import MobileBuySniperPage from './pages/mobile/MobileBuySniperPage'
+import MobileNewsPage from './pages/mobile/MobileNewsPage'
+import MobileMarketRadarPage from './pages/mobile/MobileMarketRadarPage'
+import MobileSettingsPage from './pages/mobile/MobileSettingsPage'
+import MobileAdminPage from './pages/mobile/MobileAdminPage'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -54,19 +64,19 @@ export default function App() {
 
         <Route
           path="/app"
-          element={<ProtectedRoute><Layout /></ProtectedRoute>}
+          element={<ProtectedRoute><ModeSwitch desktop={<Layout />} mobile={<MobileLayout />} /></ProtectedRoute>}
         >
           <Route index                element={<Navigate to="/app/monitoring" replace />} />
-          <Route path="monitoring"     element={<MonitoringPage />} />
-          <Route path="catalog"       element={<CatalogPage />} />
-          <Route path="lots"          element={<LotsPage />} />
+          <Route path="monitoring"     element={<ModeSwitch desktop={<MonitoringPage />}   mobile={<MobileFavoritesPage />} />} />
+          <Route path="catalog"       element={<ModeSwitch desktop={<CatalogPage />}      mobile={<MobileCatalogPage />} />} />
+          <Route path="lots"          element={<ModeSwitch desktop={<LotsPage />}         mobile={<MobileLotsPage />} />} />
           <Route path="feed"          element={<FeedPage />} />
-          <Route path="buy-sniper"    element={<BuySniperPage />} />
+          <Route path="buy-sniper"    element={<ModeSwitch desktop={<BuySniperPage />}    mobile={<MobileBuySniperPage />} />} />
           <Route path="inventory"     element={<Navigate to="/app/buy-sniper" replace />} />
-          <Route path="news"          element={<NewsPage />} />
-          <Route path="market-radar"  element={<MarketRadarPage />} />
-          <Route path="settings"      element={<SettingsPage />} />
-          <Route path="admin"         element={<AdminRoute><AdminPage /></AdminRoute>} />
+          <Route path="news"          element={<ModeSwitch desktop={<NewsPage />}         mobile={<MobileNewsPage />} />} />
+          <Route path="market-radar"  element={<ModeSwitch desktop={<MarketRadarPage />}  mobile={<MobileMarketRadarPage />} />} />
+          <Route path="settings"      element={<ModeSwitch desktop={<SettingsPage />}     mobile={<MobileSettingsPage />} />} />
+          <Route path="admin"         element={<AdminRoute><ModeSwitch desktop={<AdminPage />} mobile={<MobileAdminPage />} /></AdminRoute>} />
         </Route>
 
         <Route path="/monitoring" element={<Navigate to="/app/monitoring" replace />} />

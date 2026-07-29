@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SC Trading — Закупки</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../v5/assets/tokens.css">
+<link rel="stylesheet" href="../assets/mobile.css">
+<style>
+.pw{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.pw .st .v{font-size:var(--fs-14)}
+.m-id{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--gold-dim);border:1px solid var(--gold-line);border-radius:var(--r)}
+.m-id .dc-ico{width:36px;height:36px;background:var(--s1)}
+.m-id .tx{flex:1;min-width:0}
+.m-id .nm{display:block;font-weight:600;color:var(--text);font-size:var(--fs-125);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pooli{display:flex;align-items:center;gap:9px;width:100%;padding:10px 10px;min-height:48px;text-align:left;border-bottom:1px solid var(--line)}
+.pooli:active{background:var(--gold-dim)}
+.pooli .dc-ico{width:34px;height:34px;background:var(--s1)}
+.pooli .an{flex:1;min-width:0;font-size:var(--fs-125);color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="mshell"></div>
+<main class="mmain" id="app">
+  <div class="pg-h" style="padding-left:2px;padding-right:2px">
+    <span class="kick">Закупки // Buy Sniper</span>
+    <h1 style="font-size:var(--fs-16);letter-spacing:.04em;margin-top:4px">Снайпер выгодных цен</h1>
+    <div class="sub">Задай порог ₽/шт по товарам из Избранного — как только самый дешёвый лот падает до твоей цены, придёт алерт в Telegram «пора покупать».</div>
+    <div class="pr"><button type="button" class="gbtn btn-full" id="addbtn"><svg width="12" height="12" viewBox="0 0 11 11" fill="none"><path d="M5.5 1v9M1 5.5h9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>Добавить закупку</button></div>
+  </div>
+  <div class="alert warn" id="tgwarn" style="margin-bottom:10px">Telegram не привязан — алерты о выгодной цене приходить не будут. <a href="settings.html">Привязать в Настройках</a></div>
+  <div class="statusgrid" id="bstat" style="margin-bottom:10px"></div>
+  <div class="dlist" id="rows"></div>
+</main>
+
+<div class="msheet-ov" id="add-ov" hidden>
+  <div class="msheet" role="dialog" aria-modal="true" aria-label="Добавить закупку">
+    <div class="msheet-grab"></div>
+    <div class="msheet-h"><h3>Добавить закупку</h3><button type="button" class="ibtn" id="add-close" aria-label="Закрыть"><svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></div>
+    <div class="msheet-b gap12" id="add-body"></div>
+  </div>
+</div>
+
+<script src="../../v5/assets/data.js"></script>
+<script src="../../v5/assets/app.js"></script>
+<script src="../assets/mshell.js"></script>
+<script>
+(function(){
+"use strict";
+var D=window.SC_DATA, A=window.SC_APP, S=window.SC_MSHELL;
+var esc=A.esc, fmtN=A.fmtN, fmtP=A.fmtP, QNAME=A.QNAME;
+S.render("buy-sniper");
+var tgLinked=false;
+
+/* пул = избранное (закупки задаются по карточкам избранного) */
+var POOL=(D.favorites||[]).map(function(f){ return {itemId:f.itemId,nameRu:f.nameRu,nameEn:f.nameEn,color:f.color,icon:f.icon,region:f.region,quality:f.qualityFilter,enchant:f.enchantFilter,fav:f}; });
+function nameOf(e){ return e.nameRu||e.nameEn||e.itemId; }
+function pwOf(f){ var s=f.stats||{}; return {min:s.minPrice7d,median:s.medianPrice7d,max:s.maxPrice7d}; }
+
+/* демо-набор закупок */
+var UID=1;
+function mk(itemId,target,curMin,active){ var it=null; for(var i=0;i<POOL.length;i++) if(POOL[i].itemId===itemId) it=POOL[i]; if(!it) return null; return {id:UID++,it:it,target:target,current_min:curMin,active:active}; }
+var ALERTS=[mk("kqr0",580000,548000,true),mk("jkq7",150000,171000,true),mk("96z7y",4000,null,true),mk("033k",60,58,true),mk("m22k",230,260,false)].filter(Boolean);
+
+function litOf(a){ return a.active && a.current_min!=null && a.current_min<=a.target; }
+function st(k,v,cls){ return '<div class="st"><span class="k">'+k+'</span><span class="v '+(cls||"")+'">'+v+'</span></div>'; }
+
+function render(){
+  document.getElementById("tgwarn").style.display=tgLinked?"none":"block";
+  var lit=ALERTS.filter(litOf).length;
+  var box=document.getElementById("rows"), stat=document.getElementById("bstat");
+  if(!ALERTS.length){
+    stat.style.display="none";
+    box.innerHTML='<div class="empty"><span class="big">Закупок пока нет</span><span class="note">Добавь товар из Избранного и задай цену, за которую готов купить — терминал сообщит, когда лот подешевеет до порога.</span><button type="button" class="gbtn" id="empty-add">Добавить первую закупку</button></div>';
+    document.getElementById("empty-add").addEventListener("click", openAdd); return;
+  }
+  stat.style.display="grid";
+  stat.innerHTML=st("Закупок",fmtN(ALERTS.length),"")+st("Горит сейчас",fmtN(lit),lit>0?"gold":"");
+  box.innerHTML=ALERTS.map(function(a){
+    var lit=litOf(a), r=A.rankOf(a.it);
+    var status=lit?'<span class="chip gold">горит</span>':(a.active?'<span class="chip">ждёт цену</span>':'<span class="chip">пауза</span>');
+    return '<div class="dcard'+(lit?" lit":"")+'"><div class="dc-top">'+A.iconHtml(a.it,"dc-ico")+
+      '<div class="dc-main"><div class="dc-name">'+esc(nameOf(a.it))+'</div>'+
+      '<div class="dc-chips"><span class="chip mono">'+esc(a.it.region)+'</span>'+
+        (a.it.quality!=null?'<span class="chip q" style="--qc:var('+r.v+')"><span class="qd"></span>'+(QNAME[a.it.quality]||"кач.")+'</span>':'')+
+        (a.it.enchant?'<span class="chip mono">+'+a.it.enchant+'</span>':'')+status+'</div></div></div>'+
+      '<dl class="dc-kv"><dt>Порог /шт</dt><dd class="gold">'+fmtP(a.target)+'</dd>'+
+        '<dt>Текущая мин. /шт</dt><dd class="'+(lit?"gold":(a.current_min==null?"dim":""))+'">'+(a.current_min==null?"—":fmtP(a.current_min))+'</dd></dl>'+
+      '<div class="dc-foot"><button type="button" class="qbtn sm" data-edit="'+a.id+'"><svg width="13" height="13" viewBox="0 0 14 14" fill="none"><path d="M9.5 2.5l2 2-6 6H3.5v-2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>Порог</button>'+
+        '<button type="button" class="dbtn sm" data-del="'+a.id+'" aria-label="Удалить закупку «'+esc(nameOf(a.it))+'»"><svg width="13" height="14" viewBox="0 0 13 14" fill="none"><path d="M1.5 3.5h10M5 3.5V2a.5.5 0 0 1 .5-.5h2A.5.5 0 0 1 8 2v1.5M2.8 3.5l.6 8.6a.5.5 0 0 0 .5.4h5.2a.5.5 0 0 0 .5-.4l.6-8.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>Удалить</button></div></div>';
+  }).join("");
+  Array.prototype.forEach.call(box.querySelectorAll("[data-edit]"), function(b){ b.addEventListener("click", function(){ openEdit(Number(b.getAttribute("data-edit"))); }); });
+  Array.prototype.forEach.call(box.querySelectorAll("[data-del]"), function(b){ var id=Number(b.getAttribute("data-del")); A.armConfirm(b, function(){ for(var i=0;i<ALERTS.length;i++) if(ALERTS[i].id===id){ ALERTS.splice(i,1); break; } render(); A.toast("Закупка удалена"); }); });
+}
+
+/* ---- добавление ---- */
+var addedIds={};
+function refreshAdded(){ addedIds={}; ALERTS.forEach(function(a){ addedIds[a.it.itemId]=true; }); }
+function openAdd(){
+  refreshAdded();
+  var sel=null, search="";
+  var body=document.getElementById("add-body");
+  function draw(){
+    var avail=POOL.filter(function(p){ return !addedIds[p.itemId]; });
+    var h="";
+    if(!sel){
+      var q=search.trim().toLowerCase();
+      var list=q?avail.filter(function(p){ return nameOf(p).toLowerCase().indexOf(q)>=0||p.itemId.toLowerCase().indexOf(q)>=0; }):avail;
+      h+='<div class="frow"><span class="kick">Товар из Избранного</span>'+
+        (avail.length?'<div class="search" style="margin-bottom:2px"><svg width="15" height="15" viewBox="0 0 13 13" fill="none"><circle cx="5.5" cy="5.5" r="4.2" stroke="currentColor" stroke-width="1.5"/><path d="m9 9 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><input id="am-q" type="search" placeholder="Поиск по названию" value="'+esc(search)+'" autocomplete="off"></div>':'')+
+        '<div style="background:var(--s2);border:1px solid var(--line);border-radius:var(--r);max-height:44vh;overflow-y:auto">'+
+        (!avail.length?'<div class="t-empty">'+(POOL.length?"Все товары из Избранного уже в закупках.":"В Избранном пока нет товаров.")+'</div>'
+          :(!list.length?'<div class="t-empty">По запросу «'+esc(search.trim())+'» ничего нет.</div>'
+            :list.map(function(p){ return '<button type="button" class="pooli" data-id="'+esc(p.itemId)+'">'+A.iconHtml(p,"dc-ico")+'<span class="an">'+esc(nameOf(p))+'</span><span class="chip mono">'+esc(p.region)+'</span></button>'; }).join("")))+
+        '</div></div>';
+    } else {
+      var pw=pwOf(sel.fav), r=A.rankOf(sel.it);
+      h+='<div class="frow"><span class="kick">Товар</span><div class="m-id">'+A.iconHtml(sel.it,"dc-ico")+'<span class="tx"><span class="nm">'+esc(nameOf(sel.it))+'</span><span class="dc-sub"><span class="mono">'+esc(sel.it.region)+'</span></span></span><button type="button" class="qbtn sm" id="am-chg">Изменить</button></div></div>';
+      h+='<div class="frow"><span class="kick">Цены продаж за 3 дня</span><div class="pw">'+
+        st("Мин", pw.min!=null?A.fmtCompact(pw.min):"—","")+st("Медиана", pw.median!=null?A.fmtCompact(pw.median):"—","gold")+st("Макс", pw.max!=null?A.fmtCompact(pw.max):"—","")+'</div></div>';
+      h+='<div class="frow"><label class="kick" for="am-price">Порог ₽/шт</label><input class="input mono" id="am-price" type="number" min="1" step="1" value="'+(pw.median!=null?Math.round(pw.median):"")+'" placeholder="цена, за которую готов купить"></div>';
+      h+='<button type="button" class="gbtn btn-full" id="am-add">Добавить</button>';
+    }
+    body.innerHTML=h;
+    var q=document.getElementById("am-q");
+    if(q){ q.addEventListener("input", function(){ search=q.value; var pos=q.selectionStart; draw(); var q2=document.getElementById("am-q"); if(q2){ q2.focus(); try{q2.setSelectionRange(pos,pos);}catch(e){} } }); }
+    Array.prototype.forEach.call(body.querySelectorAll(".pooli"), function(b){ b.addEventListener("click", function(){ var id=b.getAttribute("data-id"); for(var i=0;i<POOL.length;i++) if(POOL[i].itemId===id) sel=POOL[i]; draw(); }); });
+    var chg=document.getElementById("am-chg"); if(chg) chg.addEventListener("click", function(){ sel=null; draw(); });
+    var add=document.getElementById("am-add"); if(add) add.addEventListener("click", function(){
+      var v=Math.round(Number(document.getElementById("am-price").value));
+      if(!isFinite(v)||v<=0){ A.toast("Укажи порог больше нуля"); return; }
+      ALERTS.unshift({id:UID++,it:sel,target:v,current_min:pwOf(sel.fav).min||null,active:true});
+      closeAdd(); render(); A.toast("«"+nameOf(sel.it)+"» добавлен в закупки");
+    });
+  }
+  draw();
+  document.getElementById("add-ov").hidden=false;
+}
+function closeAdd(){ document.getElementById("add-ov").hidden=true; }
+document.getElementById("addbtn").addEventListener("click", openAdd);
+document.getElementById("add-close").addEventListener("click", closeAdd);
+document.getElementById("add-ov").addEventListener("click", function(e){ if(e.target===this) closeAdd(); });
+
+/* ---- редактирование порога ---- */
+function openEdit(id){
+  var a=null; for(var i=0;i<ALERTS.length;i++) if(ALERTS[i].id===id) a=ALERTS[i]; if(!a) return;
+  var body=
+    '<div class="m-id">'+A.iconHtml(a.it,"dc-ico")+'<span class="tx"><span class="nm">'+esc(nameOf(a.it))+'</span><span class="dc-sub"><span class="mono">'+esc(a.it.region)+'</span></span></span></div>'+
+    '<div class="frow" style="margin-top:12px"><label class="kick" for="ed-price">Порог ₽/шт</label><input class="input mono" id="ed-price" type="number" min="1" step="1" value="'+a.target+'"></div>';
+  var ov=A.openModal({title:"Изменить порог",body:body,actions:[{label:"Отмена"},{label:"Сохранить",primary:true,onClick:function(){
+    var v=Math.round(Number(ov.querySelector("#ed-price").value)); if(!isFinite(v)||v<=0){ A.toast("Укажи порог больше нуля"); return; }
+    a.target=v; render(); A.toast("Порог обновлён");
+  }}]});
+}
+
+render();
+})();
+</script>
+</body>
+</html>

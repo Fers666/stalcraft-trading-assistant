@@ -20,6 +20,7 @@ import { useAuthStore } from '../store/authStore'
 import { TIER_LABELS } from '../constants/tiers'
 import { Region } from '../constants/regions'
 import { tokens, fs } from '../theme'
+import { sortLots, type SortKey, type SortDir } from '../utils/lots'
 import CategoryTree from '../components/ui/CategoryTree'
 import QualityChip from '../components/ui/QualityChip'
 import RegionSelect from '../components/ui/RegionSelect'
@@ -94,9 +95,6 @@ interface HistoryEntry {
   icon_path: string | null
 }
 
-type SortKey = 'buyout_price' | 'amount' | 'price_per_unit' | 'hours_remaining' | 'enchant_level'
-type SortDir = 'asc' | 'desc'
-
 // ─── Константы ───────────────────────────────────────────────────────────────
 
 const QL_NAMES: Record<number, string> = {
@@ -116,28 +114,6 @@ function loadHistory(): HistoryEntry[] {
 function saveHistory(entry: HistoryEntry) {
   const next = [entry, ...loadHistory().filter((h) => h.item_id !== entry.item_id)].slice(0, HISTORY_MAX)
   localStorage.setItem(HISTORY_KEY, JSON.stringify(next))
-}
-
-function sortLots<T extends { buyout_price: number; amount: number; hours_remaining: number | null; enchant_level: number | null }>(
-  lots: T[], key: SortKey, dir: SortDir,
-): T[] {
-  return [...lots].sort((a, b) => {
-    let av: number, bv: number
-    if (key === 'price_per_unit') {
-      av = Math.floor(a.buyout_price / a.amount)
-      bv = Math.floor(b.buyout_price / b.amount)
-    } else if (key === 'hours_remaining') {
-      av = a.hours_remaining ?? Infinity
-      bv = b.hours_remaining ?? Infinity
-    } else if (key === 'enchant_level') {
-      av = a.enchant_level ?? -1
-      bv = b.enchant_level ?? -1
-    } else {
-      av = a[key] as number
-      bv = b[key] as number
-    }
-    return dir === 'asc' ? av - bv : bv - av
-  })
 }
 
 // ─── Компонент ───────────────────────────────────────────────────────────────

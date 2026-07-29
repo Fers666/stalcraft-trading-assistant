@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SC Trading — Каталог</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../v5/assets/tokens.css">
+<link rel="stylesheet" href="../assets/mobile.css">
+<style>
+.m-id{display:flex;align-items:center;gap:10px;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+.m-id .tx{flex:1;min-width:0}
+.m-id .nm{display:block;font-weight:600;color:var(--text)}
+.m-id .en{display:block;font-size:var(--fs-11);color:var(--faint)}
+.m-id .mid{font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);border:1px solid var(--line);padding:1px 6px;border-radius:var(--r)}
+.dc-ico.t-ico{width:38px;height:38px}
+</style>
+</head>
+<body>
+<div id="mshell"></div>
+<main class="mmain">
+  <div class="pg-h" style="padding-left:2px;padding-right:2px">
+    <span class="kick">Каталог // Item Database</span>
+    <h1 style="font-size:var(--fs-16);letter-spacing:.04em;margin-top:4px">Каталог предметов</h1>
+    <div class="sub">База предметов аукциона STALZONE. Ищи по имени, фильтруй по категории, добавляй в избранное.</div>
+  </div>
+
+  <div class="gap8" style="margin-bottom:10px">
+    <div class="search">
+      <svg width="15" height="15" viewBox="0 0 13 13" fill="none" aria-hidden="true"><circle cx="5.5" cy="5.5" r="4.2" stroke="currentColor" stroke-width="1.5"/><path d="m9 9 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <input id="q" type="search" placeholder="Поиск по названию…" aria-label="Поиск по каталогу" autocomplete="off" enterkeyhint="search">
+    </div>
+    <div class="row" style="gap:8px">
+      <button type="button" class="qbtn grow" id="catbtn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2 3.5h10M2 7h10M2 10.5h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span id="catlabel">Все категории</span></button>
+      <button type="button" class="gbtn grow" id="find">Найти</button>
+    </div>
+  </div>
+
+  <div class="statusgrid c3" id="cstat" style="margin-bottom:10px"></div>
+  <div class="dlist" id="rows"></div>
+  <nav class="pager" id="pager" aria-label="Страницы каталога"></nav>
+</main>
+
+<!-- шит категорий -->
+<div class="msheet-ov" id="cat-ov" hidden>
+  <div class="msheet" role="dialog" aria-modal="true" aria-label="Категории">
+    <div class="msheet-grab"></div>
+    <div class="msheet-h"><h3>Категории</h3>
+      <button type="button" class="ibtn" id="cat-close" aria-label="Закрыть"><svg width="14" height="14" viewBox="0 0 12 12" fill="none"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button></div>
+    <div class="cattree" id="tree"></div>
+  </div>
+</div>
+
+<script src="../../v5/assets/data.js"></script>
+<script src="../../v5/assets/app.js"></script>
+<script src="../assets/mshell.js"></script>
+<script>
+(function(){
+"use strict";
+var D=window.SC_DATA, A=window.SC_APP, S=window.SC_MSHELL;
+var esc=A.esc, fmtN=A.fmtN, PAGE=50, V_TOTAL=2236;
+S.render("catalog");
+
+var CAT_RU={weapon:"Оружие",armor:"Броня",artefact:"Артефакт",attachment:"Обвес",bullet:"Патроны",medicine:"Медицина",supply:"Расходники",food:"Еда",drink:"Напитки",grenade:"Гранаты",containers:"Контейнеры",backpacks:"Рюкзаки",misc:"Разное",other:"Прочее",device:"Устройство",weapon_modules:"Модули оружия",assault_rifle:"Штурмовая винтовка",sniper_rifle:"Снайперская винтовка",pistol:"Пистолет",shotgun_rifle:"Дробовик",submachine_gun:"Пистолет-пулемёт",machine_gun:"Пулемёт",melee:"Холодное оружие",heavy:"Тяжёлое",combat:"Боевая",light:"Лёгкая",clothes:"Одежда",combined:"Комбинированная",scientist:"Учёного",biochemical:"Биохимический",thermal:"Термический",gravity:"Гравитационный",electrophysical:"Электрофизический",other_arts:"Прочие",collimator_sights:"Коллиматор",barrel:"Ствол",mag:"Магазин",forend:"Цевьё",handgrips:"Рукоять",accessory:"Аксессуар",pistol_handle:"Пист. рукоять"};
+function catRu(c){ if(!c) return "—"; return c.split("/").map(function(p){return CAT_RU[p]||p;}).join(" / "); }
+var TREE=[
+  {id:"weapon",label:"Оружие",kids:[["weapon/assault_rifle","Штурмовые винтовки"],["weapon/sniper_rifle","Снайперские винтовки"],["weapon/pistol","Пистолеты"],["weapon/shotgun_rifle","Дробовики"],["weapon/submachine_gun","Пистолеты-пулемёты"],["weapon/machine_gun","Пулемёты"],["weapon/melee","Холодное оружие"],["weapon/heavy","Тяжёлое"]]},
+  {id:"armor",label:"Броня",kids:[["armor/combat","Боевая"],["armor/light","Лёгкая"],["armor/heavy","Тяжёлая"],["armor/clothes","Одежда"],["armor/combined","Комбинированная"],["armor/scientist","Учёного"]]},
+  {id:"artefact",label:"Артефакты",kids:[["artefact/biochemical","Биохимические"],["artefact/thermal","Термические"],["artefact/gravity","Гравитационные"],["artefact/electrophysical","Электрофизические"],["artefact/other_arts","Прочие"]]},
+  {id:"attachment",label:"Обвесы",kids:[["attachment/collimator_sights","Коллиматоры"],["attachment/barrel","Стволы"],["attachment/mag","Магазины"],["attachment/forend","Цевья"],["attachment/handgrips","Рукояти"],["attachment/accessory","Аксессуары"]]},
+  {id:"bullet",label:"Патроны"},{id:"grenade",label:"Гранаты"},{id:"containers",label:"Контейнеры"},{id:"backpacks",label:"Рюкзаки"},{id:"device",label:"Устройства"},{id:"misc",label:"Разное"},{id:"other",label:"Прочее"}
+];
+var POOL=(D.favorites||[]).map(function(f){ return {itemId:f.itemId,nameRu:f.nameRu,nameEn:f.nameEn,category:f.category,color:f.color,icon:f.icon,batch:!!(f.stats&&f.stats.batchStats)||/^(artefact|misc|bullet)/.test(f.category||"")}; }).concat(D.catalogExtra||[]);
+POOL.sort(function(a,b){ return a.nameRu.localeCompare(b.nameRu,"ru"); });
+var ADDED={}; (D.favorites||[]).forEach(function(f){ ADDED[f.itemId]=true; });
+
+var cat=null, catLabel="Все категории", activeQ="", page=1;
+function hash(s){ var h=0; for(var i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h; }
+function inCat(it,id){ if(!id) return true; var c=it.category||""; return c===id||c.indexOf(id+"/")===0; }
+function cntCat(id){ var n=0; POOL.forEach(function(it){ if(inCat(it,id)) n++; }); return n; }
+function vcnt(id){ if(id==null) return V_TOTAL; var real=cntCat(id); return real?real*35+hash(id)%17:0; }
+function filtered(){ var q=activeQ.toLowerCase(); return POOL.filter(function(it){ if(!inCat(it,cat)) return false; if(!q) return true; return (it.nameRu||"").toLowerCase().indexOf(q)>=0||(it.nameEn||"").toLowerCase().indexOf(q)>=0; }); }
+function counts(){ var list=filtered(); if(activeQ) return {found:list.length,pages:Math.max(1,Math.ceil(list.length/PAGE))}; var v=vcnt(cat); return {found:v,pages:Math.max(1,Math.ceil(v/PAGE))}; }
+
+/* ---- дерево (шит) ---- */
+function labelOf(id){ if(id==null) return "Все категории"; for(var i=0;i<TREE.length;i++){ var g=TREE[i]; if(g.id===id) return g.label; var k=g.kids||[]; for(var j=0;j<k.length;j++) if(k[j][0]===id) return k[j][1]; } return id; }
+function renderTree(){
+  var h='<button type="button" class="'+(cat==null?"on":"")+'" data-cat=""><span class="cn">Все категории</span><span class="cc">'+fmtN(V_TOTAL)+'</span></button>';
+  TREE.forEach(function(g){
+    h+='<button type="button" class="'+(cat===g.id?"on":"")+'" data-cat="'+esc(g.id)+'"><span class="cn">'+esc(g.label)+'</span><span class="cc">'+fmtN(vcnt(g.id))+'</span></button>';
+    (g.kids||[]).forEach(function(k){ h+='<button type="button" class="sub '+(cat===k[0]?"on":"")+'" data-cat="'+esc(k[0])+'"><span class="cn">'+esc(k[1])+'</span><span class="cc">'+fmtN(vcnt(k[0]))+'</span></button>'; });
+  });
+  var tree=document.getElementById("tree"); tree.innerHTML=h;
+  Array.prototype.forEach.call(tree.querySelectorAll("button"), function(b){
+    b.addEventListener("click", function(){ var id=b.getAttribute("data-cat"); selectCat(id===""?null:id); closeCat(); });
+  });
+}
+function selectCat(id){ cat=id; catLabel=labelOf(id); page=1; document.getElementById("catlabel").textContent=catLabel; renderAll(); }
+function openCat(){ renderTree(); document.getElementById("cat-ov").hidden=false; }
+function closeCat(){ document.getElementById("cat-ov").hidden=true; }
+
+/* ---- статус ---- */
+function st(k,v,cls){ return '<div class="st"><span class="k">'+k+'</span><span class="v '+(cls||"")+'">'+v+'</span></div>'; }
+function renderStatus(){ var c=counts(); document.getElementById("cstat").innerHTML=st("Найдено",fmtN(c.found),"gold")+st("Страница",page+" / "+c.pages,"")+st("Поиск",activeQ?"«"+esc(activeQ)+"»":"—",""); }
+
+/* ---- карточки ---- */
+function pageRows(){ var list=filtered(); if(activeQ) return list.slice((page-1)*PAGE,page*PAGE); return list.slice(0,PAGE); }
+function renderRows(){
+  var box=document.getElementById("rows"), rows=pageRows();
+  if(!rows.length){ box.innerHTML='<div class="empty"><span class="big">Ничего не найдено</span><span class="note">'+(activeQ?'По запросу «'+esc(activeQ)+'» ничего нет.':'В категории «'+esc(catLabel)+'» пусто.')+'</span><button type="button" class="qbtn" id="rst2">Сбросить</button></div>';
+    document.getElementById("rst2").addEventListener("click", function(){ document.getElementById("q").value=""; activeQ=""; selectCat(null); }); return; }
+  box.innerHTML=rows.map(function(it){
+    var r=A.rankOf(it), added=!!ADDED[it.itemId];
+    return '<div class="dcard"><div class="dc-top">'+A.iconHtml(it,"dc-ico")+
+      '<div class="dc-main"><div class="dc-name">'+esc(it.nameRu)+'</div>'+
+      '<div class="dc-sub">'+esc(catRu(it.category))+'</div>'+
+      '<div class="dc-chips"><span class="chip q" style="--qc:var('+r.v+')"><span class="qd"></span>'+r.name+'</span>'+(it.batch?'<span class="chip">пачки</span>':'')+'</div></div>'+
+      '<button type="button" class="ibtn add" data-id="'+esc(it.itemId)+'" aria-label="'+(added?'В избранном':'В избранное')+'" style="'+(added?'color:var(--gold-2)':'')+'">'+
+        (added?'<svg width="14" height="16" viewBox="0 0 12 14" fill="none"><path d="M2 1.5h8a.5.5 0 0 1 .5.5v10.6L6 9.6l-4.5 3V2a.5.5 0 0 1 .5-.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="m3.9 5.4 1.6 1.6 2.8-2.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+              :'<svg width="14" height="16" viewBox="0 0 12 14" fill="none"><path d="M2 1.5h8a.5.5 0 0 1 .5.5v10.6L6 9.6l-4.5 3V2a.5.5 0 0 1 .5-.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M6 3.8v3M4.5 5.3h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>')+
+      '</button></div></div>';
+  }).join("");
+  Array.prototype.forEach.call(box.querySelectorAll(".ibtn.add"), function(b){
+    var id=b.getAttribute("data-id"), it=null; for(var i=0;i<POOL.length;i++) if(POOL[i].itemId===id) it=POOL[i];
+    b.addEventListener("click", function(){ if(ADDED[id]){ A.toast("«"+it.nameRu+"» уже в избранном"); return; } openAdd(it); });
+  });
+}
+
+/* ---- пагинация ---- */
+function renderPager(){
+  var c=counts(), box=document.getElementById("pager");
+  if(c.pages<=1){ box.innerHTML=""; return; }
+  box.innerHTML='<button type="button" class="pg-btn" id="pprev"'+(page===1?" disabled":"")+' aria-label="Назад">‹</button>'+
+    '<span class="pinfo">'+page+' / '+c.pages+'</span>'+
+    '<button type="button" class="pg-btn" id="pnext"'+(page===c.pages?" disabled":"")+' aria-label="Вперёд">›</button>';
+  document.getElementById("pprev").addEventListener("click", function(){ if(page>1){page--;renderAll();window.scrollTo(0,0);} });
+  document.getElementById("pnext").addEventListener("click", function(){ if(page<counts().pages){page++;renderAll();window.scrollTo(0,0);} });
+}
+
+/* ---- модалка добавления ---- */
+function openAdd(it){
+  var isArt=(it.category||"").indexOf("artefact")===0;
+  var qOpts='<option value="">Любое</option>'+A.QNAME.map(function(n,i){ return '<option value="'+i+'">'+n+'</option>'; }).join("");
+  var eOpts='<option value="">Любая</option><option value="0">Не точёный</option>'; for(var i=1;i<=15;i++) eOpts+='<option value="'+i+'">+'+i+'</option>';
+  var body='<div class="m-id">'+A.iconHtml(it,"dc-ico")+'<span class="tx"><span class="nm">'+esc(it.nameRu)+'</span><span class="en">'+esc(it.nameEn||"")+'</span></span><span class="mid">'+esc(it.itemId)+'</span></div>'+
+    '<div class="frow" style="margin-bottom:12px"><label class="kick" for="m-reg">Регион</label><select id="m-reg" class="input"><option>RU</option><option>EU</option><option>NA</option><option>SEA</option></select></div>'+
+    (isArt?'<div class="frow" style="margin-bottom:12px"><label class="kick" for="m-q">Качество</label><select id="m-q" class="input">'+qOpts+'</select></div><div class="frow"><label class="kick" for="m-e">Заточка</label><select id="m-e" class="input">'+eOpts+'</select></div>':'');
+  var ov=A.openModal({title:"В избранное",body:body,actions:[{label:"Отмена"},{label:"Добавить",primary:true,onClick:function(){
+    var parts=[ov.querySelector("#m-reg").value], qs=ov.querySelector("#m-q"), es=ov.querySelector("#m-e");
+    if(qs&&qs.value!=="") parts.push("кач. "+A.QNAME[Number(qs.value)]);
+    if(es&&es.value!=="") parts.push(es.value==="0"?"не точёный":"+"+es.value);
+    ADDED[it.itemId]=true; renderRows(); A.toast("«"+it.nameRu+"» добавлен ("+parts.join(" · ")+")");
+  }}]});
+}
+
+function doSearch(){ activeQ=document.getElementById("q").value.trim(); page=1; renderAll(); }
+document.getElementById("find").addEventListener("click", doSearch);
+document.getElementById("q").addEventListener("keydown", function(e){ if(e.key==="Enter") doSearch(); });
+document.getElementById("catbtn").addEventListener("click", openCat);
+document.getElementById("cat-close").addEventListener("click", closeCat);
+document.getElementById("cat-ov").addEventListener("click", function(e){ if(e.target===this) closeCat(); });
+
+function renderAll(){ renderStatus(); renderRows(); renderPager(); }
+renderAll();
+})();
+</script>
+</body>
+</html>

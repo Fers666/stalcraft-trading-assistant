@@ -15,6 +15,8 @@ interface Props {
   enchantFilter?: number | null
   /** Медиана 7д — линия-ориентир на графике. */
   median?: number
+  /** Медиана сделок за 24ч — вторая линия, свежий уровень рынка. */
+  median24h?: number
 }
 
 type WindowKey = '24h' | '48h' | '7d' | '30d'
@@ -26,7 +28,7 @@ const WINDOWS: { key: WindowKey; label: string; hours: number; tier?: string }[]
   { key: '30d', label: '30Д', hours: 720, tier: 'Макс' },
 ]
 
-export default function SalesHistoryCharts({ itemId, region, qualityFilter, enchantFilter, median }: Props) {
+export default function SalesHistoryCharts({ itemId, region, qualityFilter, enchantFilter, median, median24h }: Props) {
   const navigate = useNavigate()
   const statsWindows = useAuthStore(s => s.user?.stats_windows)
 
@@ -91,6 +93,7 @@ export default function SalesHistoryCharts({ itemId, region, qualityFilter, ench
           enchantFilter={enchantFilter}
           defaultHours={current.hours}
           median={median}
+          median24h={median24h}
           hideControls
         />
       )}
