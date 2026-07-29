@@ -22,8 +22,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'SC Trading'
   const options = {
     body: data.body || '',
-    icon: '/logo.png',
-    badge: '/favicon.svg',
+    icon: '/icon-192.png',
+    badge: '/badge-72.png',
     tag: data.tag || undefined,
     data: { url: data.url || '/app' },
   }
