@@ -22,6 +22,7 @@ const iconBtnSx = {
   border: '1px solid transparent',
   borderRadius: '2px',
   color: tokens.text2,
+  background: 'transparent',
   cursor: 'pointer',
   transition: `color ${tokens.motion.fast}ms ${tokens.motion.ease}, background-color ${tokens.motion.fast}ms ${tokens.motion.ease}, border-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
   '&:hover, &:active': { color: tokens.goldAccent, background: tokens.bg2, borderColor: tokens.borderHi },

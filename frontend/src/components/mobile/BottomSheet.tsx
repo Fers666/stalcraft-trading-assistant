@@ -78,6 +78,7 @@ export default function BottomSheet({ open, onClose, title, children, footer }: 
             display: 'grid',
             placeItems: 'center',
             color: tokens.text2,
+            background: 'transparent',
             border: '1px solid transparent',
             borderRadius: '2px',
             transition: `color ${tokens.motion.fast}ms ${tokens.motion.ease}, background-color ${tokens.motion.fast}ms ${tokens.motion.ease}, border-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
