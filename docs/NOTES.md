@@ -264,7 +264,10 @@
   (Lunar, stalzone.wiki, stalzone-monitor, EXBO global-ветка) через скрипт
   `backend/app/scripts/import_arsenal_items.py` + проверка статуса торгуемости через прямые
   запросы `/lots`/`/history` к Stalcraft API. Добавлено 40 локальных иконок в
-  `frontend/public/arsenal-icons/` (формат webp). Итоговый `master_items`: 2328 → 2645 строк.
+  `frontend/public/arsenal-icons/` (формат webp). **На проде (2026-07-31):** master_items 2324 → 2640,
+  316 вставлено (1 запись уже существовала на проде до импорта; локальные 2328→2645 отражают
+  состояние dev-БД, не идентичное проду). Иконка `wjgm2.webp` отдаётся `200 image/webp`, предметы
+  `dm6l2`/`wjgm2`/`q1m4` подтверждены в БД с ожидаемыми `on_auction`/`icon_path`.
   Backend-dev + frontend-dev + qa-tester прошли. Критичных багов не найдено. ТЗ и результаты —
   `docs/tasks/arsenal-items-verification.md`.
 - [ ] **Инкрементальные почасовые агрегаты (rollups) для market_stats —
