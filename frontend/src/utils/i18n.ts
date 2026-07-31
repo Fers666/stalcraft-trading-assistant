@@ -136,5 +136,6 @@ const ICON_BASE = 'https://raw.githubusercontent.com/EXBO-Studio/stalcraft-datab
 /** Возвращает полный URL иконки предмета */
 export function iconUrl(iconPath: string | null | undefined): string | null {
   if (!iconPath) return null
+  if (iconPath.startsWith('/arsenal-icons/')) return iconPath
   return `${ICON_BASE}${iconPath}`
 }

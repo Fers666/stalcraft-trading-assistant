@@ -1,0 +1,2855 @@
+[
+  {
+    "item_id": "lypmj",
+    "name_ru": "Рюкзак",
+    "category": "other",
+    "lots_total": 2698,
+    "history_total": 6409297,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "dm6l2",
+    "name_ru": "Протоартефакт",
+    "category": "other",
+    "lots_total": 1773,
+    "history_total": 13518981,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "3gq6k",
+    "name_ru": "Набор компонентов оружия (Мастер)",
+    "category": "other",
+    "lots_total": 351,
+    "history_total": 3810062,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/3gq6k.webp"
+  },
+  {
+    "item_id": "y4g93",
+    "name_ru": "Фильтр",
+    "category": "other",
+    "lots_total": 306,
+    "history_total": 1548796,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/y4g93.webp"
+  },
+  {
+    "item_id": "wj3jz",
+    "name_ru": "Новогодний кейс 7-го уровня",
+    "category": "other",
+    "lots_total": 302,
+    "history_total": 1642718,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "g41qg",
+    "name_ru": "Ящик патронов 9x39 СБП",
+    "category": "other",
+    "lots_total": 288,
+    "history_total": 755809,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "6w9k6",
+    "name_ru": "Ящик патронов 5.45 мм СПБ",
+    "category": "other",
+    "lots_total": 258,
+    "history_total": 595992,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "zzwl2",
+    "name_ru": "Инъектор",
+    "category": "other",
+    "lots_total": 242,
+    "history_total": 1068780,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "y3430",
+    "name_ru": "Новогодний кейс 6-го уровня",
+    "category": "other",
+    "lots_total": 232,
+    "history_total": 99354,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rlzq",
+    "name_ru": "Ящик патронов 7.62 мм СБП",
+    "category": "other",
+    "lots_total": 219,
+    "history_total": 860700,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "z3o52",
+    "name_ru": "Боевой набор",
+    "category": "other",
+    "lots_total": 216,
+    "history_total": 3609483,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "drpw5",
+    "name_ru": "Старый скарб",
+    "category": "other",
+    "lots_total": 197,
+    "history_total": 2088421,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96zlw",
+    "name_ru": "Ящик патронов 5.56 мм СБП",
+    "category": "other",
+    "lots_total": 153,
+    "history_total": 689684,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "9d1p0",
+    "name_ru": "Черный презент",
+    "category": "other",
+    "lots_total": 128,
+    "history_total": 2934726,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "lyrzj",
+    "name_ru": "Хроноустановка",
+    "category": "other",
+    "lots_total": 120,
+    "history_total": 226216,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "y4gr3",
+    "name_ru": "Крупный артефактный фрагмент",
+    "category": "other",
+    "lots_total": 116,
+    "history_total": 138656,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/y4gr3.webp"
+  },
+  {
+    "item_id": "3gqyk",
+    "name_ru": "Ящик патронов 9 мм СПБ",
+    "category": "other",
+    "lots_total": 98,
+    "history_total": 624246,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "ly90o",
+    "name_ru": "Кейс с обликами «Славянской весны»",
+    "category": "other",
+    "lots_total": 94,
+    "history_total": 1095840,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "m0q1k",
+    "name_ru": "Хвост шавки",
+    "category": "other",
+    "lots_total": 84,
+    "history_total": 202749,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "p6qm5",
+    "name_ru": "Компонент брони (Мастер)",
+    "category": "other",
+    "lots_total": 84,
+    "history_total": 120089,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "z3wgm",
+    "name_ru": "Запчасти для ПДА",
+    "category": "other",
+    "lots_total": 83,
+    "history_total": 343596,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/z3wgm.webp"
+  },
+  {
+    "item_id": "krpnp",
+    "name_ru": "Лоскут светящейся кожи",
+    "category": "other",
+    "lots_total": 81,
+    "history_total": 320991,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/krpnp.webp"
+  },
+  {
+    "item_id": "2o0qm",
+    "name_ru": "Набор компонентов оружия (Ветеран)",
+    "category": "other",
+    "lots_total": 78,
+    "history_total": 698146,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "p6q5d",
+    "name_ru": "Копыто кабана",
+    "category": "other",
+    "lots_total": 75,
+    "history_total": 109305,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5l5lo",
+    "name_ru": "Новогодний кейс 5-го уровня",
+    "category": "other",
+    "lots_total": 73,
+    "history_total": 55145,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "0rl4r",
+    "name_ru": "Компонент оружия (Мастер)",
+    "category": "other",
+    "lots_total": 65,
+    "history_total": 458621,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "007oy",
+    "name_ru": "Кость мутанта",
+    "category": "other",
+    "lots_total": 64,
+    "history_total": 132975,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/007oy.webp"
+  },
+  {
+    "item_id": "21rp5",
+    "name_ru": "Предохранитель",
+    "category": "other",
+    "lots_total": 62,
+    "history_total": 96699,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "lyr7q",
+    "name_ru": "Компонент оружия (Сталкер)",
+    "category": "other",
+    "lots_total": 61,
+    "history_total": 163630,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "dmyg9",
+    "name_ru": "Набор компонентов оружия (Сталкер)",
+    "category": "other",
+    "lots_total": 60,
+    "history_total": 183631,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "wjlzz",
+    "name_ru": "Рука сильного шныря",
+    "category": "other",
+    "lots_total": 58,
+    "history_total": 96952,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/wjlzz.webp"
+  },
+  {
+    "item_id": "4q75j",
+    "name_ru": "Хвост слабой дикой гончей",
+    "category": "other",
+    "lots_total": 54,
+    "history_total": 35161,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "w3zpp",
+    "name_ru": "Благодать Перуна",
+    "category": "other",
+    "lots_total": 54,
+    "history_total": 2027073,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "okp04",
+    "name_ru": "Компонент брони (Сталкер)",
+    "category": "other",
+    "lots_total": 53,
+    "history_total": 51176,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "vj31g",
+    "name_ru": "Набор компонентов оружия (Новичок)",
+    "category": "other",
+    "lots_total": 50,
+    "history_total": 81557,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "771lj",
+    "name_ru": "Ноутбук",
+    "category": "other",
+    "lots_total": 49,
+    "history_total": 105428,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5539g",
+    "name_ru": "Оружейный кейс",
+    "category": "other",
+    "lots_total": 46,
+    "history_total": 19273,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "g41o0",
+    "name_ru": "Аномальная установка",
+    "category": "other",
+    "lots_total": 46,
+    "history_total": 284032,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "n4wg9",
+    "name_ru": "Глаз хрюши",
+    "category": "other",
+    "lots_total": 46,
+    "history_total": 303671,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96znw",
+    "name_ru": "Набор компонентов брони (Ветеран)",
+    "category": "other",
+    "lots_total": 44,
+    "history_total": 295854,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "oklqm",
+    "name_ru": "Болт",
+    "category": "other",
+    "lots_total": 44,
+    "history_total": 72368,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "g4n4n",
+    "name_ru": "Новогодний кейс 3-го уровня",
+    "category": "other",
+    "lots_total": 42,
+    "history_total": 42187,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "7l65j",
+    "name_ru": "Самодельная скошенная рукоятка",
+    "category": "other",
+    "lots_total": 41,
+    "history_total": 57101,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "19o22",
+    "name_ru": "Сигареты",
+    "category": "other",
+    "lots_total": 39,
+    "history_total": 62316,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j5q74",
+    "name_ru": "Компонент оружия (Новичок)",
+    "category": "other",
+    "lots_total": 39,
+    "history_total": 84686,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "g49mp",
+    "name_ru": "Сезонный пропуск",
+    "category": "other",
+    "lots_total": 38,
+    "history_total": 432583,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "zzwok",
+    "name_ru": "Глаз сильной хрюши",
+    "category": "other",
+    "lots_total": 38,
+    "history_total": 26691,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "dmy6g",
+    "name_ru": "Рука шныря",
+    "category": "other",
+    "lots_total": 37,
+    "history_total": 12425,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "n4wrw",
+    "name_ru": "Компонент брони (Ветеран)",
+    "category": "other",
+    "lots_total": 36,
+    "history_total": 95250,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "6w906",
+    "name_ru": "Набор компонентов брони (Сталкер)",
+    "category": "other",
+    "lots_total": 33,
+    "history_total": 55468,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "g419n",
+    "name_ru": "Голова слабой крысы",
+    "category": "other",
+    "lots_total": 33,
+    "history_total": 74478,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "00jjk",
+    "name_ru": "Часть схемы #3: «Спаннер»",
+    "category": "other",
+    "lots_total": 29,
+    "history_total": 19645,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "gn1nn",
+    "name_ru": "Комплект заводских инструментов",
+    "category": "other",
+    "lots_total": 29,
+    "history_total": 9591,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/gn1nn.webp"
+  },
+  {
+    "item_id": "m0q6r",
+    "name_ru": "Компонент брони (Новичек)",
+    "category": "other",
+    "lots_total": 29,
+    "history_total": 37813,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "4q7lr",
+    "name_ru": "Контейнер с камуфляжем для брони",
+    "category": "other",
+    "lots_total": 28,
+    "history_total": 26083,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "rwvnl",
+    "name_ru": "Компонент оружия (Ветеран)",
+    "category": "other",
+    "lots_total": 28,
+    "history_total": 262952,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j0g17",
+    "name_ru": "Спонсорский подгон",
+    "category": "other",
+    "lots_total": 27,
+    "history_total": 979312,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "knpzj",
+    "name_ru": "Глаз сильного бурелома",
+    "category": "other",
+    "lots_total": 27,
+    "history_total": 30333,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/knpzj.webp"
+  },
+  {
+    "item_id": "2o0gv",
+    "name_ru": "Щупальца упыря",
+    "category": "other",
+    "lots_total": 26,
+    "history_total": 47083,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5l6n0",
+    "name_ru": "Сезонный пропуск + 50 уровней",
+    "category": "other",
+    "lots_total": 26,
+    "history_total": 17221,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "6w92y",
+    "name_ru": "Ящик с оборудованием",
+    "category": "other",
+    "lots_total": 26,
+    "history_total": 13907,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "7l1mr",
+    "name_ru": "Набор компонентов брони (Новичек)",
+    "category": "other",
+    "lots_total": 25,
+    "history_total": 35334,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "zzqw2",
+    "name_ru": "Аптечка для экстремальных условий",
+    "category": "other",
+    "lots_total": 25,
+    "history_total": 6242,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "kr6kp",
+    "name_ru": "ПДА с данными",
+    "category": "other",
+    "lots_total": 24,
+    "history_total": 35710,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "m01r2",
+    "name_ru": "Кейс с обликами «Операции Криостазис»",
+    "category": "other",
+    "lots_total": 24,
+    "history_total": 169402,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "gn1r5",
+    "name_ru": "Старый жетон",
+    "category": "other",
+    "lots_total": 23,
+    "history_total": 4273,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j0q0l",
+    "name_ru": "Компоненты редких сплавов",
+    "category": "other",
+    "lots_total": 22,
+    "history_total": 17681,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/j0q0l.webp"
+  },
+  {
+    "item_id": "1r2y6",
+    "name_ru": "Десперол",
+    "category": "other",
+    "lots_total": 21,
+    "history_total": 48479,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "qjqn4",
+    "name_ru": "Голова сильной бестии",
+    "category": "other",
+    "lots_total": 21,
+    "history_total": 35863,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/qjqn4.webp"
+  },
+  {
+    "item_id": "drp05",
+    "name_ru": "Контейнер 2-го уровня",
+    "category": "other",
+    "lots_total": 20,
+    "history_total": 256699,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "9mvz",
+    "name_ru": "Покрышка",
+    "category": "misc",
+    "lots_total": 18,
+    "history_total": 81787,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "gnk55",
+    "name_ru": "Соленоид",
+    "category": "other",
+    "lots_total": 18,
+    "history_total": 84929,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/gnk55.webp"
+  },
+  {
+    "item_id": "p6vw2",
+    "name_ru": "Неисследованный предмет",
+    "category": "other",
+    "lots_total": 18,
+    "history_total": 29392,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "z3ook",
+    "name_ru": "Часть схемы #2: «Мечта»",
+    "category": "other",
+    "lots_total": 18,
+    "history_total": 15716,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "55y2q",
+    "name_ru": "Кубик рубика",
+    "category": "other",
+    "lots_total": 17,
+    "history_total": 7971,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "964o0",
+    "name_ru": "Кларинол",
+    "category": "other",
+    "lots_total": 17,
+    "history_total": 10773,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rlwg",
+    "name_ru": "Гладиаторский хабар",
+    "category": "other",
+    "lots_total": 16,
+    "history_total": 720673,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "wjl0z",
+    "name_ru": "Копыто слабого кабана",
+    "category": "other",
+    "lots_total": 16,
+    "history_total": 132513,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "l0k6o",
+    "name_ru": "Зуб мутанта",
+    "category": "other",
+    "lots_total": 15,
+    "history_total": 11370,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "2130v",
+    "name_ru": "Часть схемы #1: «Рапира»",
+    "category": "other",
+    "lots_total": 14,
+    "history_total": 26644,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "4q73j",
+    "name_ru": "Щупальца сильного упыря",
+    "category": "other",
+    "lots_total": 14,
+    "history_total": 4372,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "vj3wr",
+    "name_ru": "Ящик разбитого отражения",
+    "category": "other",
+    "lots_total": 14,
+    "history_total": 370402,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "19l02",
+    "name_ru": "Набор походной посуды",
+    "category": "other",
+    "lots_total": 13,
+    "history_total": 124666,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5533o",
+    "name_ru": "Часть схемы #3: «Мечта»",
+    "category": "other",
+    "lots_total": 13,
+    "history_total": 12600,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "krzzj",
+    "name_ru": "Часть схемы #2: «Йорш»",
+    "category": "other",
+    "lots_total": 13,
+    "history_total": 25726,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "l05r2",
+    "name_ru": "Часть схемы #2: «Волна»",
+    "category": "other",
+    "lots_total": 13,
+    "history_total": 41305,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "vj3dr",
+    "name_ru": "Контейнер «Мертвого времени»",
+    "category": "other",
+    "lots_total": 13,
+    "history_total": 203670,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "gnp1n",
+    "name_ru": "Часть схемы #3: «Лягуха»",
+    "category": "other",
+    "lots_total": 12,
+    "history_total": 16755,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "gnppn",
+    "name_ru": "Часть схемы #1: «Мечта»",
+    "category": "other",
+    "lots_total": 12,
+    "history_total": 16272,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j0gql",
+    "name_ru": "Часть схемы #1: «Волна»",
+    "category": "other",
+    "lots_total": 12,
+    "history_total": 42071,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j0n4g",
+    "name_ru": "Сломанный коготь",
+    "category": "other",
+    "lots_total": 12,
+    "history_total": 34935,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "m0q5j",
+    "name_ru": "Горелка",
+    "category": "other",
+    "lots_total": 12,
+    "history_total": 7141,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "vj307",
+    "name_ru": "Хвост дикой гончей",
+    "category": "other",
+    "lots_total": 12,
+    "history_total": 15549,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "194lr",
+    "name_ru": "Часть схемы #2 «Лягуха»",
+    "category": "other",
+    "lots_total": 11,
+    "history_total": 19945,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "l0592",
+    "name_ru": "Часть схемы #1: «Уравнитель»",
+    "category": "other",
+    "lots_total": 11,
+    "history_total": 17868,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "wjgm2",
+    "name_ru": "Дождевик",
+    "category": "armor/scientist",
+    "lots_total": 11,
+    "history_total": 5021,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/wjgm2.webp"
+  },
+  {
+    "item_id": "9d1zq",
+    "name_ru": "Часть схемы #1: «Лягуха»",
+    "category": "other",
+    "lots_total": 10,
+    "history_total": 20926,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "n4w13",
+    "name_ru": "Регалий",
+    "category": "other",
+    "lots_total": 10,
+    "history_total": 5750,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "0r90y",
+    "name_ru": "Кейс с обликами «Черного Рынка»",
+    "category": "other",
+    "lots_total": 9,
+    "history_total": 35111,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5dv0",
+    "name_ru": "Швейные иголки",
+    "category": "misc",
+    "lots_total": 9,
+    "history_total": 8483,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96qo0",
+    "name_ru": "Кустарная граната",
+    "category": "other",
+    "lots_total": 9,
+    "history_total": 2471,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "krprj",
+    "name_ru": "Коллекционные предметы",
+    "category": "other",
+    "lots_total": 9,
+    "history_total": 6364,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "0r9wy",
+    "name_ru": "Протоартефакт «Холодца»/«Пуха»",
+    "category": "other",
+    "lots_total": 8,
+    "history_total": 463412,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "0rl1r",
+    "name_ru": "Сумка экспансивных патронов 5.56 мм",
+    "category": "other",
+    "lots_total": 8,
+    "history_total": 6096,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1r6rg",
+    "name_ru": "Растворитель",
+    "category": "other",
+    "lots_total": 8,
+    "history_total": 12239,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "7lw96",
+    "name_ru": "Чугунный коленвал",
+    "category": "other",
+    "lots_total": 8,
+    "history_total": 3826,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "9dzqy",
+    "name_ru": "Псалмы «Шепота»",
+    "category": "other",
+    "lots_total": 8,
+    "history_total": 10709,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "zzw0k",
+    "name_ru": "Хвост слабой шавки",
+    "category": "other",
+    "lots_total": 8,
+    "history_total": 583532,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "210o5",
+    "name_ru": "Офицерская фляга",
+    "category": "other",
+    "lots_total": 7,
+    "history_total": 3691,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96d6q",
+    "name_ru": "Новогодний кейс 1-го уровня",
+    "category": "other",
+    "lots_total": 7,
+    "history_total": 44986,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j0ggl",
+    "name_ru": "Часть схемы #4: «Йорш»",
+    "category": "other",
+    "lots_total": 7,
+    "history_total": 17295,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "qj9q6",
+    "name_ru": "Пси-блок «Нейрон-33»",
+    "category": "medicine",
+    "lots_total": 7,
+    "history_total": 14724,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/qj9q6.webp"
+  },
+  {
+    "item_id": "rr3l",
+    "name_ru": "Патина",
+    "category": "misc",
+    "lots_total": 7,
+    "history_total": 6670,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "zz02n",
+    "name_ru": "Сезонный пропуск + 20 уровней",
+    "category": "other",
+    "lots_total": 7,
+    "history_total": 2863,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "00jlk",
+    "name_ru": "Часть схемы #4: «Волна»",
+    "category": "other",
+    "lots_total": 6,
+    "history_total": 26878,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1r9rr",
+    "name_ru": "Новогодний кейс 2-го уровня",
+    "category": "other",
+    "lots_total": 6,
+    "history_total": 12684,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "21rk5",
+    "name_ru": "Сломанные часы",
+    "category": "other",
+    "lots_total": 6,
+    "history_total": 9922,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "6w9np",
+    "name_ru": "Ящик исследователя холода",
+    "category": "other",
+    "lots_total": 6,
+    "history_total": 307292,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "77319",
+    "name_ru": "Часть схемы #3: «Рапира»",
+    "category": "other",
+    "lots_total": 6,
+    "history_total": 21879,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96jyz",
+    "name_ru": "Red Star Charm",
+    "category": "attachment/accessory",
+    "lots_total": 6,
+    "history_total": 1279,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "dr5n2",
+    "name_ru": "Тройник",
+    "category": "other",
+    "lots_total": 6,
+    "history_total": 3579,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "qj936",
+    "name_ru": "Ноотроп-тирозин",
+    "category": "other",
+    "lots_total": 6,
+    "history_total": 706,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "z3kqm",
+    "name_ru": "Зажигалка",
+    "category": "other",
+    "lots_total": 6,
+    "history_total": 5224,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "3g13z",
+    "name_ru": "Бутылка",
+    "category": "other",
+    "lots_total": 5,
+    "history_total": 321,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "773o9",
+    "name_ru": "Часть схемы #3: «Пчела»",
+    "category": "other",
+    "lots_total": 5,
+    "history_total": 17073,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "9dzdq",
+    "name_ru": "Фармппрепарат",
+    "category": "other",
+    "lots_total": 5,
+    "history_total": 1587,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "gnk75",
+    "name_ru": "Малая поставка торговцу",
+    "category": "other",
+    "lots_total": 5,
+    "history_total": 7412,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "n4616",
+    "name_ru": "Подорожник",
+    "category": "other",
+    "lots_total": 5,
+    "history_total": 49843,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "okzqm",
+    "name_ru": "Протоартефакт «Омута»",
+    "category": "other",
+    "lots_total": 5,
+    "history_total": 454374,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "qjqmj",
+    "name_ru": "Ящик Наследия Жнеца 2020",
+    "category": "other",
+    "lots_total": 5,
+    "history_total": 67807,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "y4n40",
+    "name_ru": "Медицинские инструменты",
+    "category": "other",
+    "lots_total": 5,
+    "history_total": 6391,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/y4n40.webp"
+  },
+  {
+    "item_id": "3govl",
+    "name_ru": "Стальной коленвал",
+    "category": "other",
+    "lots_total": 4,
+    "history_total": 3364,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "3gqvl",
+    "name_ru": "Ящик Проклятого огня",
+    "category": "other",
+    "lots_total": 4,
+    "history_total": 366590,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5535q",
+    "name_ru": "Ящик с продовольствием",
+    "category": "other",
+    "lots_total": 4,
+    "history_total": 6461,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "7l1qr",
+    "name_ru": "Ящик «Горячих Джеков»",
+    "category": "other",
+    "lots_total": 4,
+    "history_total": 11206,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "knp5j",
+    "name_ru": "Рука слабого шныря",
+    "category": "other",
+    "lots_total": 4,
+    "history_total": 10104,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "p6q75",
+    "name_ru": "Сумка снайперских 7.62 мм",
+    "category": "other",
+    "lots_total": 4,
+    "history_total": 41119,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "w3z0z",
+    "name_ru": "Часть схемы #1: АВТ-40",
+    "category": "other",
+    "lots_total": 4,
+    "history_total": 15812,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rk5r",
+    "name_ru": "Охотничий костюм",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 3654,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rk6g",
+    "name_ru": "Бандитский кожак",
+    "category": "armor/clothes",
+    "lots_total": 3,
+    "history_total": 4047,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5lo6o",
+    "name_ru": "Хвост слабой кошки",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 6385,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "77363",
+    "name_ru": "Контейнер 5-го уровня",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 394695,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96p9y",
+    "name_ru": "Магазин 5.56 NATO PMAG, зимний",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 1479,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96z1q",
+    "name_ru": "Голова сильной крысы",
+    "category": "misc",
+    "lots_total": 3,
+    "history_total": 2168,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j5zpg",
+    "name_ru": "Протоартефакт «Разряда»/«Застоя»",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 524947,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "krz5j",
+    "name_ru": "Часть схемы #3: АВТ-40",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 12583,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "ly9wo",
+    "name_ru": "Протоартефакт «Зажигалки»/Мороз",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 501912,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "m011k",
+    "name_ru": "Эротические журналы",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 4620,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "n4g62",
+    "name_ru": "Протоартефакт «Застоя»",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 249853,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "qj303",
+    "name_ru": "Кейс с обликами «Марафона мертвецов»",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 124622,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "rw6jy",
+    "name_ru": "Кейс с обликами «Корпорации ZIVCAS»",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 64893,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "rwvdl",
+    "name_ru": "Сумка экспансивных патронов 5.45 мм",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 8168,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "rwvqg",
+    "name_ru": "«Регенератор»",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 4028,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "wjlqd",
+    "name_ru": "Сумка патронов 5.45 мм",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 12140,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "wjwlp",
+    "name_ru": "Согревающая сыворотка",
+    "category": "other",
+    "lots_total": 3,
+    "history_total": 5067,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1dv1",
+    "name_ru": "Моток ниток",
+    "category": "misc",
+    "lots_total": 2,
+    "history_total": 17547,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1r192",
+    "name_ru": "Большой набор Черных Фишек",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 14355,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1r5q2",
+    "name_ru": "Брелок «Круговорот»",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 190,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "55o5o",
+    "name_ru": "Посуда",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 4206,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5lop4",
+    "name_ru": "Компонент для обрез Калгана",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 108576,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96v40",
+    "name_ru": "Прицельные метки для ПМ",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 2335,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96vwy",
+    "name_ru": "Тактическая рукоятка KAC Vertical Foregrip, зимняя",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 647,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "drym2",
+    "name_ru": "Ящик с запчастями",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 9813,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/drym2.webp"
+  },
+  {
+    "item_id": "g4156",
+    "name_ru": "Ящик аномальной стужи",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 687555,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j0gv7",
+    "name_ru": "Огромный подарок",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 4033071,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j0q5g",
+    "name_ru": "Царский клык",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 1838,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "okd4o",
+    "name_ru": "Радиопротектор третьего класса",
+    "category": "medicine",
+    "lots_total": 2,
+    "history_total": 30691,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/okd4o.webp"
+  },
+  {
+    "item_id": "rw6ly",
+    "name_ru": "Протоартефакт «Волчка»",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 452779,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "rwv6z",
+    "name_ru": "Коготь слабой бестии",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 18765,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "wjlg2",
+    "name_ru": "Контейнер с оружейными камуфляжем",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 16004,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "y4n13",
+    "name_ru": "Крупная поставка торговцу",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 591,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "zz3zk",
+    "name_ru": "Новогодний кейс 4-го уровня",
+    "category": "other",
+    "lots_total": 2,
+    "history_total": 28083,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "177r",
+    "name_ru": "Гильзовая болванка",
+    "category": "misc",
+    "lots_total": 1,
+    "history_total": 103,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rvj2",
+    "name_ru": "Вертикальная рукоятка ANG4, зимняя",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 559,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "4q7wl",
+    "name_ru": "Сумка патронов 5.56 мм",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 7215,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5lo44",
+    "name_ru": "Сумка патронов 9 мм",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 2634,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "6w946",
+    "name_ru": "Подсумок с индивидуальными аптечками",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 2063,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "g41dg",
+    "name_ru": "Коробка ИРП",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 2799,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j5qzl",
+    "name_ru": "Глаз слабого бурелома",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 77573,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j5z0g",
+    "name_ru": "Кейс с обликами «Аномальной Зимы»",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 377327,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "kn5rp",
+    "name_ru": "Кейс с обликами «Арены Ворона»",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 58714,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "kn9wj",
+    "name_ru": "Ложа карабина Мосина, обмотанная",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 1089,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "kny20",
+    "name_ru": "Кустарная осколочная граната",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 2783,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "kr25j",
+    "name_ru": "Крупнокалиберный самодельный патрон",
+    "category": "bullet",
+    "lots_total": 1,
+    "history_total": 5,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "l0552",
+    "name_ru": "Часть схемы #1: «Спаннер»",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 23801,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "m01w2",
+    "name_ru": "Протоартефакт «Батут»",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 447889,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "m0qdr",
+    "name_ru": "Сумка экспансивных патронов 7.62 мм",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 5875,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "n4wl1",
+    "name_ru": "Ящик прошедшего Бурана",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 263786,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "wj033",
+    "name_ru": "Кейс с обликами «Аномального Бурана»",
+    "category": "other",
+    "lots_total": 1,
+    "history_total": 34079,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "zzwr9",
+    "name_ru": "Сумка патронов 9x39 СП-5",
+    "category": "other",
+    "lots_total": 6,
+    "history_total": 7837,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "0rd7d",
+    "name_ru": "Радиопротектор первого класса",
+    "category": "medicine",
+    "lots_total": 0,
+    "history_total": 12779,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/0rd7d.webp"
+  },
+  {
+    "item_id": "0rdld",
+    "name_ru": "«Термобарьер» третьего класса",
+    "category": "medicine",
+    "lots_total": 0,
+    "history_total": 4836,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/0rdld.webp"
+  },
+  {
+    "item_id": "0rw19",
+    "name_ru": "Ящик гранат «Гудрон»",
+    "category": "misc",
+    "lots_total": 0,
+    "history_total": 95994,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/0rw19.webp"
+  },
+  {
+    "item_id": "1742",
+    "name_ru": "Пулевая болванка",
+    "category": "misc",
+    "lots_total": 0,
+    "history_total": 88,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "179g",
+    "name_ru": "Заготовка для гильзы",
+    "category": "misc",
+    "lots_total": 0,
+    "history_total": 3854,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1945q",
+    "name_ru": "Игрушка-подшипник диггеров",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 955,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "194gq",
+    "name_ru": "Сталкерская простецкая мишура",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 741,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rl3q",
+    "name_ru": "Старые детали (донатные)",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 81518,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rp4q",
+    "name_ru": "Прибор ночного видения",
+    "category": "armor/device",
+    "lots_total": 0,
+    "history_total": 246,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "21320",
+    "name_ru": "Контейнер 3-го уровня",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 57827,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "3g6nl",
+    "name_ru": "Маскировочный костюм «Смородина»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 10260,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/3g6nl.webp"
+  },
+  {
+    "item_id": "3gq5k",
+    "name_ru": "Ящик «Дубаков»",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 12562,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "49dj",
+    "name_ru": "Контейнер «Берлога-6у»",
+    "category": "containers",
+    "lots_total": 0,
+    "history_total": 17105,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "49gj",
+    "name_ru": "«КЗС-4»",
+    "category": "containers",
+    "lots_total": 0,
+    "history_total": 101,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "55oqq",
+    "name_ru": "Значительная поставка торговцу",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 786,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5l134",
+    "name_ru": "NVD-11 Export",
+    "category": "armor/device",
+    "lots_total": 0,
+    "history_total": 1320,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5ln51",
+    "name_ru": "Поношенная СВТ-40",
+    "category": "weapon/sniper_rifle",
+    "lots_total": 0,
+    "history_total": 730,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5lo9g",
+    "name_ru": "Баррикада из части урала",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 586,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5lp2g",
+    "name_ru": "Сложенный приклад",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 217,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "5lrg1",
+    "name_ru": "Бронекостюм «Пахан»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 780,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "7ljor",
+    "name_ru": "Брелок «Летучая мышь»",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 543,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "7yl7",
+    "name_ru": "Рюкзак Errand Junior",
+    "category": "containers",
+    "lots_total": 0,
+    "history_total": 4406,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "9696l",
+    "name_ru": "Поношенный СКС",
+    "category": "weapon/sniper_rifle",
+    "lots_total": 0,
+    "history_total": 811,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96y1w",
+    "name_ru": "Кустарный ПНВ",
+    "category": "armor/device",
+    "lots_total": 0,
+    "history_total": 2413,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "96zpw",
+    "name_ru": "Старые детали (не донатные)",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 325475,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "991y",
+    "name_ru": "Прессованная заготовка гильзы",
+    "category": "misc",
+    "lots_total": 0,
+    "history_total": 106,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "9d10q",
+    "name_ru": "Военный радиопередатчик",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 3,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/9d10q.webp"
+  },
+  {
+    "item_id": "9d63z",
+    "name_ru": "Карманные деньги",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 108650,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "dmky5",
+    "name_ru": "«ClearMind+»",
+    "category": "medicine",
+    "lots_total": 0,
+    "history_total": 20406,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/dmky5.webp"
+  },
+  {
+    "item_id": "g43pg",
+    "name_ru": "ПНВ 2-го поколения",
+    "category": "armor/device",
+    "lots_total": 0,
+    "history_total": 4542,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "gnkl5",
+    "name_ru": "Туалетная бумага",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 10215,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j5mn7",
+    "name_ru": "«Термобарьер» второго класса",
+    "category": "medicine",
+    "lots_total": 0,
+    "history_total": 4289,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/j5mn7.webp"
+  },
+  {
+    "item_id": "j5qgl",
+    "name_ru": "Коготь сильной бестии",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 132094,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "j5qr4",
+    "name_ru": "Сумка экспансивных патронов 9 мм",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 1402,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "kno60",
+    "name_ru": "Пси-блок «Нейрон-22»",
+    "category": "medicine",
+    "lots_total": 0,
+    "history_total": 61634,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/kno60.webp"
+  },
+  {
+    "item_id": "knp03",
+    "name_ru": "Сумка патронов 7.62 мм",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 6777,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "ly4ok",
+    "name_ru": "Цевье для Сайга-12К",
+    "category": "attachment/forend",
+    "lots_total": 0,
+    "history_total": 251,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/ly4ok.webp"
+  },
+  {
+    "item_id": "lyrmq",
+    "name_ru": "Сумка дроби 12x76 мм",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 2008,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "m0p4j",
+    "name_ru": "Радиопротектор второго класса",
+    "category": "medicine",
+    "lots_total": 0,
+    "history_total": 13097,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/m0p4j.webp"
+  },
+  {
+    "item_id": "m0pqj",
+    "name_ru": "Пси-блок «Нейрон-11»",
+    "category": "medicine",
+    "lots_total": 0,
+    "history_total": 3031,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/m0pqj.webp"
+  },
+  {
+    "item_id": "n3v9",
+    "name_ru": "Контейнер «Пасека»",
+    "category": "containers",
+    "lots_total": 0,
+    "history_total": 260,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/n3v9.webp"
+  },
+  {
+    "item_id": "n4321",
+    "name_ru": "Скин «Диверсант»",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 40,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "okp14",
+    "name_ru": "Ящик картечи 12x76 мм",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 2570,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "okq26",
+    "name_ru": "Ящик гранат «Хворь»",
+    "category": "misc",
+    "lots_total": 0,
+    "history_total": 35094,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/okq26.webp"
+  },
+  {
+    "item_id": "qjq34",
+    "name_ru": "Щупальца слабого упыря",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 91165,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "qjqk6",
+    "name_ru": "Военная баррикада",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 86,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "qjqz9",
+    "name_ru": "Газовый баллон",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 816,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "rg1z",
+    "name_ru": "«КЗС-4у»",
+    "category": "containers",
+    "lots_total": 0,
+    "history_total": 44156,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "rw1vg",
+    "name_ru": "«Термобарьер» первого класса",
+    "category": "medicine",
+    "lots_total": 0,
+    "history_total": 2176,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/rw1vg.webp"
+  },
+  {
+    "item_id": "rwldv",
+    "name_ru": "Ящик гранат «Вьюга»",
+    "category": "misc",
+    "lots_total": 0,
+    "history_total": 62951,
+    "on_auction": true,
+    "icon_path": "/arsenal-icons/rwldv.webp"
+  },
+  {
+    "item_id": "vj2kd",
+    "name_ru": "Кастомный AA-12",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 1,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "y3n00",
+    "name_ru": "Глаз слабой хрюши",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 89685,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "y3nlw",
+    "name_ru": "Сумка картечи 12x76 мм",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 1605,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "y3nzz",
+    "name_ru": "Горелка (с щитком)",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 653,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "y4ydw",
+    "name_ru": "Простецкая мишура диггеров",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 761,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "y4yww",
+    "name_ru": "Артефакт-игрушка Куриный бог",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 802,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "z23y",
+    "name_ru": "Форма пули",
+    "category": "misc",
+    "lots_total": 0,
+    "history_total": 1877,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "z3o49",
+    "name_ru": "Сталкерская редкая мишура",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 1210,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "z3od9",
+    "name_ru": "Простая гирлянда диггеров",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 738,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "z3z59",
+    "name_ru": "Обычная поставка торговцу",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 937,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "zz95m",
+    "name_ru": "Магазин 7.62 бакелитовый, обмотанный",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 1265,
+    "on_auction": true,
+    "icon_path": null
+  },
+  {
+    "item_id": "0r4k9",
+    "name_ru": "Поношенный костюм АО-3 «Искатель»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rkdg",
+    "name_ru": "Поврежденный АО-2 «Странник»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rkq2",
+    "name_ru": "Поношенный «Скиф-4»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rkqg",
+    "name_ru": "Поношенный «Скиф-2м»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "1rwg2",
+    "name_ru": "Мобильный лагерь",
+    "category": "backpacks",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "3g69l",
+    "name_ru": "Бронекостюм «Скиф-4б»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "3gdoz",
+    "name_ru": "Поношенный комбинезон «Сатурн»",
+    "category": "armor/scientist",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "3gp95",
+    "name_ru": "Увеличенный магазин для МЦ-558",
+    "category": "attachment/mag",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "3grk1",
+    "name_ru": "«Тестовый образец» РМО-93",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": "/arsenal-icons/3grk1.webp"
+  },
+  {
+    "item_id": "4q9op",
+    "name_ru": "Поношенный «Зверобой»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "4qlvo",
+    "name_ru": "Поношенный «Центурион»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "4qnor",
+    "name_ru": "Поношенная СВД",
+    "category": "weapon/sniper_rifle",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "553qq",
+    "name_ru": "Ядерный желатин",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "5lndo",
+    "name_ru": "Модифицированный Colt Walker",
+    "category": "weapon/pistol",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "5lrvq",
+    "name_ru": "Поврежденный «Егерь»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "6olnp",
+    "name_ru": "Светящаяся слизь",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "6w0rp",
+    "name_ru": "Поношенный костюм «Траппер»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "6wr2n",
+    "name_ru": "«Тестовый образец» РПК-16",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": "/arsenal-icons/6wr2n.webp"
+  },
+  {
+    "item_id": "7lr29",
+    "name_ru": "«Тестовый образец» ТКБ-0146М",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": "/arsenal-icons/7lr29.webp"
+  },
+  {
+    "item_id": "7lzw3",
+    "name_ru": "Поврежденный комбинезон «Сатурн»",
+    "category": "armor/scientist",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "7ynr",
+    "name_ru": "Выстрел гранатометный M2",
+    "category": "grenade",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "96n5l",
+    "name_ru": "Поношенный «Легионер»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "96n5y",
+    "name_ru": "Поношенная «Масть»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "96nml",
+    "name_ru": "Поношенный АО-2 «Странник»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "dj7n",
+    "name_ru": "Декомпрессор",
+    "category": "weapon_modules/module",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "dmg02",
+    "name_ru": "Поношенный «Клептоман»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "dmqzg",
+    "name_ru": "«Износ»",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": "/arsenal-icons/dmqzg.webp"
+  },
+  {
+    "item_id": "g400n",
+    "name_ru": "«Головорез» ОЦ-62",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": "/arsenal-icons/g400n.webp"
+  },
+  {
+    "item_id": "g4y06",
+    "name_ru": "Поношенный бронекостюм «Страйкер»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "g4yo5",
+    "name_ru": "Поврежденный «Скиф-4»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "g4yo6",
+    "name_ru": "Поношенный «Пахан»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "j5k10",
+    "name_ru": "Поношенный комбинезон «Уран»",
+    "category": "armor/scientist",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "j5k6g",
+    "name_ru": "Поношенный «Изумруд»",
+    "category": "armor/scientist",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "j5y7g",
+    "name_ru": "Мобильный лагерь",
+    "category": "containers",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "kn360",
+    "name_ru": "Поношенный «Мул»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "knnop",
+    "name_ru": "Large-Caliber Handmade Round",
+    "category": "consumables/bullet",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "knqgy",
+    "name_ru": "Поношенный КИМ-99 «Янтарь»",
+    "category": "armor/scientist",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "knqwp",
+    "name_ru": "Поношенный «Топаз»",
+    "category": "armor/scientist",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "ly29k",
+    "name_ru": "Поношенная L96A1",
+    "category": "weapon/sniper_rifle",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "lyjzk",
+    "name_ru": "Поношенный комбинезон «Жнец»",
+    "category": "armor/scientist",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "lyr3k",
+    "name_ru": "Странный ящик",
+    "category": "misc",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "m065y",
+    "name_ru": "Поношенный тяжелый бронекостюм «Восход»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "m3pk",
+    "name_ru": "Контейнер «Колотун»",
+    "category": "containers",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "n4rp1",
+    "name_ru": "Поношенный бронекостюм «Пересмешник»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "n4ry1",
+    "name_ru": "Поношенный защитный костюм «Ош»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "ok0jm",
+    "name_ru": "Поношенный «Скиф-4б»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "ok0v6",
+    "name_ru": "Поношенный бронекостюм «Сокол»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "ok0w6",
+    "name_ru": "Поношенный тяжелый бронекостюм «Громила»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "p6m4w",
+    "name_ru": "Поношенный АО-4 «Рейдер»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "p6mrw",
+    "name_ru": "Поношенный защитный костюм «Ворса»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "q1m4",
+    "name_ru": "Контейнер «Берлога-6у»",
+    "category": "containers",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": "/arsenal-icons/q1m4.webp"
+  },
+  {
+    "item_id": "qj1y6",
+    "name_ru": "Поношенный «Туз»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "qjokj",
+    "name_ru": "Поношенный КИМ-99М «Малахит»",
+    "category": "armor/scientist",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "qjor3",
+    "name_ru": "Поношенный «Иолит»",
+    "category": "armor/scientist",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "rwnqv",
+    "name_ru": "Поврежденный костюм АО-3 «Искатель»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "vj1pp",
+    "name_ru": "Поношенный «Грибник»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "vj1rr",
+    "name_ru": "Поношенный бронекостюм «Гоплит»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "vjrm7",
+    "name_ru": "«УЗ»",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": "/arsenal-icons/vjrm7.webp"
+  },
+  {
+    "item_id": "wjgp3",
+    "name_ru": "Поврежденный «Центурион»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "wjooz",
+    "name_ru": "«Хренострел»",
+    "category": "other",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": "/arsenal-icons/wjooz.webp"
+  },
+  {
+    "item_id": "y35p3",
+    "name_ru": "Поношенный «Егерь»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "y3jnk",
+    "name_ru": "XM8S Арсенала",
+    "category": "weapon/assault_rifle",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "y3qgz",
+    "name_ru": "Поношенный АО-6 «Кочевник»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "y3qyw",
+    "name_ru": "ПНВ О1М",
+    "category": "armor/device",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "zzy5m",
+    "name_ru": "Поношенный АО-5 «Пилигрим»",
+    "category": "armor/combined",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  },
+  {
+    "item_id": "zzy5y",
+    "name_ru": "Поношенный экзоскелет «Самсон»",
+    "category": "armor/combat",
+    "lots_total": 0,
+    "history_total": 0,
+    "on_auction": false,
+    "icon_path": null
+  }
+]

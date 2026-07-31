@@ -128,6 +128,16 @@ AND (on_auction IS TRUE OR bind_state IS NULL OR bind_state NOT IN
 > не терять торгуемое ценой показа пары непродаваемых). Детали расследования —
 > `docs/tasks/audit-on-auction-status.md`.
 
+**Примечание о разовом импорте (2026-07-31):** 317 предметов добавлены через скрипт
+`backend/app/scripts/import_arsenal_items.py` из внешних источников ресерча (Lunar, stalzone.wiki,
+stalzone-monitor, EXBO global-ветка); эти строки **не содержат** полей `name_en`, `color` и `bind_state`
+(все `NULL`) до тех пор, пока EXBO официально не добавит эти `item_id` в свой каталог и обычный
+`refresh-catalog` не обогатит их значениями. Статус `on_auction` для таких строк проставлен вручную
+(прямая проверка через `/lots` + `/history` к Stalcraft API) и истинен, **не** автоматически через
+задачу `audit_auction_status`. Поле `icon_path` у 40 из 317 записей указывает на локальные иконки
+в `frontend/public/arsenal-icons/{item_id}.webp` (webp-формат), остальные имеют `icon_path = NULL`
+(фолбэк-отображение буквы на фронте — см. `iconUrl()` в `frontend/src/utils/i18n.ts`).
+
 ---
 
 ### `user_watchlist` — список отслеживаемых товаров

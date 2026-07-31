@@ -259,6 +259,14 @@
   и проверено на проде 2026-07-07. Бонусом — фикс фильтра времени продажи
   (коммит `9a41653`): лот живёт max 48ч, фильтр аномалий `0 < hours <= 48`
   вместо 14 дней. Этап 2 (rollups) — отдельный пункт ниже.
+- [x] **Arsenal items verification — добавление 317 предметов в каталог ← 2026-07-31** —
+  разовый импорт 317 предметов (251 торгуемых + 66 непродаваемых) из внешних источников
+  (Lunar, stalzone.wiki, stalzone-monitor, EXBO global-ветка) через скрипт
+  `backend/app/scripts/import_arsenal_items.py` + проверка статуса торгуемости через прямые
+  запросы `/lots`/`/history` к Stalcraft API. Добавлено 40 локальных иконок в
+  `frontend/public/arsenal-icons/` (формат webp). Итоговый `master_items`: 2328 → 2645 строк.
+  Backend-dev + frontend-dev + qa-tester прошли. Критичных багов не найдено. ТЗ и результаты —
+  `docs/tasks/arsenal-items-verification.md`.
 - [ ] **Инкрементальные почасовые агрегаты (rollups) для market_stats —
   этап 2, НЕ срочно** — если фоновая стоимость пересчёта продолжит расти с
   объёмом sales_history/watchlist. Идея пользователя: предрассчитанные
