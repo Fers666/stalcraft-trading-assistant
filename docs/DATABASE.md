@@ -58,6 +58,13 @@ ORM: SQLAlchemy 2.0 async. Миграции: Alembic.
 | `auto_refresh_enabled` | bool | Включить автоматический сбор данных по расписанию |
 | `updated_at` | timestamptz | Дата изменения настроек |
 
+> Колонок «Ленты артефактов» (`feed_notify_push`, `feed_notify_telegram`,
+> `feed_min_profit_percent`) в таблице **нет**: у ленты нет уведомлений, объём сужен
+> пользователем 2026-08-04 (`docs/tasks/artifact-feed.md`, §Ревизия 4). Из миграции `0038`
+> они убраны до её применения на проде. Порог **видимости** строк ленты берётся из
+> существующего `min_profit_margin_percent` — он же валидируется на сервере диапазоном
+> `0..100` (`SettingsUpdate`), потому что входит и в `WHERE` ленты, и в ключ кэша витрины.
+
 ---
 
 ### `push_subscriptions` — подписки устройств на web push
@@ -216,7 +223,7 @@ Celery worker (`collect_all_active_lots`) сохраняет агрегиров�
 | Поле | Тип | Описание |
 |------|-----|----------|
 | `id` | integer PK | |
-| `user_id` | integer FK | |
+| `user_id` | integer FK, **nullable с миграции 0038** | `NULL` = глобально собранная продажа: историю по всем 103 артефактам пишет задача `collect_artifact_history` (не watchlist-пара) — та же конвенция, что у `collected_data.user_id` и `market_statistics.user_id`. Ни один сервис по `user_id` здесь не фильтрует |
 | `item_id` | varchar(50) | |
 | `region` | varchar(10) | |
 | `sale_time` | timestamptz | Время продажи |
@@ -239,6 +246,8 @@ Celery worker (`collect_all_active_lots`) сохраняет агрегиров�
 - `ix_sales_item_region_time (item_id, region, sale_time)` — миграция 0016, под запросы `/monitoring/sales-chart` и `/monitoring/item` (не содержат `user_id`)
 - `uq_sales_history_sale (item_id, region, sale_time, total_price, amount)` UNIQUE — миграция 0025, защита от дублей при `INSERT ... ON CONFLICT DO NOTHING`
 - `ix_sales_collected_at (collected_at)` — миграция 0032, под дифф-запрос порционного пересчёта статистики (`calculate_market_stats_batch`: поиск пар с `collected_at > market_statistics.calculated_at` в окне 26ч)
+
+Легаси-индекс `ix_sales_item_time` (`user_id, item_id, sale_time`) после перевода `user_id` в nullable **оставлен как есть** — новых индексов под глобальные строки не потребовалось: чтение истории артефактов идёт по `ix_sales_item_region_time`, дедуп — по `uq_sales_history_sale`. `downgrade()` миграции 0038 перед возвратом `NOT NULL` делает `DELETE FROM sales_history WHERE user_id IS NULL` (иначе откат упадёт); данные восстановимы повторным сбором.
 
 ---
 
@@ -487,6 +496,85 @@ P&L/медиан никогда не реализовывалась).
 
 ---
 
+### `feed_lots` — живой срез выгодных лотов «Ленты артефактов»
+
+Миграция `0038`. **Только выгодные лоты** (`evaluate_lot_profit` вернул не-`None`), переписывается каждым циклом `collect_artifact_lots` (~раз в минуту): upsert по `(item_id, region, lot_key)`, затем `DELETE ... WHERE seen_at < cycle_started_at` по обойдённому предмету и уборка строк старше `FEED_STALE_ROW_HOURS = 1`. Единственный писатель — `backend/app/tasks/feed_collector.py`. Формулы — `docs/BUSINESS_LOGIC.md` §18.
+
+| Поле | Тип | Nullable | Описание |
+|------|-----|----------|----------|
+| `id` | bigserial PK | нет | |
+| `item_id` | varchar(50) FK→`master_items.item_id` | нет | |
+| `region` | varchar(10) | нет | В v1 только `RU` (`settings.stalcraft_region`) |
+| `lot_key` | varchar(128) | нет | Идентичность лота на аукционе: `startTime\|qlt\|ptn\|buyoutPrice\|amount` (`feed_collector.lot_identity_key`). Один `startTime` ключом быть не может — точность API секунды, у предмета висят разные лоты с одинаковым `startTime`. Реалистичный максимум ~58 символов, запас взят с прицелом на то, что переполнение роняет запись предмета целиком. Дубль ключа внутри одного батча — ошибка уровня всей транзакции (`CardinalityViolationError`), поэтому батч дополнительно схлопывается `feed_collector.dedupe_rows` перед `INSERT`: это был блокер P1, цикл сбора падал целиком |
+| `qlt` | smallint | нет | Качество 0–5 (из `lot["additional"]`) |
+| `ptn` | smallint | нет | Заточка 0–15 |
+| `amount` | integer | нет | Штук в лоте |
+| `buyout_price` | bigint | нет | Итого к оплате за лот |
+| `buyout_per_unit` | bigint | нет | `buyout_price // amount` |
+| `start_time` | timestamptz | да | Из `lot["startTime"]` (отдельным полем: `lot_key` составной) |
+| `end_time` | timestamptz | да | Из `lot["endTime"]` (лот живёт максимум 48 ч) |
+| `ref_price` | bigint | нет | Опорная цена варианта из `artifact_variant_stats.ref_price` |
+| `sell_price_used` | bigint | нет | Из `evaluate_lot_profit` |
+| `breakeven_per_unit` | bigint | нет | Из `evaluate_lot_profit` (единственное место расчёта безубытка) |
+| `profit_per_unit` | bigint | нет | Прибыль на единицу |
+| `profit_total` | bigint | нет | `profit_per_unit × amount` — **колонка сортировки по умолчанию**, материализована |
+| `profit_pct` | numeric(8,2) | нет | |
+| `margin_adj_pct` | numeric(8,2) | нет | `profit_pct / risk_mult` — sargable-форма фильтра `profit_pct >= порог × risk_mult`; **основной фильтр видимости ленты** |
+| `profit_per_hour` | numeric(14,2) | да | ₽/час **на единицу** (как считает `evaluate_lot_profit`) |
+| `profit_per_hour_total` | numeric(14,2) | да | `profit_total / est_sell_hours` — ₽/час **со всего лота**, ровно та величина, которую печатает колонка «₽/час», и ключ её сортировки (`?sort=profit_per_hour`). Материализована, потому что сортировать надо по показанному числу: при `amount > 1` две величины расходятся в `amount` раз и выдача переворачивалась |
+| `est_sell_hours` | numeric(8,2) | да | `estimated_hours` тира `fast` |
+| `risk` | varchar(10) | нет | low / medium / high (`classify_risk` варианта) |
+| `risk_mult` | numeric(3,2) | нет | 1.00 / 1.30 / 1.60 из `pricing.RISK_MARGIN_MULT` |
+| `volatility_7d` | numeric(6,2) | да | |
+| `trend_24h` | varchar(10) | да | falling / stable / rising / unknown — **метка**, цену не двигает |
+| `trend_24h_pct` | numeric(8,2) | да | |
+| `trend_7d_pct` | numeric(8,2) | да | |
+| `sales_per_day` | numeric(10,2) | да | Денормализованный снимок `sales_volume_7d / 7` варианта (чтобы сортировать без join) |
+| `supply_coverage_days` | numeric(10,2) | да | Σ amount **всех** живых лотов варианта / `sales_per_day`; `NULL` при отсутствии продаж |
+| `stats_confidence` | varchar(10) | да | `ref_confidence` варианта (high / low) |
+| `stats_samples` | integer | да | `ref_samples` варианта |
+| `first_seen_at` | timestamptz | нет | Проставляется только при вставке — момент первого появления лота в ленте |
+| `seen_at` | timestamptz | нет | Момент последнего цикла, где лот подтверждён; `max(seen_at)` = `snapshot_at` ответов API |
+
+**Индексы:** `uq_feed_lots_lot (item_id, region, lot_key)` UNIQUE, `ix_feed_lots_profit_total (profit_total DESC)`, `ix_feed_lots_profit_pct (profit_pct DESC)`, `ix_feed_lots_margin_adj (margin_adj_pct DESC)`, `ix_feed_lots_item (item_id)`, `ix_feed_lots_variant (qlt, ptn)`, `ix_feed_lots_end_time (end_time)`, `ix_feed_lots_seen_at (seen_at)`.
+
+> Индекса по `buyout_price` **нет намеренно**: витрина лимитированных тарифов использует его только в `percentile_cont` по всей выборке и в `BETWEEN` — на таблице в сотни–тысячи строк индекс выигрыша не даёт (Ревизия 2 ТЗ отменила запланированную миграцию `0039`).
+>
+> `supply_coverage_days` живёт здесь, а не в `artifact_variant_stats`: задача статистики не видит живых лотов (читает только `sales_history`), а сбор лотов видит их целиком — так у каждой таблицы остаётся **один писатель**.
+
+---
+
+### `artifact_variant_stats` — статистика варианта «предмет × качество × заточка»
+
+Миграция `0038`. Опора скоринга ленты: без `ref_price`/`sell_options` варианта лоты пропускаются целиком (считать выгодность от цен **выставленных** лотов — ровно та ошибка, на которой фича умирала дважды). Пересчитывается задачей `calculate_artifact_variant_stats` каждые 10 мин по продажам за 30 дней; варианты без сделок за окно удаляются. Единственный писатель — `backend/app/services/analytics/variant_stats.py`.
+
+| Поле | Тип | Nullable | Описание |
+|------|-----|----------|----------|
+| `id` | bigserial PK | нет | |
+| `item_id` | varchar(50) FK→`master_items.item_id` | нет | |
+| `region` | varchar(10) | нет | |
+| `qlt` / `ptn` | smallint | нет | Вариант: `additional_info.qlt` 0–5, `ptn` 0–15 |
+| `ref_price` | bigint | да | `pricing.compute_reference()["ref"]` — взвешенная по свежести медиана **сделок** 7 д. `NULL` = вариант в ленту не попадает |
+| `ref_source` | varchar(20) | да | weighted_history / history / current_fallback |
+| `ref_confidence` | varchar(10) | да | high / low |
+| `ref_samples` | integer | да | |
+| `median_24h` / `median_7d` / `median_30d` | numeric(14,2) | да | Описательные медианы сделок |
+| `sales_volume_24h` / `_7d` / `_30d` | integer | да | Число сделок в окне |
+| `sales_per_day` | numeric(10,2) | да | `sales_volume_7d / 7` |
+| `volatility_7d` | numeric(6,2) | да | stdev/mean × 100 при ≥ 5 сделках |
+| `risk` | varchar(10) | да | `classify_risk(volatility_7d)` |
+| `trend_24h` | varchar(10) | да | Метка из `compute_reference` |
+| `trend_24h_pct` | numeric(8,2) | да | |
+| `trend_7d_pct` | numeric(8,2) | да | `(median_7d / median_30d − 1) × 100`, `NULL` при `median_30d` = 0/`NULL` |
+| `sell_options` | jsonb | да | Результат `make_sell_options` |
+| `batch_stats` | jsonb | да | `market_stats._calculate_batch_stats` по продажам варианта |
+| `avg_sell_time_hours` | numeric(8,2) | да | `market_stats._avg_sell_time_from_buyouts` |
+| `calculated_at` | timestamptz | нет | server_default `now()` |
+
+**Индексы:** `uq_artifact_variant (item_id, region, qlt, ptn)` UNIQUE, `ix_avs_item (item_id, region)`.
+
+---
+
 ### Изменения в существующих таблицах (миграции 0005–0006)
 
 **`collected_data.user_id`** — становится nullable:
@@ -544,6 +632,7 @@ P&L/медиан никогда не реализовывалась).
 | `0035_push_subscriptions.py` | Новая таблица `push_subscriptions` (web push, ПК/Android/iOS): `user_id` FK→users CASCADE+index, `endpoint` UNIQUE, `p256dh`/`auth`/`user_agent`, `created_at`/`last_used_at` |
 | `0036_master_items_on_auction.py` | Поля `master_items.on_auction` (bool nullable), `auction_checked_at` (timestamptz), `history_total`/`lots_total` (int) + индекс `ix_master_on_auction` — реальная торгуемость по Stalcraft API вместо эвристики `bind_state` (задача `audit_auction_status`) |
 | `0037_market_stats_reference_price.py` | Поля `market_statistics.median_price_24h` (numeric) и `reference_price` (bigint) — опорная цена `sell_options` как взвешенная по свежести медиана продаж 7д вместо плоской `median_price_7d`. Без бэкфилла: часовой `calculate_market_stats` заполнит, до этого потребители падают на `median_price_7d` |
+| `0038_artifact_feed.py` | «Лента артефактов»: новые таблицы `feed_lots` (8 индексов, включая дописанную позже колонку `profit_per_hour_total`) и `artifact_variant_stats` (2 индекса); `sales_history.user_id` → nullable (глобальная история артефактов пишется с `user_id=NULL`). Три колонки `user_settings` (`feed_notify_push`/`feed_notify_telegram`/`feed_min_profit_percent`) из миграции **убраны 2026-08-04** вместе с уведомлениями ленты. `downgrade()` перед возвратом `NOT NULL` удаляет строки `sales_history` с `user_id IS NULL` — применять **нельзя**, это уничтожает глобальную историю продаж. **На прод не применялась** (состояние на 2026-08-04) |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 

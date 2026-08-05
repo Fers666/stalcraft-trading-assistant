@@ -14,6 +14,9 @@
 | `sweep_expired_tiers` | ежедневно 03:30 | `app.tasks.tiers` | Понижение до `base` пользователей с истёкшим `tier_expires_at` + деактивация лишних карточек watchlist сверх нового лимита |
 | `collect_emission` | каждые 2 мин | `app.tasks.collectors` | Опрос `GET /RU/emission`, детект start/end выброса, Redis-дедупликация (`emission:current_fingerprint`), запись событий в `emission_events` (старт → `notified=False`; конец → `ended_at`; seed первого запуска → `notified=True, end_notified=True`). С 2026-07-08 worker сам НЕ рассылает Telegram — рассылку делает `telegram_bot::notify_emission_events` (см. раздел Telegram) |
 | `audit_auction_status` | — (только вручную, beat НЕТ) | `app.tasks.audit` | Разовый бэкфилл `master_items.on_auction` — реальная торгуемость через Stalcraft API. Запуск через `POST /admin/audit-auction-status` (см. ниже) после обновления каталога |
+| `collect_artifact_lots` | `crontab(minute="*")` + джиттер старта до 10 с | `app.tasks.feed_collector` | «Лента артефактов»: обход всех артефактов каталога (`category LIKE 'artefact%' AND on_auction IS NOT FALSE`, ~103 предмета) с **полной** пагинацией `/lots` по `data["total"]`, скоринг и перезапись `feed_lots`. Бюджет `FEED_BUDGET_UNITS_PER_MIN=200` ед/прогон, Redis-лок `feed:scan:lock` (NX EX 300) против наложения, резумируемый курсор, два темпа «горячие/холодные». Расписание по **стенным часам**, а не `timedelta(60)`: у `timedelta` фаза привязана к старту beat, и при рестарте контейнеров цикл ленты выпускался в ту же секунду, что watchlist-тик и `collect_emission` (реальные 429 при среднем расходе ~42 % лимита) |
+| `collect_artifact_history` | раз в час (мин. 15) + джиттер до 30 с | `app.tasks.feed_collector` | История продаж по всем артефактам — опора расчёта прибыли ленты. Пишет `sales_history` с `user_id = NULL`. ~3.4 ед/мин в часовом среднем. Минута :15 выбрана вне окна `collect_all_history` (:00–:11); обход растянут паузой `HISTORY_ITEM_DELAY = 2.0` с между предметами примерно на 4 минуты (~52 ед/мин вместо 206 ед за одну минуту) |
+| `calculate_artifact_variant_stats` | :14, :24, :34, :44, :54 | `app.tasks.feed_collector` (сервис — `app.services.analytics.variant_stats`) | Пересчёт `artifact_variant_stats` (вариант = предмет × qlt × ptn) по продажам за 30 д. Шаг 10 мин вне окна `collect_all_history` и вне слотов `calculate_market_stats_batch` — чтобы не воспроизвести CPU-плато (`docs/tasks/cpu-spikes-recurring-2026-07-06.md`) |
 
 ### Логика дедупликации watchlist
 
@@ -400,16 +403,204 @@ DIRECT-exchange `push.events` (fan-out по routing_key `push`): `push.notificat
 
 ---
 
-### Лента возможностей — раздел в разработке
+## «Лента артефактов» — раздел `/app/feed` (2026-08-03)
 
-`GET /monitoring/feed` и весь конвейер данных (`global_scanner`, таблицы
-`global_item_scan`/`user_feed_exclusion`) удалены 2026-06-07 — метрика
-"купи дешевле средней" оказалась методологически некорректной (средняя
-цена ВЫСТАВЛЕННЫХ лотов ≠ цена реальной продажи). Вторая попытка
-(`feed_watchlist`, фоновый коллектор `feed_collector.py`, 2026-06-09)
-тоже убрана 2026-06-11. Подробности — см.
-`docs/CHANGELOG.md`. `FeedPage.tsx` снова заглушка "в разработке", маршрут
-`/app/feed` сохранён.
+> **История двух удалённых попыток (контекст, почему третья устроена иначе).**
+> `GET /monitoring/feed` и конвейер `global_scanner` (таблицы `global_item_scan` /
+> `user_feed_exclusion`) удалены 2026-06-07; вторая попытка (`feed_watchlist`, фоновый
+> `feed_collector.py`, 2026-06-09) убрана 2026-06-11. Оба раза причина одна: выгодность
+> считали от `avg_price_24h` — средней цены **выставленных** лотов, а не реальных сделок.
+> Подробности — `docs/CHANGELOG.md`.
+>
+> **Третья реализация метрику не изобретает:** она переиспользует те же функции
+> `services/analytics/pricing.py`, что питают карточку «Избранного» и Telegram-бота
+> (`compute_reference` / `weighted_reference` / `make_sell_options` / `evaluate_lot_profit` /
+> `classify_risk` / `COMMISSION` / `RISK_MARGIN_MULT`). Опора — медиана **сделок** 7 д,
+> взвешенная по свежести. Задача стала решаемой ещё и потому, что артефактов в каталоге
+> всего ~103 против 2328 предметов целиком. ТЗ — `docs/tasks/artifact-feed.md`,
+> формулы — `docs/BUSINESS_LOGIC.md` §18.
+>
+> **Объём сужен пользователем 2026-08-04 (ТЗ, §Ревизия 4).** У ленты **нет уведомлений**:
+> тип события `feed_lot`, продюсер в `feed_collector.py`, оба консьюмера, три колонки
+> `user_settings` (`feed_notify_push` / `feed_notify_telegram` / `feed_min_profit_percent`),
+> ручка `GET /feed/signals` и артефактные карточки в полосе сигналов **удалены из кода**.
+> Лента — отдельный раздел, мониторинг ведётся с портала. Полоса сигналов вернулась к
+> прежнему поведению: только «Избранное».
+
+### app/tasks/feed_collector.py — три Celery-задачи
+
+**`collect_artifact_lots`** (beat `crontab(minute="*")`) — обход артефактов и перезапись
+`feed_lots`.
+
+Ключевые константы (значения **до калибровки на проде**, см. `docs/NOTES.md`):
+
+```python
+FEED_BUDGET_UNITS_PER_MIN = 200   # потолок расхода за прогон (50% лимита 400)
+FEED_RATE_GUARD_UNITS     = 340   # суммарный расход системы выше -> цикл прерывается
+FEED_LOTS_PAGE_LIMIT      = 200   # максимум, который принимает /lots
+FEED_LOTS_REQUEST_COST    = 2     # = TokenCost.LOTS
+FEED_MAX_PAGES_PER_ITEM   = 10    # потолок 2000 лотов на предмет
+FEED_REQUEST_DELAY        = 0.3   # секунд между страницами
+FEED_COLD_EVERY_N_CYCLES  = 5     # холодные артефакты обходим каждый N-й цикл
+FEED_HOT_SALES_PER_DAY    = 1.0   # горячий, если max(sales_per_day) варианта >= порога
+FEED_HOT_MIN_LOTS_TOTAL   = 200   # ...или master_items.lots_total >= порога
+FEED_MAX_PROFIT_PCT       = 1000.0  # выше -> глитч, лот не сохраняем
+FEED_STALE_ROW_HOURS      = 1     # уборка осиротевших строк feed_lots
+FEED_CYCLE_JITTER_SEC     = 10    # случайное смещение старта цикла (до взятия лока)
+FEED_HISTORY_JITTER_SEC   = 30    # то же для часовой задачи истории
+FEED_ITEM_RETRIES         = 2     # ретраи транзиентной ошибки на уровне предмета
+FEED_ITEM_FAIL_MAX        = 3     # подряд идущих отказов -> предмет паркуется
+FEED_ITEM_FAIL_TTL        = 3600  # TTL счётчика отказов feed:scan:fail:{item}
+FEED_ITEM_PARK_TTL        = 900   # на сколько припаркованный предмет уходит из очереди
+```
+
+- **Полная пагинация** `/lots` по `data["total"]` — принципиальное отличие от
+  `collectors._collect_lots_for_item`, который берёт первые 200 лотов и сортирует их по цене
+  уже **после** получения (у артефакта с 800 лотами первая страница гарантированно пропустит
+  лучшие предложения).
+- **Защита от наложения:** `SET feed:scan:lock NX EX 300` в начале, снятие в `finally`.
+- **Планировщик бюджета** `plan_run(items, budget_units)` — чистая функция: предмет берётся
+  **целиком или не берётся вовсе** (частичная пагинация даёт неполный срез).
+- **Предохранитель по фактическому расходу:** перед каждым предметом читается
+  `max(текущая минута, предыдущая полная минута)` из `stalcraft:requests:minute:*`;
+  превышение `FEED_RATE_GUARD_UNITS` → `break`. Ядро `rate_limiter.py` не менялось.
+- **Два темпа:** горячие обходятся каждый цикл, холодные — каждый `FEED_COLD_EVERY_N_CYCLES`-й.
+  Порядок очереди — по `feed:scan:last` ASC, NULL первыми.
+- **Общий кэш:** после обхода предмета вызывается `api_cache.set_lots(...)` — `GET /lots/{id}`
+  по артефакту не порождает своего запроса к внешнему API.
+- **Идентичность лота:** `lot_key = lot_identity_key(lot)` = `startTime|qlt|ptn|buyoutPrice|amount`.
+  Один `startTime` ключом быть не может: точность API — секунды, у предмета регулярно висят
+  **разные** лоты с одинаковым `startTime` (подтверждённый пример `wg53`). Два таких лота в
+  одном батче апсерта роняли весь цикл (`CardinalityViolationError: ON CONFLICT DO UPDATE
+  command cannot affect row a second time`) — это был блокер P1. Второй уровень защиты,
+  независимый от схемы ключа, — `dedupe_rows(rows)`: схлопывает совпавшие
+  `(item_id, region, lot_key)` перед `INSERT`, побеждает последняя строка.
+- **Запись:** upsert по `(item_id, region, lot_key)`, `first_seen_at` только при вставке;
+  после предмета — `DELETE ... WHERE seen_at < cycle_started_at`; коммит после каждого
+  предмета.
+- **Отказоустойчивость предмета:** `safe_scan_item` ловит транзиентную ошибку
+  (`FEED_ITEM_RETRIES` + бэкофф), при исчерпании — `note_item_failure` инкрементит
+  `feed:scan:fail:{item_id}`; после `FEED_ITEM_FAIL_MAX` предмет **паркуется** — в
+  `feed:scan:last` пишется метка из будущего (`cycle_started_at + FEED_ITEM_PARK_TTL`), и он
+  уходит в конец очереди на 900 с. Без парковки предмет без обновлённого `feed:scan:last`
+  встаёт **первым** в следующем цикле и жжёт лимит API своим отказом каждые 60 с. Успешный
+  обход снимает счётчик (`clear_item_failures`). Ошибка одного предмета цикл не роняет.
+- **Лог цикла** (вход калибровки): `feed cycle #<n>: items_planned=… items_done=…
+  items_failed=… pages=… units=… elapsed=…s deferred=… guard_trips=… rows_upserted=…
+  rows_deleted=…` и `feed sweep: полный круг за …с`.
+
+**`collect_artifact_history`** (beat раз в час на :15) — постраничный `/history` по всем
+артефактам до первой известной продажи либо `HISTORY_BACKSTOP_PAGES = 3`; запись с
+**`user_id = NULL`**, `additional_info` приоритетно из `record["additional"]`,
+`on_conflict_do_nothing` по `uq_sales_history_sale`. Снэпшот-матчинг `lot_start` **не
+делается** (у артефактов вне watchlist нет `collected_data`) — следствие отражается в
+`stats_confidence` строки ленты. Стоимость ≈ 3.4 ед/мин.
+
+Без этой задачи у артефактов вне чьего-то «Избранного» истории продаж нет вовсе:
+`sales_history` исторически наполнялся только по watchlist-парам.
+
+**`calculate_artifact_variant_stats`** (beat :14,:24,:34,:44,:54) — тонкая Celery-обёртка над
+`services/analytics/variant_stats.py`.
+
+**Redis-ключи ленты:** `feed:scan:lock` (лок цикла, NX EX 300), `feed:scan:last:{item_id}`
+(ISO-время последнего успешного обхода, TTL 24 ч; у припаркованного предмета — метка из
+будущего), `feed:scan:fail:{item_id}` (счётчик подряд идущих отказов, TTL 1 ч),
+`feed:scan:cycle` (счётчик прогонов — определяет темп холодных), `feed:scan:sweep`
+(`"{цикл}:{unix_ts}"` начала текущего полного круга). Состояние держится в Redis сознательно: оно операционное, потеря безвредна, а UPDATE
+103 строк каталога каждую минуту — лишняя запись в таблицу, которую читают все разделы.
+
+### app/services/analytics/variant_stats.py — статистика вариантов
+
+`calculate_artifact_variant_stats(db, region, now=None) -> dict` пересчитывает
+`artifact_variant_stats` по всем вариантам всех артефактов:
+
+1. Один SQL-запрос: продажи всех артефактов (`master_items.category LIKE 'artefact%'`) за 30 д.
+2. Группировка по `(item_id, region, qlt, ptn)` **в Python** — `variant_key(additional_info)`:
+   `qlt = int(additional.get("qlt") or 0)`, `ptn = int(additional.get("ptn") or 0)`, та же
+   трактовка, что у `_lot_quality_enchant` для артефактов. Вариант без сделок за 30 д не
+   создаётся, существующий без сделок — удаляется.
+3. На вариант — **та же последовательность вызовов, что в `profitable_lots.compute_signals_for_entry`**:
+   `weighted_reference` → `compute_reference` (без `median_now`/`current_min`: живых лотов
+   здесь нет) → волатильность (при ≥ 5 сделках) → `classify_risk` → `make_sell_options` →
+   `_calculate_batch_stats` → `_avg_sell_time_from_buyouts`. `ref_info is None` → вариант
+   пишется с `ref_price = NULL` и в скоринге пропускается.
+4. Апсерт по `(item_id, region, qlt, ptn)` чанками; numeric-поля — через `market_stats._clamp_pct`.
+
+Сопутствующий рефактор в `market_stats.py`: извлечение пар «часы на рынке → цена» вынесено из
+`_calculate_sell_options` в общий `extract_time_price_pairs(sales)` (поведение не менялось,
+формула не форкается).
+
+### app/api/v1/endpoints/feed.py — четыре ручки
+
+Префикс `/feed`, tag `Feed`. Регион — только `settings.stalcraft_region` (RU в v1).
+Персональный порог видимости читается из `user_settings.min_profit_margin_percent` при
+каждом запросе и применяется как `FeedLot.margin_adj_pct >= порог`.
+
+| Ручка | Гейт | Кэш | Что делает |
+|---|---|---|---|
+| `GET /feed/lots` | **нет** | витрина — Redis TTL 30 с | Ветвится по тарифу: `feed_rows_limit is None` → полная лента (фильтры `item_id`/`qlt`/`ptn`/`min_profit_pct`/`max_buyout`/`min_amount`/`risk`, 7 сортировок, серверная пагинация 25/50/100, `total_count`). Иначе → фиксированная витрина из `feed_rows_limit` строк, где `sort`/фильтры/`page`/`page_size` **игнорируются**. Списочные фильтры — не больше `FEED_MAX_LIST_VALUES = 50` значений (422) |
+| `GET /feed/variant/{item_id}?qlt=&ptn=[&region=]` | **нет** | — | Статистика варианта для карточки артефакта (`ArtifactModal` → `LotStatCard`). Ответ — тот же `MonitoringItemResponse`, что у `/monitoring/item`, окна режет тот же `_mask_stats_windows`. Одна строка `artifact_variant_stats` по индексу `uq_artifact_variant`, нет строки → 404 |
+| `GET /feed/summary` | `feed_access` | Redis TTL 60 с | Сводка 24 ч: `profitable_lots`, `avg_profit_pct`, `total_profit`, `sales_24h`, `items_tracked`, `best_lot`, `snapshot_at` |
+| `GET /feed/filters` | `feed_access` | — | Счётчики для чипов: предметы, качества, заточки, подкатегории (Био/Грав/Терм/Электро/Прочие). Все — с учётом персонального порога, иначе чипы обещали бы строки, которых пользователь не увидит |
+
+Ключи кэша включают порог пользователя (и лимит тарифа для витрины), чтобы пользователи с
+разными настройками не делили выдачу: `feed:showcase:{region}:{int(threshold)}:{rows_limit}`,
+`feed:summary:{region}:{int(user_min)}`. Порог витрины предварительно квантуется **вниз**
+шагом `FEED_SHOWCASE_MIN_STEP = 5` (`showcase_threshold`): он входит и в `WHERE`, и в ключ
+кэша, поэтому без квантования лимитированный тариф перебором порога собирал бы ленту по
+строке, а каждый новый ключ ещё и обходил бы TTL 30 с, пересчитывая `percentile_cont` заново.
+Вниз, а не вверх — округление вверх скрыло бы строки, на которые пользователь имеет право по
+собственной настройке. Сама настройка `min_profit_margin_percent` валидируется на сервере
+(`SettingsUpdate`, `Field(ge=0, le=100)`), а не только клампом в UI.
+
+**Требование безопасности (не оптимизация):** негейтированные ручки читают **только**
+готовые таблицы (`feed_lots` + join `master_items`, `artifact_variant_stats`); никаких вызовов `stalcraft_client`,
+`variant_stats`, `market_stats`, `api_cache.get_or_fetch_*`; на пустой таблице — пустой ответ
+без пересчёта. Прямой урок `get_watchlist_suggestions`: негейтированный эндпоинт, способный
+запустить тяжёлый пересчёт, — DoS-вектор (замечание security-ревью 2026-07-24).
+
+> Запланированная в Ревизии 1 отдельная ручка `GET /feed/teaser` **не реализована**:
+> Ревизия 2 свела оба пути к данным в одну негейтированную `/feed/lots`, ветвящуюся по тарифу
+> (два пути к одним данным с разными правилами неизбежно разъехались бы).
+
+### Уведомлений у ленты нет (сужение объёма 2026-08-04)
+
+Раздел смотрят **напрямую с портала**. `collect_artifact_lots` ничего не публикует в
+`push.events`, консьюмеры типа `feed_lot` не знают, дедуп-ключей `feed_push_sent:*` /
+`feed_tg_sent:*` не существует. Удалены: продюсер (`FeedRecipient`, `feed_recipient`,
+`select_new_lots_for_user`, `feed_lot_event`, `publish_new_lot_events`,
+`FEED_NOTIFY_MAX_PER_CYCLE`), обработчики в `push_service/consumer.py` и
+`telegram_bot/bot.py`, параметр `setting_attr` в `_load_user_gate` обоих консьюмеров
+(сигнатура откачена к прежней), три колонки `user_settings`. Из `upsert_feed_rows` ушёл
+`RETURNING (xmax = 0)` и счётчик `rows_new` в логе цикла — они существовали только ради
+уведомлений.
+
+Соответственно `feed_access` теперь значит **только «полная лента»** (плюс гейт
+`/feed/summary` и `/feed/filters`); прав на уведомления за ним больше нет.
+
+**Трансляция «Избранного» в сигналы не тронута:** полоса сигналов (`GlobalFeed` /
+`MobileSignals`) работает по watchlist ровно как раньше, а `profitable_lot` / `buy_alert` /
+`emission` по-прежнему идут через `push.events` в оба консьюмера.
+
+### Побочное изменение за пределами ленты: истёкший тариф и уведомления
+
+`get_tier_limits` (и `effective_feed_rows_limit` / `effective_watchlist_limit`) берут тариф
+через `current_tier(user)` — то есть учитывают истёкший `tier_expires_at` через
+`is_tier_expired`, не дожидаясь ленивого понижения в `apply_tier_expiry` или ночного
+`sweep_expired_tiers`. Правка вносилась по замечанию security-ревью про ленту, но действует
+на **все** тарифные проверки: фоновые консьюмеры (`push_service`, `telegram_bot`) читают
+пользователя из БД мимо `get_current_user`, поэтому раньше уведомления `profitable_lot` и
+`buy_alert` продолжали уходить по истёкшей подписке до ближайшего входа пользователя или
+ночного sweep. Теперь — не уходят.
+
+### app/scripts/backfill_artifact_history.py — разовый бэкфилл
+
+`docker compose exec backend python -m app.scripts.backfill_artifact_history --days 30`.
+По образцу `backfill_sales_qlt.py`: `HISTORY_PAGE_LIMIT=200`, `BACKFILL_PAGE_DELAY=1.0`,
+`BACKFILL_MAX_PAGE_RETRIES=5`, предварительная смета расхода через `limit=1` + подтверждение
+(`--yes`). **Без бэкфилла в первый день у ленты нет ни `ref`, ни волатильности — т.е. ни
+одной строки.** Запуск на проде — только после подтверждения пользователя (расходует лимит
+залпом, помнить инцидент 429 от 2026-06-29).
 
 ---
 

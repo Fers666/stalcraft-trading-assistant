@@ -65,7 +65,7 @@ Docker Compose. Данные глобальные (user_id=NULL), персона
 ```
 backend/app/   — FastAPI (entry: main.py), SQLAlchemy models, Celery tasks (graphify: 492 nodes)
 frontend/src/  — React/TS (entry: App.tsx), Zustand store, MUI (graphify: 327 nodes)
-design/v5/     — прототип-эталон редизайна «Терминал»; внедрение Фазы 1–6/7 done (Ф1–5 2026-07-18, Ф6 2026-07-19), осталась только Фаза 7 «Лента» (ждёт решения пользователя + бэкенд-обсуждение), см. docs/tasks/design-v5-implementation.md
+design/v5/     — прототип-эталон редизайна «Терминал»; все 7 фаз внедрены (Ф1–5 2026-07-18, Ф6 2026-07-19, Ф7 «Лента» 2026-08-03 — фичей «Лента артефактов», ТЗ docs/tasks/artifact-feed.md), см. docs/tasks/design-v5-implementation.md
 docs/          — формулы, БД, архитектура, деплой (см. таблицу в Блоке 2)
 .claude/       — агенты, skills, команды Claude Code
 ```
@@ -81,9 +81,10 @@ docs/          — формулы, БД, архитектура, деплой (�
 
 **API Rate Limit:** 400 запросов/мин (verified experimentally 2026-06-07, NOT документация 100 токенов!)
 - /lots = 2, /history = 2, /emission = 1 (Request-based, не token-based)
-- Текущее: 54.5 запросов/мин (13.6% от лимита) — БЕЗОПАСНО
+- Текущее (прод, без «Ленты артефактов»): 54.5 запросов/мин (13.6% от лимита) — БЕЗОПАСНО
 - Reserve: 345.5 запросов/мин (86.4%)
-- **При оптимизации:** спрашивай разрешение перед изменением LOTS_PER_RUN / BATCH_SIZE / REFRESH_INTERVAL
+- **«Лента артефактов» добавит ~103.4 запросов/мин** (сбор лотов 200 ед/мин = 100 вызовов + история 3.4) → итог ≈158/мин ≈39.5% лимита. Beat-задачи стартуют при первом рестарте контейнеров; на проде включать только после подтверждения. Константы — `FEED_BUDGET_UNITS_PER_MIN` / `FEED_RATE_GUARD_UNITS` в `backend/app/tasks/feed_collector.py`
+- **При оптимизации:** спрашивай разрешение перед изменением LOTS_PER_RUN / BATCH_SIZE / REFRESH_INTERVAL / FEED_BUDGET_UNITS_PER_MIN
 - Token Bucket → Redis (Lua). Fallback: in-memory.
 
 Детали → читай docs/
