@@ -13,10 +13,11 @@ import statistics as _statistics
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+from app.services.analytics.market_stats import COVERAGE_MEDIUM, extract_time_price_pairs
 from app.services.analytics.pricing import (
     classify_risk, compute_reference, make_sell_options, evaluate_lot_profit,
     weighted_reference, _build_sales_filter, matching_lot_prices,
-    STALE_SECONDS, _is_artefact, _lot_quality_enchant, _is_liquid,
+    MIN_BATCH_SAMPLES, STALE_SECONDS, _is_artefact, _lot_quality_enchant, _is_liquid,
 )
 
 SIGNALS_TTL = 300       # секунд — TTL ключа сигналов (запас на случай задержки цикла)
@@ -111,6 +112,11 @@ async def compute_signals_for_entry(
     фоллбеком, текущий минимум лотов — только при полном отсутствии истории,
     иначе профит математически невозможен, см. pricing.py).
     Медиана активных лотов снэпшота — только фоллбек-метка тренда.
+
+    sell_options считаются по реальным парам «часы на рынке → цена» за 30 дней
+    (extract_time_price_pairs + правило покрытия COVERAGE_MEDIUM) — так же, как
+    в market_stats и в статистике вариантов Ленты. Эвристика по объёму продаж
+    остаётся только фоллбеком при недостаточном покрытии.
     """
     from app.models.models import SalesHistory
     from sqlalchemy import select
@@ -139,6 +145,35 @@ async def compute_signals_for_entry(
 
     cutoff_7d  = now - timedelta(days=7)
     cutoff_24h = now - timedelta(hours=24)
+    cutoff_30d = now - timedelta(days=30)
+
+    # Продажи за 30 дней ПОД ФИЛЬТРАМИ качества/заточки записи (без фильтров —
+    # все продажи предмета). Одна выборка на двух потребителей: 7-дневное
+    # подмножество даёт опорную цену ветки с фильтрами, полные 30 дней — пары
+    # «часы на рынке → цена» для прогноза времени продажи.
+    #
+    # Пары обязательны: без них make_sell_options падал на грубую эвристику по
+    # объёму продаж, и одно и то же ₽/час расходилось с Лентой (которая пары
+    # передаёт) в разы — вплоть до 4х на одном лоте. Окно, правило покрытия и
+    # сама функция извлечения пар — те же, что в market_stats и variant_stats.
+    sales_30d = (await db.execute(
+        select(
+            SalesHistory.sale_time,
+            SalesHistory.price_per_unit,
+            SalesHistory.additional_info,
+        ).where(
+            SalesHistory.item_id   == entry.item_id,
+            SalesHistory.region    == entry.region,
+            SalesHistory.sale_time >= cutoff_30d,
+            *_build_sales_filter(entry.quality_filter, entry.enchant_filter),
+        )
+    )).all()
+
+    pairs = extract_time_price_pairs(sales_30d)
+    coverage = len(pairs) / len(sales_30d) if sales_30d else 0.0
+    pairs_for_options = (
+        pairs if (coverage >= COVERAGE_MEDIUM and len(pairs) >= MIN_BATCH_SAMPLES) else None
+    )
 
     if entry.quality_filter is None and entry.enchant_filter is None:
         ref_info = compute_reference(
@@ -162,14 +197,7 @@ async def compute_signals_for_entry(
         # С фильтрами: опорная цена по реальным продажам с нужным quality/enchant.
         # sale_time нужен для взвешивания по свежести — без него ref вырождается
         # в плоскую медиану 7д и на падающем рынке завышает прибыль.
-        rows = (await db.execute(
-            select(SalesHistory.sale_time, SalesHistory.price_per_unit).where(
-                SalesHistory.item_id   == entry.item_id,
-                SalesHistory.region    == entry.region,
-                SalesHistory.sale_time >= cutoff_7d,
-                *_build_sales_filter(entry.quality_filter, entry.enchant_filter),
-            )
-        )).all()
+        rows = [r for r in sales_30d if r.sale_time >= cutoff_7d]
 
         prices = [r.price_per_unit for r in rows]
 
@@ -211,7 +239,10 @@ async def compute_signals_for_entry(
     trend      = ref_info["trend"]
     risk       = classify_risk(msg_volatility)
 
-    sell_options = make_sell_options(ref, vol_for_opts) if vol_for_opts is not None else None
+    sell_options = (
+        make_sell_options(ref, vol_for_opts, pairs_for_options)
+        if vol_for_opts is not None else None
+    )
     batch_stats  = stats.batch_stats if stats else None
 
     profitable: list[dict] = []

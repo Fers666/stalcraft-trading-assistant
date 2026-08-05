@@ -18,6 +18,7 @@ from app.api.v1.endpoints.telegram import router as telegram_router, register_we
 from app.api.v1.endpoints.news import router as news_router
 from app.api.v1.endpoints.emission import router as emission_router
 from app.api.v1.endpoints.push import router as push_router
+from app.api.v1.endpoints.feed import router as feed_router
 
 
 @asynccontextmanager
@@ -57,6 +58,7 @@ app.include_router(telegram_router, prefix="/api/v1")
 app.include_router(news_router, prefix="/api/v1")
 app.include_router(emission_router, prefix="/api/v1")
 app.include_router(push_router, prefix="/api/v1")
+app.include_router(feed_router, prefix="/api/v1")
 
 
 @app.get("/docs", include_in_schema=False)

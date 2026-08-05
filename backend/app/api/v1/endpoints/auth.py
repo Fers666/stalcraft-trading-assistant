@@ -52,6 +52,8 @@ class UserResponse(BaseModel):
     auction_access: bool
     buy_sniper_access: bool
     buy_sniper_notifications: bool
+    feed_access: bool
+    feed_rows_limit: int | None
     has_market_radar_addon: bool
     favorites_limit_override: int | None
 
@@ -76,6 +78,8 @@ class UserResponse(BaseModel):
             auction_access=limits.auction_access,
             buy_sniper_access=limits.buy_sniper_access,
             buy_sniper_notifications=limits.buy_sniper_notifications,
+            feed_access=limits.feed_access,
+            feed_rows_limit=limits.feed_rows_limit,
             has_market_radar_addon=user.has_market_radar_addon,
             favorites_limit_override=user.favorites_limit_override,
         )

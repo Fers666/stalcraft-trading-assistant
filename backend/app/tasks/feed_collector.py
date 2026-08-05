@@ -1,0 +1,1144 @@
+"""
+Сбор данных «Ленты артефактов» (ТЗ: docs/tasks/artifact-feed.md, Фаза 1).
+
+Конвейер идёт ПАРАЛЛЕЛЬНО watchlist-сбору и не пересекается с ним по записи,
+но переиспользует все точки истины: StalcraftClient (в нём же rate limiter),
+services/analytics/pricing (все формулы), api_cache (общий кэш лотов).
+
+  collect_artifact_lots    — полная пагинация /lots по всем артефактам,
+                             скоринг и запись выгодных лотов в feed_lots;
+  collect_artifact_history — часовая дельта /history по всем артефактам
+                             в sales_history с user_id = NULL.
+
+Почему нужна ПОЛНАЯ пагинация: /lots не сортирует по цене (сортировка в
+collectors._collect_lots_for_item происходит уже ПОСЛЕ получения), поэтому
+первая страница API — произвольные 200 лотов, а не самые дешёвые. Предмет
+берётся целиком или не берётся вовсе.
+
+Операционное состояние — в Redis (потеря безвредна, обход начнётся сначала):
+  feed:scan:lock         — лок цикла (NX EX), защита от наложения прогонов;
+  feed:scan:last:{item}  — ISO-время последнего успешного обхода, TTL 24 ч;
+  feed:scan:fail:{item}  — счётчик подряд идущих отказов предмета (TTL 1 ч):
+                           после потолка предмет паркуется и не блокирует очередь;
+  feed:scan:cycle        — счётчик прогонов (определяет темп холодных);
+  feed:scan:sweep        — "{цикл}:{unix_ts}" начала текущего полного круга
+                           (нужен только для лога калибровки «feed sweep»).
+"""
+import asyncio
+import logging
+import math
+import random
+import time
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+
+from app.tasks.celery_app import celery_app
+from app.tasks.collectors import run_async
+
+logger = logging.getLogger(__name__)
+
+# ─── Бюджет и темп ───────────────────────────────────────────────────────────
+# Единица бюджета = запрос в терминах Token Bucket (/lots = 2). 200 ед/мин =
+# 100 вызовов API в минуту. Ожидаемая суммарная нагрузка: 54.5 (текущая) +
+# до 100 (лента) + 3.4 (история артефактов) ≈ 158 запросов/мин ≈ 39.5% лимита.
+FEED_BUDGET_UNITS_PER_MIN = 200     # жёсткий потолок расхода за один прогон (50% лимита)
+FEED_RATE_GUARD_UNITS     = 340     # 85% от 400: суммарный расход системы выше -> цикл прерывается
+FEED_LOTS_PAGE_LIMIT      = 200     # максимум, который принимает /lots
+FEED_LOTS_REQUEST_COST    = 2       # = TokenCost.LOTS
+FEED_MAX_PAGES_PER_ITEM   = 10      # потолок 2000 лотов на предмет (=20 ед, заведомо < бюджета)
+FEED_REQUEST_DELAY        = 0.3     # секунд между страницами
+FEED_COLD_EVERY_N_CYCLES  = 5       # холодные артефакты обходим каждый N-й цикл
+FEED_HOT_SALES_PER_DAY    = 1.0     # горячий, если max(sales_per_day) по вариантам >= порога
+FEED_HOT_MIN_LOTS_TOTAL   = 200     # ...или master_items.lots_total >= порога
+FEED_MAX_PROFIT_PCT       = 1000.0  # выше -> глитч, лот не сохраняем (см. «+1671089 %»)
+FEED_LOCK_KEY             = "feed:scan:lock"
+FEED_LOCK_TTL             = 300
+FEED_STALE_ROW_HOURS      = 1       # уборка осиротевших строк feed_lots
+
+# Джиттер старта цикла. Beat поднимает периодические задачи в одну и ту же
+# секунду (а при рестарте контейнеров — вообще все разом), и запросы ленты
+# ложатся ровно на тик watchlist-сборщика: средний расход остаётся ~42% лимита,
+# но форма всплеска даёт реальные 429 (замер QA: 43 отказа за минуту рестарта).
+# Случайное смещение старта разводит прогоны по секундам внутри минуты.
+# Сон идёт ДО взятия лока: припозднившийся прогон не должен держать лок впустую.
+FEED_CYCLE_JITTER_SEC   = 10
+FEED_HISTORY_JITTER_SEC = 30
+
+# ─── Уступка окну collect_all_history (:00–:11) ──────────────────────────────
+# Джиттера в 10 с хватает, чтобы развести две задачи внутри минуты, но не
+# одиннадцатиминутный всплеск watchlist-истории: collect_all_history идёт
+# crontab(minute="0") шестью параллельными воркерами без пауз и занимает окно
+# :00–:11 (celery_app.py). Замер QA: 20:00 — 34 отказа «429 received despite
+# token bucket», 12:00–12:01 — 10, при счётчике лимитера 261/400.
+#
+# Почему 429 при формально свободном лимите: наш Token Bucket считает расход в
+# ФИКСИРОВАННОМ окне по unix_minute, а API — в своём, со своим смещением.
+# Всплеск на стыке минут (условно 250 ед в конце нашей минуты N и 250 в начале
+# N+1) укладывается в оба наших окна, но даёт >400 в скользящем окне API.
+# Лечится не учётом, а формой расхода: в чужом окне лента снижает свой.
+#
+# Полный пропуск цикла отвергнут: 11 из ~60 прогонов в час — заметная потеря,
+# выгодный лот живёт минуты. Вместо этого лента работает с урезанным бюджетом
+# (60 ед/мин = 30 вызовов вместо 100) и пониженным порогом уже существующего
+# предохранителя по фактическому расходу (recent_consumption).
+# Расчёт порогов: пиковая минута QA — 261 ед при ленте на полном бюджете, т.е.
+# не-лента даёт ~61 ед/мин. С 60 ед у ленты пик окна ≈ 121 ед/мин: даже если
+# скользящее окно API удвоит форму всплеска, это ≈ 240 < 400. Ровно на этой
+# отметке стоит и предохранитель окна — всё, что выше, обрывает цикл.
+FEED_HISTORY_WINDOW_END_MIN      = 12    # окно collect_all_history — минуты :00–:11
+FEED_WINDOW_BUDGET_UNITS_PER_MIN = 60    # бюджет прогона внутри окна (вне окна — FEED_BUDGET_UNITS_PER_MIN)
+FEED_WINDOW_RATE_GUARD_UNITS     = 240   # 60% от 400: порог предохранителя внутри окна
+
+# Ретраи транзиентных ошибок — на уровне предмета (образец: tasks/audit.py).
+FEED_ITEM_RETRIES  = 2
+FEED_RETRY_BACKOFF = (2, 5)
+
+# Отказ предмета: счётчик подряд идущих неудач и «парковка» после потолка.
+# Предмет без обновлённого feed:scan:last встаёт ПЕРВЫМ в очереди следующего
+# цикла (order_queue), поэтому один стабильно падающий предмет иначе повторяет
+# свой отказ каждые 60 с и бесконечно жжёт лимит API — ровно то, что случилось
+# с CardinalityViolationError.
+FEED_ITEM_FAIL_PREFIX = "feed:scan:fail:"
+FEED_ITEM_FAIL_TTL    = 3600
+FEED_ITEM_FAIL_MAX    = 3
+FEED_ITEM_PARK_TTL    = 900         # «короткий» feed:scan:last припаркованного предмета
+
+# История артефактов: часовой дельты хватает с запасом, идём до первой уже
+# известной продажи либо до потолка страниц.
+HISTORY_PAGE_LIMIT      = 200
+HISTORY_REQUEST_COST    = 2         # = TokenCost.HISTORY
+HISTORY_BACKSTOP_PAGES  = 3
+SALES_RETENTION_DAYS    = 120       # will_be_deleted_at = sale_time + этого
+# Пауза МЕЖДУ ПРЕДМЕТАМИ истории (внутри предмета страницы идут по
+# FEED_REQUEST_DELAY). При 0.3 с все 103 артефакта укладывались примерно в
+# минуту: 206 ед разом поверх 200 ед ленты и 54.5 ед watchlist — тот самый
+# всплеск, который упирался в лимит. С 2 с обход растягивается на ~4 минуты
+# (~52 ед/мин), при том же часовом объёме. Часовой дельте спешить некуда.
+HISTORY_ITEM_DELAY      = 2.0
+
+FEED_SCAN_LAST_PREFIX = "feed:scan:last:"
+FEED_SCAN_LAST_TTL    = 24 * 3600
+FEED_CYCLE_KEY        = "feed:scan:cycle"
+FEED_SWEEP_KEY        = "feed:scan:sweep"
+
+
+# ─── Чистые функции планировщика (тестируются без БД и сети) ─────────────────
+
+@dataclass
+class ItemPlan:
+    """Предмет в очереди обхода с ожидаемой стоимостью в страницах."""
+    item_id: str
+    pages: int                      # ожидаемое число страниц (по последнему lots_total)
+    hot: bool
+    last_scan: datetime | None      # None = ещё ни разу не обходился
+
+
+def pages_for_total(lots_total: int | None) -> int:
+    """
+    Ожидаемое число страниц /lots по последнему известному total.
+
+    Неизвестный/нулевой total (первый прогон, lots_total = NULL) — оценка
+    «1 страница»: фактическое число уточняется из total первой страницы.
+    Потолок FEED_MAX_PAGES_PER_ITEM.
+    """
+    if not lots_total or lots_total <= 0:
+        return 1
+    pages = math.ceil(lots_total / FEED_LOTS_PAGE_LIMIT)
+    return max(1, min(pages, FEED_MAX_PAGES_PER_ITEM))
+
+
+def is_hot(lots_total: int | None, max_sales_per_day: float | None) -> bool:
+    """
+    Горячий артефакт: max(sales_per_day) по вариантам >= FEED_HOT_SALES_PER_DAY
+    ИЛИ lots_total >= FEED_HOT_MIN_LOTS_TOTAL. Холодные обходим реже — это
+    механизм, который удерживает цикл в целевых ~2 минутах.
+    """
+    if max_sales_per_day is not None and max_sales_per_day >= FEED_HOT_SALES_PER_DAY:
+        return True
+    return bool(lots_total is not None and lots_total >= FEED_HOT_MIN_LOTS_TOTAL)
+
+
+def order_queue(items: list[ItemPlan]) -> list[ItemPlan]:
+    """
+    Порядок обхода: last_scan ASC, NULL первыми — самые устаревшие идут
+    первыми (та же логика, что last_successful_check у watchlist).
+    """
+    return sorted(
+        items,
+        key=lambda p: (1, p.last_scan.timestamp()) if p.last_scan is not None else (0, 0.0),
+    )
+
+
+def select_by_tempo(items: list[ItemPlan], cycle: int) -> list[ItemPlan]:
+    """Холодные артефакты попадают в очередь только на каждом N-м цикле."""
+    if cycle % FEED_COLD_EVERY_N_CYCLES == 0:
+        return list(items)
+    return [p for p in items if p.hot]
+
+
+def in_history_window(now: datetime) -> bool:
+    """
+    Идёт ли сейчас окно collect_all_history (минуты :00–:11).
+
+    Минута часа одинакова в UTC и в МСК (смещение кратно часу), поэтому
+    рассогласования с crontab-расписанием beat (timezone="Europe/Moscow") нет.
+    """
+    return now.minute < FEED_HISTORY_WINDOW_END_MIN
+
+
+def budget_units_for(now: datetime) -> int:
+    """Бюджет прогона: урезанный внутри окна истории, полный вне его."""
+    return FEED_WINDOW_BUDGET_UNITS_PER_MIN if in_history_window(now) else FEED_BUDGET_UNITS_PER_MIN
+
+
+def rate_guard_for(now: datetime) -> int:
+    """Порог предохранителя по фактическому расходу: строже внутри окна истории."""
+    return FEED_WINDOW_RATE_GUARD_UNITS if in_history_window(now) else FEED_RATE_GUARD_UNITS
+
+
+def plan_run(items: list[ItemPlan], budget_units: int) -> tuple[list[ItemPlan], int]:
+    """
+    Отбирает предметы, укладывающиеся в бюджет прогона.
+
+    Предмет берётся ЦЕЛИКОМ или не берётся вовсе: частичная пагинация даёт
+    неполный срез и воспроизводит ловушку «первая страница /lots — не самые
+    дешёвые лоты».
+
+    Возвращает (выбранные предметы, оценка расхода в единицах).
+    """
+    selected: list[ItemPlan] = []
+    spent = 0
+    for plan in items:
+        cost = plan.pages * FEED_LOTS_REQUEST_COST
+        if spent + cost > budget_units:
+            continue    # не влез — доберётся следующим циклом (deferred)
+        selected.append(plan)
+        spent += cost
+    return selected, spent
+
+
+def lot_price_per_unit(lot: dict) -> int:
+    """Цена за штуку — та же трактовка, что в collectors._collect_lots_for_item."""
+    price  = lot.get("buyoutPrice", 0) or lot.get("startPrice", 0)
+    amount = lot.get("amount", 1)
+    return price // amount if amount > 0 else price
+
+
+def lot_identity_key(lot: dict) -> str:
+    """
+    lot_key строки feed_lots — идентичность лота в пределах (item_id, region).
+
+    startTime сам по себе НЕ идентификатор лота: точность API — секунды, и у
+    одного предмета регулярно висят РАЗНЫЕ лоты с одинаковым startTime
+    (подтверждённый пример: wg53, 2026-08-03T13:33:08Z — 649999 ₽ qlt=1 ptn=5
+    и 550000 ₽ qlt=1 ptn=4). Два таких лота в одном батче апсерта роняли весь
+    INSERT и вместе с ним весь цикл сбора (CardinalityViolationError:
+    «ON CONFLICT DO UPDATE command cannot affect row a second time»).
+
+    Ключ собирается из всего, что API отдаёт про лот и что различает два
+    одновременно выставленных лота: startTime | qlt | ptn | buyoutPrice |
+    amount. Без startTime ключа нет (пустая строка) — такой лот не сохраняем.
+    """
+    from app.services.analytics.pricing import _lot_quality_enchant
+
+    start = lot.get("startTime") or ""
+    if not start:
+        return ""
+    # master не нужен: у артефактов qlt/ptn берутся из lot["additional"]
+    qlt, ptn = _lot_quality_enchant(lot, None, True)
+    return f"{start}|{qlt}|{ptn}|{lot.get('buyoutPrice') or 0}|{lot.get('amount') or 0}"
+
+
+def dedupe_rows(rows: list[dict]) -> list[dict]:
+    """
+    Схлопывает строки с одинаковым (item_id, region, lot_key) — побеждает последняя.
+
+    Страховка второго уровня, независимая от схемы ключа: pg_insert(...)
+    .on_conflict_do_update падает целиком, если один ключ встретился в батче
+    дважды, и роняет ВЕСЬ цикл, а не одну строку. Составной lot_identity_key
+    делает коллизию маловероятной, но не невозможной — два полностью
+    неразличимых по данным API лота (одна секунда, одно качество, заточка,
+    цена и количество) остаются возможными.
+    """
+    unique: dict[tuple[str, str, str], dict] = {}
+    for row in rows:
+        unique[(row["item_id"], row["region"], row["lot_key"])] = row
+    return list(unique.values())
+
+
+def sale_values(item_id: str, region: str, record: dict) -> dict | None:
+    """
+    Строка sales_history из записи ответа /history.
+
+    user_id = NULL — глобально собранная продажа (вне чьего-либо watchlist).
+    additional_info берём напрямую из record["additional"] — authoritative
+    источник qlt/ptn (docs/tasks/sales-history-qlt-ptn-coverage.md).
+    Снэпшот-матчинг lot_start здесь не делаем: collected_data по артефактам
+    вне watchlist пуст.
+    """
+    sold_at_str = record.get("time")
+    if not sold_at_str:
+        return None
+    try:
+        sold_at = datetime.fromisoformat(sold_at_str.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+    total_price = record.get("price", 0) or 0
+    amount      = record.get("amount", 1) or 0
+    if total_price <= 0 or amount <= 0:
+        return None
+
+    additional = record.get("additional") or {}
+    return {
+        "user_id":            None,
+        "item_id":            item_id,
+        "region":             region,
+        "sale_time":          sold_at,
+        "price_per_unit":     total_price // amount,
+        "amount":             amount,
+        "total_price":        total_price,
+        "additional_info":    additional or None,
+        "will_be_deleted_at": sold_at + timedelta(days=SALES_RETENTION_DAYS),
+    }
+
+
+def supply_coverage_days(total_amount: int, sales_per_day: float | None) -> float | None:
+    """
+    За сколько дней рынок переварит нынешнее предложение варианта.
+
+    Σ amount всех лотов варианта в срезе / продаж в день. Без продаж делить
+    не на что — None (а не «бесконечность»): ответ «не продастся» даёт риск,
+    а не эта метрика.
+    """
+    if not sales_per_day or sales_per_day <= 0:
+        return None
+    return round(total_amount / sales_per_day, 2)
+
+
+def score_item_lots(
+    item_id: str,
+    region: str,
+    lots: list[dict],
+    variants: dict[tuple[int, int], object],
+    cycle_started_at: datetime,
+    now: datetime | None = None,
+) -> list[dict]:
+    """
+    Скоринг лотов предмета -> строки feed_lots (ТОЛЬКО выгодные).
+
+    variants — карта (qlt, ptn) -> строка artifact_variant_stats предмета.
+    Вариант без ref_price/sell_options пропускается целиком: без реальных
+    сделок нет честной опоры, а считать выгодность от цен выставленных лотов —
+    ровно та ошибка, на которой фича умерла дважды (docs/CHANGELOG.md).
+
+    Формулы не форкаются: evaluate_lot_profit вызывается с min_margin_pct=0.0
+    (порог видимости персональный и применяется при чтении), поэтому None
+    возвращается только для убыточных лотов.
+    """
+    from app.services.analytics.pricing import (
+        RISK_MARGIN_MULT, _is_liquid, _lot_quality_enchant, evaluate_lot_profit,
+    )
+
+    now = now or cycle_started_at
+    rows: list[dict] = []
+
+    # Предложение варианта — по ВСЕМ лотам среза (в т.ч. неликвидным по сроку:
+    # они всё равно висят на рынке), поэтому считается отдельным проходом.
+    supply: dict[tuple[int, int], int] = {}
+    for lot in lots:
+        amount = lot.get("amount", 1)
+        if amount and amount > 0:
+            # master не нужен: у артефактов qlt/ptn берутся из lot["additional"]
+            variant = _lot_quality_enchant(lot, None, True)
+            supply[variant] = supply.get(variant, 0) + amount
+
+    for lot in lots:
+        buyout = lot.get("buyoutPrice", 0) or 0
+        amount = lot.get("amount", 1) or 0
+        lot_key = lot_identity_key(lot)
+        if buyout <= 0 or amount <= 0 or not lot_key:
+            continue
+        if not _is_liquid(lot, now):
+            continue
+
+        qlt, ptn = _lot_quality_enchant(lot, None, True)
+        variant = variants.get((qlt, ptn))
+        if variant is None or not variant.ref_price or not variant.sell_options:
+            continue
+
+        risk = variant.risk or "medium"
+        buyout_per_unit = buyout // amount
+        evaluated = evaluate_lot_profit(
+            buyout_per_unit, amount, variant.sell_options, risk,
+            min_margin_pct=0.0, batch_stats=variant.batch_stats,
+        )
+        if evaluated is None:
+            continue
+
+        profit_pct = float(evaluated["profit_pct"])
+        if profit_pct > FEED_MAX_PROFIT_PCT:
+            logger.warning(
+                "feed: лот %s %s (qlt=%s ptn=%s) с прибылью %.1f%% отброшен как глитч",
+                item_id, lot_key, qlt, ptn, profit_pct,
+            )
+            continue
+
+        risk_mult = RISK_MARGIN_MULT.get(risk, 1.0)
+        sales_per_day = float(variant.sales_per_day) if variant.sales_per_day else None
+        fast = next((o for o in variant.sell_options if o["label"] == "fast"), None)
+
+        # ₽/час: в таблице показывается прибыль ВСЕГО лота за час
+        # (profit_total / est_sell_hours), а evaluate_lot_profit считает
+        # profit_per_hour НА ЕДИНИЦУ. Для amount > 1 это разные величины ровно
+        # в amount раз, и сортировка по колонке «на единицу» инвертировала
+        # выдачу относительно показанного числа. Показываемую величину
+        # материализуем здесь — той же формулой, что печатает UI.
+        hours = (fast or {}).get("estimated_hours")
+        profit_total = evaluated["profit"] * amount
+
+        rows.append({
+            "item_id":            item_id,
+            "region":             region,
+            "lot_key":            lot_key,
+            "qlt":                qlt,
+            "ptn":                ptn,
+            "amount":             amount,
+            "buyout_price":       buyout,
+            "buyout_per_unit":    buyout_per_unit,
+            "start_time":         _parse_lot_time(lot.get("startTime")),
+            "end_time":           _parse_lot_time(lot.get("endTime")),
+            "ref_price":          int(variant.ref_price),
+            "sell_price_used":    evaluated["sell_price_used"],
+            "breakeven_per_unit": evaluated["breakeven_per_unit"],
+            "profit_per_unit":    evaluated["profit"],
+            "profit_total":       profit_total,
+            "profit_pct":         profit_pct,
+            "margin_adj_pct":     round(profit_pct / risk_mult, 2),
+            "profit_per_hour":    evaluated["profit_per_hour"],
+            "profit_per_hour_total": round(profit_total / hours, 2) if hours else None,
+            "est_sell_hours":     hours,
+            "risk":               risk,
+            "risk_mult":          risk_mult,
+            "volatility_7d":      float(variant.volatility_7d) if variant.volatility_7d is not None else None,
+            "trend_24h":          variant.trend_24h,
+            "trend_24h_pct":      float(variant.trend_24h_pct) if variant.trend_24h_pct is not None else None,
+            "trend_7d_pct":       float(variant.trend_7d_pct) if variant.trend_7d_pct is not None else None,
+            "sales_per_day":      sales_per_day,
+            "supply_coverage_days": supply_coverage_days(supply.get((qlt, ptn), 0), sales_per_day),
+            "stats_confidence":   variant.ref_confidence,
+            "stats_samples":      variant.ref_samples,
+            "first_seen_at":      cycle_started_at,
+            "seen_at":            cycle_started_at,
+        })
+
+    return rows
+
+
+def _parse_lot_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+# ─── Redis: лок, курсор, предохранитель по расходу ───────────────────────────
+
+async def acquire_lock(redis_client) -> bool:
+    """
+    SET feed:scan:lock NX EX — защита от наложения прогонов: beat каждые 60 с
+    при цикле в ~2 мин иначе запустит параллельные обходы и удвоит расход API.
+    """
+    return bool(await redis_client.set(
+        FEED_LOCK_KEY, str(int(time.time())), nx=True, ex=FEED_LOCK_TTL,
+    ))
+
+
+async def release_lock(redis_client) -> None:
+    await redis_client.delete(FEED_LOCK_KEY)
+
+
+async def recent_consumption(redis_client) -> int:
+    """
+    Фактический расход лимитера: max(текущая неполная минута, предыдущая полная).
+
+    rate_limiter.get_consumption_stats() отдаёт счётчик ТЕКУЩЕЙ минуты — в её
+    первые секунды он около нуля и как одиночный сигнал бесполезен. Ключ
+    предыдущей минуты жив (EXPIRE 120), поэтому читаем оба. Ядро
+    rate_limiter.py при этом не трогаем.
+    """
+    from app.core.rate_limiter import rate_limiter
+
+    minute = int(time.time() // 60)
+    prefix = rate_limiter.REQUESTS_MINUTE_KEY_PREFIX
+    try:
+        values = await redis_client.mget([f"{prefix}{minute}", f"{prefix}{minute - 1}"])
+    except Exception as e:
+        logger.warning(f"feed: не удалось прочитать расход лимитера: {e}")
+        return 0
+    return max((int(v) if v else 0) for v in values)
+
+
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+async def _load_last_scan(redis_client, item_ids: list[str]) -> dict[str, datetime | None]:
+    if not item_ids:
+        return {}
+    keys = [FEED_SCAN_LAST_PREFIX + item_id for item_id in item_ids]
+    try:
+        values = await redis_client.mget(keys)
+    except Exception as e:
+        logger.warning(f"feed: не удалось прочитать курсор обхода: {e}")
+        return {item_id: None for item_id in item_ids}
+    return {item_id: _parse_iso(raw) for item_id, raw in zip(item_ids, values)}
+
+
+# ─── Выгрузка и запись ───────────────────────────────────────────────────────
+
+async def fetch_all_lots(
+    client, item_id: str, region: str, redis_client=None, delay: float = FEED_REQUEST_DELAY,
+) -> tuple[list[dict], int, int]:
+    """
+    Полная пагинация /lots по data["total"] с потолком FEED_MAX_PAGES_PER_ITEM.
+
+    Возвращает (лоты, total из ответа, число сделанных запросов).
+    """
+    lots: list[dict] = []
+    offset = 0
+    total = 0
+    requests = 0
+
+    while True:
+        data = await client.get_auction_lots(
+            item_id, region, offset=offset, limit=FEED_LOTS_PAGE_LIMIT,
+            redis_client=redis_client,
+        )
+        requests += 1
+        page = data.get("lots") or []
+        lots.extend(page)
+        total = int(data.get("total") or 0)
+
+        offset += FEED_LOTS_PAGE_LIMIT
+        if (
+            not page
+            or offset >= total
+            or offset >= FEED_MAX_PAGES_PER_ITEM * FEED_LOTS_PAGE_LIMIT
+        ):
+            break
+        await asyncio.sleep(delay)
+
+    return lots, total, requests
+
+
+async def upsert_feed_rows(db, rows: list[dict]) -> None:
+    """
+    Апсерт строк feed_lots по (item_id, region, lot_key).
+
+    Батч предварительно схлопывается по ключу (dedupe_rows): повтор ключа
+    внутри одного INSERT ... ON CONFLICT DO UPDATE — ошибка уровня всей
+    транзакции, а не одной строки.
+
+    first_seen_at ставится только при вставке — в DO UPDATE не входит.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from app.models.models import FeedLot
+
+    if not rows:
+        return
+
+    values = dedupe_rows(rows)
+    if len(values) < len(rows):
+        logger.info(
+            "feed: схлопнуто неразличимых по данным API лотов в батче: %s",
+            len(rows) - len(values),
+        )
+
+    stmt = pg_insert(FeedLot).values(values)
+    updatable = {
+        col.name: stmt.excluded[col.name]
+        for col in FeedLot.__table__.columns
+        if col.name not in ("id", "item_id", "region", "lot_key", "first_seen_at")
+    }
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["item_id", "region", "lot_key"], set_=updatable,
+    )
+
+    await db.execute(stmt)
+
+
+async def delete_stale_rows(db, item_id: str, region: str, cycle_started_at: datetime) -> int:
+    """Лот исчез из среза = выкуплен, истёк или перестал быть выгодным."""
+    from sqlalchemy import delete
+    from app.models.models import FeedLot
+
+    result = await db.execute(
+        delete(FeedLot).where(
+            FeedLot.item_id == item_id,
+            FeedLot.region == region,
+            FeedLot.seen_at < cycle_started_at,
+        )
+    )
+    return result.rowcount or 0
+
+
+@dataclass
+class ItemScanResult:
+    """Итог обработки одного предмета: сколько строк отскорено и убрано."""
+    rows_scored: int
+    rows_deleted: int
+
+
+async def scan_item(
+    db, item_id: str, region: str, lots: list[dict], cycle_started_at: datetime,
+) -> ItemScanResult:
+    """Обработка одного предмета: скоринг -> апсерт -> уборка -> commit."""
+    variants = await _load_variants(db, item_id, region)
+    rows = score_item_lots(item_id, region, lots, variants, cycle_started_at)
+    await upsert_feed_rows(db, rows)
+    deleted = await delete_stale_rows(db, item_id, region, cycle_started_at)
+    await db.commit()
+
+    return ItemScanResult(rows_scored=len(rows), rows_deleted=deleted)
+
+
+async def note_item_failure(redis_client, item_id: str, cycle_started_at: datetime) -> int:
+    """
+    Считает подряд идущие отказы предмета и «паркует» его после потолка.
+
+    Парковка = feed:scan:last на FEED_ITEM_PARK_TTL: предмет уходит в конец
+    очереди обхода вместо того, чтобы возглавлять её каждый цикл. Сама функция
+    исключений не выпускает — недоступный Redis не должен ронять цикл поверх
+    уже случившейся ошибки.
+
+    В ключ пишется БУДУЩАЯ метка (cycle_started_at + FEED_ITEM_PARK_TTL), а не
+    текущее время: order_queue сортирует по last_scan ASC, и метка «как у
+    успешного обхода» отставляла предмет всего на один оборот очереди — QA
+    замерил повторный опрос через 3 минуты вместо 900 с, TTL не доживал до
+    истечения. Метка из будущего держит предмет в хвосте очереди ровно до
+    момента, на который он припаркован.
+    """
+    try:
+        key = FEED_ITEM_FAIL_PREFIX + item_id
+        fails = int(await redis_client.incr(key))
+        await redis_client.expire(key, FEED_ITEM_FAIL_TTL)
+        if fails >= FEED_ITEM_FAIL_MAX:
+            await redis_client.setex(
+                FEED_SCAN_LAST_PREFIX + item_id, FEED_ITEM_PARK_TTL,
+                (cycle_started_at + timedelta(seconds=FEED_ITEM_PARK_TTL)).isoformat(),
+            )
+            logger.error(
+                "feed: %s припаркован на %sс после %s отказов подряд — очередь не блокируется",
+                item_id, FEED_ITEM_PARK_TTL, fails,
+            )
+        return fails
+    except Exception as e:
+        logger.warning("feed: не удалось учесть отказ %s: %s", item_id, e)
+        return 0
+
+
+async def clear_item_failures(redis_client, item_id: str) -> None:
+    """Успешный обход обнуляет счётчик отказов (он про ПОДРЯД идущие неудачи)."""
+    try:
+        await redis_client.delete(FEED_ITEM_FAIL_PREFIX + item_id)
+    except Exception as e:
+        logger.warning("feed: не удалось сбросить счётчик отказов %s: %s", item_id, e)
+
+
+async def safe_scan_item(
+    db, redis_client, item_id: str, region: str, lots: list[dict], cycle_started_at: datetime,
+) -> ItemScanResult | None:
+    """
+    scan_item с изоляцией отказа: ошибка на одном предмете не роняет цикл.
+
+    Без этого любое исключение записи (пример из практики —
+    CardinalityViolationError на дубле ключа в батче) убивает задачу целиком,
+    feed:scan:last предмета не обновляется, и он снова идёт первым в следующем
+    цикле: падение каждые 60 с и бесконечная трата лимита API. Причину того
+    случая устранил составной lot_identity_key, механизм закрывает эта функция.
+    """
+    try:
+        result = await scan_item(db, item_id, region, lots, cycle_started_at)
+    except Exception as e:
+        logger.error("feed: обработка %s не удалась: %s", item_id, e, exc_info=True)
+        try:
+            await db.rollback()
+        except Exception as rollback_error:
+            logger.error("feed: откат транзакции %s не удался: %s", item_id, rollback_error)
+        await note_item_failure(redis_client, item_id, cycle_started_at)
+        return None
+
+    await clear_item_failures(redis_client, item_id)
+    return result
+
+
+async def _load_variants(db, item_id: str, region: str) -> dict[tuple[int, int], object]:
+    """Карта (qlt, ptn) -> строка artifact_variant_stats предмета — опора скоринга."""
+    from sqlalchemy import select
+    from app.models.models import ArtifactVariantStats
+
+    rows = (await db.execute(
+        select(ArtifactVariantStats).where(
+            ArtifactVariantStats.item_id == item_id,
+            ArtifactVariantStats.region == region,
+        )
+    )).scalars().all()
+    return {(row.qlt, row.ptn): row for row in rows}
+
+
+async def _artifact_items(db) -> list[tuple[str, int | None]]:
+    """
+    Набор ленты: артефакты каталога, не подтверждённые как неторгуемые
+    (on_auction IS NOT FALSE = TRUE или ещё не проверенные — консистентно
+    с фильтром /items). Возвращает пары (item_id, lots_total).
+    """
+    from sqlalchemy import select
+    from app.models.models import MasterItem
+
+    rows = (await db.execute(
+        select(MasterItem.item_id, MasterItem.lots_total)
+        .where(
+            MasterItem.category.like("artefact%"),
+            MasterItem.on_auction.is_not(False),
+        )
+        .order_by(MasterItem.item_id)
+    )).all()
+    return [(row.item_id, row.lots_total) for row in rows]
+
+
+# ─── Celery-задачи ───────────────────────────────────────────────────────────
+
+@celery_app.task(name="app.tasks.feed_collector.collect_artifact_lots", bind=True, max_retries=0)
+def collect_artifact_lots(self):
+    """
+    Обход артефактов рынка с полной пагинацией /lots и записью выгодных лотов.
+
+    Beat каждые 60 с; задача сама решает, какие предметы «созрели» (как
+    collect_all_active_lots). Расход одного прогона ограничен
+    FEED_BUDGET_UNITS_PER_MIN, дополнительно — предохранитель по фактическому
+    расходу лимитера (FEED_RATE_GUARD_UNITS). В окне collect_all_history
+    (:00–:11) действуют урезанные FEED_WINDOW_* — цикл не пропускается, но
+    уступает всплеску watchlist-истории. Коммит после каждого предмета —
+    прогресс не теряется при рестарте воркера/деплое.
+
+    bind=True, max_retries=0: ретраи внутренние (на уровне одного предмета),
+    падение на одном предмете не рестартует весь прогон. Ошибка ЛЮБОЙ стадии
+    предмета (выгрузка, кэш, запись в БД) изолируется: транзакция откатывается,
+    предмет учитывается в счётчике отказов, цикл идёт дальше.
+    """
+
+    async def _run():
+        from app.db.session import get_celery_db_session as get_db_session
+        from app.models.models import ArtifactVariantStats
+        from app.services.cache.api_cache import api_cache
+        from app.services.collector.client import stalcraft_client
+        from app.core.config import settings
+        from sqlalchemy import func, select
+        import redis.asyncio as aioredis
+
+        # Джиттер до всего остального: разводит запросы ленты и watchlist-тик,
+        # которые beat выпускает в одну секунду (см. FEED_CYCLE_JITTER_SEC).
+        await asyncio.sleep(random.uniform(0, FEED_CYCLE_JITTER_SEC))
+
+        region = settings.stalcraft_region
+        redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+
+        try:
+            if not await acquire_lock(redis_client):
+                logger.info("feed: предыдущий цикл ещё идёт, пропуск")
+                return
+
+            try:
+                cycle = int(await redis_client.incr(FEED_CYCLE_KEY))
+                started = time.monotonic()
+                cycle_started_at = datetime.now(timezone.utc)
+
+                async with get_db_session() as db:
+                    # Опора скоринга — artifact_variant_stats. Пока ни у одного
+                    # варианта нет ref_price (Фаза 2 / бэкфилл истории), выгодных
+                    # лотов быть не может по построению, а обход стоил бы до
+                    # 200 ед/мин лимита впустую.
+                    refs_ready = (await db.execute(
+                        select(func.count()).select_from(ArtifactVariantStats)
+                        .where(
+                            ArtifactVariantStats.region == region,
+                            ArtifactVariantStats.ref_price.is_not(None),
+                        )
+                    )).scalar_one()
+                    if not refs_ready:
+                        logger.warning(
+                            "feed cycle #%s: нет ни одного варианта с ref_price "
+                            "(artifact_variant_stats пуста) — обход пропущен, "
+                            "лимит API не расходуется", cycle,
+                        )
+                        return
+
+                    items = await _artifact_items(db)
+                    if not items:
+                        logger.warning("feed cycle #%s: набор артефактов пуст", cycle)
+                        return
+
+                    sales_map = dict((await db.execute(
+                        select(
+                            ArtifactVariantStats.item_id,
+                            func.max(ArtifactVariantStats.sales_per_day),
+                        )
+                        .where(ArtifactVariantStats.region == region)
+                        .group_by(ArtifactVariantStats.item_id)
+                    )).all())
+
+                    item_ids = [item_id for item_id, _ in items]
+                    last_scan = await _load_last_scan(redis_client, item_ids)
+
+                    plans = [
+                        ItemPlan(
+                            item_id=item_id,
+                            pages=pages_for_total(lots_total),
+                            hot=is_hot(
+                                lots_total,
+                                float(sales_map[item_id]) if sales_map.get(item_id) is not None else None,
+                            ),
+                            last_scan=last_scan.get(item_id),
+                        )
+                        for item_id, lots_total in items
+                    ]
+                    queue = select_by_tempo(order_queue(plans), cycle)
+                    # В окне collect_all_history (:00–:11) лента уступает: бюджет
+                    # урезан, порог предохранителя ниже (см. FEED_WINDOW_*).
+                    budget = budget_units_for(cycle_started_at)
+                    selected, estimated = plan_run(queue, budget)
+                    deferred = len(queue) - len(selected)
+
+                    units = pages = done = guard_trips = item_errors = 0
+                    rows_upserted = rows_deleted = 0
+                    scanned_now: set[str] = set()
+
+                    for idx, plan in enumerate(selected):
+                        # Порог берётся по ТЕКУЩЕМУ времени, а не по старту цикла:
+                        # прогон, начатый на :59 с полным бюджетом, заезжает в окно
+                        # истории и должен подчиниться его строгому порогу.
+                        guard = rate_guard_for(datetime.now(timezone.utc))
+                        consumed = await recent_consumption(redis_client)
+                        if consumed > guard:
+                            guard_trips += 1
+                            logger.warning(
+                                "feed: расход системы %s ед/мин > %s — цикл прерван, "
+                                "остаток предметов доберётся следующим",
+                                consumed, guard,
+                            )
+                            break
+
+                        result = None
+                        for attempt in range(FEED_ITEM_RETRIES + 1):
+                            try:
+                                result = await fetch_all_lots(
+                                    stalcraft_client, plan.item_id, region,
+                                    redis_client=redis_client,
+                                )
+                                break
+                            except Exception as e:
+                                if attempt < FEED_ITEM_RETRIES:
+                                    backoff = FEED_RETRY_BACKOFF[min(attempt, len(FEED_RETRY_BACKOFF) - 1)]
+                                    logger.warning(
+                                        "feed: транзиентная ошибка %s (попытка %s/%s): %s; retry через %ss",
+                                        plan.item_id, attempt + 1, FEED_ITEM_RETRIES + 1, e, backoff,
+                                    )
+                                    await asyncio.sleep(backoff)
+                                else:
+                                    logger.error(
+                                        "feed: %s пропущен после %s попыток: %s",
+                                        plan.item_id, FEED_ITEM_RETRIES + 1, e,
+                                    )
+
+                        if result is None:
+                            # feed:scan:last не обновляем — предмет пойдёт первым
+                            # в очереди следующего цикла; после FEED_ITEM_FAIL_MAX
+                            # подряд его паркует note_item_failure.
+                            item_errors += 1
+                            await note_item_failure(redis_client, plan.item_id, cycle_started_at)
+                            continue
+
+                        lots, total, requests = result
+                        units += requests * FEED_LOTS_REQUEST_COST
+                        pages += requests
+
+                        # Общий кэш: GET /lots/{item_id} по артефакту не порождает
+                        # собственный запрос к API. Кладём 200 САМЫХ ДЕШЁВЫХ лотов —
+                        # строго лучше первой страницы API, которую кладёт
+                        # watchlist-коллектор. Сбой записи в кэш — не повод терять
+                        # уже оплаченный лимитом срез.
+                        try:
+                            await api_cache.set_lots(
+                                region, plan.item_id,
+                                {"total": total, "lots": sorted(lots, key=lot_price_per_unit)[:200]},
+                                redis_client=redis_client,
+                            )
+                        except Exception as e:
+                            logger.warning("feed: кэш лотов %s не обновлён: %s", plan.item_id, e)
+
+                        scan = await safe_scan_item(
+                            db, redis_client, plan.item_id, region, lots, cycle_started_at,
+                        )
+                        if scan is None:
+                            item_errors += 1
+                            continue
+
+                        rows_upserted += scan.rows_scored
+                        rows_deleted += scan.rows_deleted
+
+                        await redis_client.setex(
+                            FEED_SCAN_LAST_PREFIX + plan.item_id, FEED_SCAN_LAST_TTL,
+                            cycle_started_at.isoformat(),
+                        )
+                        scanned_now.add(plan.item_id)
+                        done += 1
+
+                        if units >= budget:
+                            break
+                        if idx < len(selected) - 1:
+                            await asyncio.sleep(FEED_REQUEST_DELAY)
+
+                    logger.info(
+                        "feed cycle #%s: items_planned=%s items_done=%s items_failed=%s pages=%s "
+                        "units=%s budget=%s%s elapsed=%.1fs deferred=%s guard_trips=%s "
+                        "rows_upserted=%s rows_deleted=%s (оценка расхода при планировании: %s ед)",
+                        cycle, len(selected), done, item_errors, pages, units, budget,
+                        " (окно истории)" if in_history_window(cycle_started_at) else "",
+                        time.monotonic() - started, deferred, guard_trips,
+                        rows_upserted, rows_deleted, estimated,
+                    )
+
+                    await _finish_sweep_if_complete(
+                        db, redis_client, cycle, plans, scanned_now, cycle_started_at,
+                    )
+            finally:
+                await release_lock(redis_client)
+        finally:
+            await redis_client.aclose()
+            await redis_client.connection_pool.disconnect(inuse_connections=True)
+
+    return run_async(_run())
+
+
+async def _finish_sweep_if_complete(
+    db, redis_client, cycle: int, plans: list[ItemPlan],
+    scanned_now: set[str], cycle_started_at: datetime,
+) -> None:
+    """
+    Полный круг = каждый предмет набора обойдён с момента старта круга.
+
+    Логирует длительность круга (метрика калибровки) и убирает осиротевшие
+    строки feed_lots — предметов, выпавших из набора (сняты с торгов, удалены
+    из каталога).
+    """
+    from sqlalchemy import delete
+    from app.models.models import FeedLot
+
+    raw = await redis_client.get(FEED_SWEEP_KEY)
+    sweep_cycle, sweep_started = None, None
+    if raw and ":" in raw:
+        try:
+            sweep_cycle, sweep_ts = raw.split(":", 1)
+            sweep_cycle = int(sweep_cycle)
+            sweep_started = datetime.fromtimestamp(float(sweep_ts), tz=timezone.utc)
+        except ValueError:
+            sweep_cycle, sweep_started = None, None
+
+    if sweep_started is None:
+        await redis_client.set(FEED_SWEEP_KEY, f"{cycle}:{cycle_started_at.timestamp()}")
+        return
+
+    covered = all(
+        plan.item_id in scanned_now
+        or (plan.last_scan is not None and plan.last_scan >= sweep_started)
+        for plan in plans
+    )
+    if not covered:
+        return
+
+    now = datetime.now(timezone.utc)
+    logger.info(
+        "feed sweep: полный круг за %.0fс (циклов: %s)",
+        (now - sweep_started).total_seconds(), cycle - (sweep_cycle or cycle) + 1,
+    )
+    result = await db.execute(
+        delete(FeedLot).where(
+            FeedLot.seen_at < now - timedelta(hours=FEED_STALE_ROW_HOURS)
+        )
+    )
+    await db.commit()
+    if result.rowcount:
+        logger.info("feed sweep: убрано осиротевших строк feed_lots: %s", result.rowcount)
+
+    await redis_client.set(FEED_SWEEP_KEY, f"{cycle + 1}:{now.timestamp()}")
+
+
+@celery_app.task(
+    name="app.tasks.feed_collector.calculate_artifact_variant_stats", bind=True, max_retries=0,
+)
+def calculate_artifact_variant_stats(self):
+    """
+    Пересчёт artifact_variant_stats — опоры скоринга ленты.
+
+    Beat :14,:24,:34,:44,:54 — вне окна collect_all_history (:00–:11) и вне
+    слотов calculate_market_stats_batch (:12–:57 шагом 5), чтобы не
+    воспроизвести docs/tasks/cpu-spikes-recurring-2026-07-06.md.
+    К Stalcraft API не обращается: читает только sales_history.
+    """
+
+    async def _run():
+        from app.db.session import get_celery_db_session as get_db_session
+        from app.core.config import settings
+        from app.services.analytics.variant_stats import (
+            calculate_artifact_variant_stats as _calculate,
+        )
+
+        async with get_db_session() as db:
+            return await _calculate(db, settings.stalcraft_region)
+
+    return run_async(_run())
+
+
+@celery_app.task(name="app.tasks.feed_collector.collect_artifact_history", bind=True, max_retries=0)
+def collect_artifact_history(self):
+    """
+    Часовая дельта /history по всем артефактам -> sales_history (user_id=NULL).
+
+    Без реальных сделок у ленты нет опорной цены, а выгодность считалась бы от
+    цен выставленных лотов — ровно та ошибка, на которой фича умерла дважды
+    (docs/CHANGELOG.md). Стоимость: ~103 × 2 = 206 ед/час ≈ 3.4 ед/мин В СРЕДНЕМ,
+    но тратились они за одну минуту — поэтому обход растянут HISTORY_ITEM_DELAY
+    и смещён джиттером (см. P2-5 ревизии QA).
+    """
+
+    async def _run():
+        from app.db.session import get_celery_db_session as get_db_session
+        from app.core.config import settings
+        import redis.asyncio as aioredis
+
+        await asyncio.sleep(random.uniform(0, FEED_HISTORY_JITTER_SEC))
+
+        region = settings.stalcraft_region
+        redis_client = aioredis.from_url(settings.redis_url, decode_responses=True)
+
+        stats = {"items": 0, "requests": 0, "inserted": 0, "errors": 0}
+        try:
+            async with get_db_session() as db:
+                items = await _artifact_items(db)
+                logger.info(
+                    "collect_artifact_history: старт region=%s предметов=%s", region, len(items),
+                )
+
+                for idx, (item_id, _) in enumerate(items):
+                    consumed = await recent_consumption(redis_client)
+                    if consumed > FEED_RATE_GUARD_UNITS:
+                        logger.warning(
+                            "feed history: расход системы %s ед/мин > %s — сбор прерван "
+                            "на %s/%s", consumed, FEED_RATE_GUARD_UNITS, idx, len(items),
+                        )
+                        break
+
+                    try:
+                        requests, inserted = await _collect_history_for_artifact(db, item_id, region)
+                    except Exception as e:
+                        logger.error("feed history: %s пропущен: %s", item_id, e)
+                        stats["errors"] += 1
+                        continue
+
+                    stats["items"] += 1
+                    stats["requests"] += requests
+                    stats["inserted"] += inserted
+
+                    if idx < len(items) - 1:
+                        await asyncio.sleep(HISTORY_ITEM_DELAY)
+
+                logger.info(
+                    "collect_artifact_history: завершено items=%s requests=%s "
+                    "(~%s ед лимита) inserted=%s errors=%s",
+                    stats["items"], stats["requests"],
+                    stats["requests"] * HISTORY_REQUEST_COST, stats["inserted"], stats["errors"],
+                )
+        finally:
+            await redis_client.aclose()
+            await redis_client.connection_pool.disconnect(inuse_connections=True)
+
+        return stats
+
+    return run_async(_run())
+
+
+async def _collect_history_for_artifact(db, item_id: str, region: str) -> tuple[int, int]:
+    """
+    Дельта /history по предмету: постранично до первой уже известной продажи
+    (совпадение по (sale_time, total_price, amount)) либо до
+    HISTORY_BACKSTOP_PAGES страниц — часовой дельты хватает с запасом.
+
+    Дедуп — на существующем уникальном индексе uq_sales_history_sale.
+    Возвращает (запросов к API, вставлено строк).
+    """
+    from sqlalchemy import select
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from app.models.models import SalesHistory
+    from app.services.collector.client import stalcraft_client
+
+    known_rows = (await db.execute(
+        select(SalesHistory.sale_time, SalesHistory.total_price, SalesHistory.amount)
+        .where(SalesHistory.item_id == item_id, SalesHistory.region == region)
+        .order_by(SalesHistory.sale_time.desc())
+        .limit(HISTORY_BACKSTOP_PAGES * HISTORY_PAGE_LIMIT)
+    )).all()
+    known = {
+        (int(row.sale_time.timestamp()), row.total_price, row.amount)
+        for row in known_rows
+    }
+
+    added: set[tuple[int, int, int]] = set()
+    requests = 0
+    inserted = 0
+    for page in range(HISTORY_BACKSTOP_PAGES):
+        data = await stalcraft_client.get_auction_history(
+            item_id, region, offset=page * HISTORY_PAGE_LIMIT, limit=HISTORY_PAGE_LIMIT,
+        )
+        requests += 1
+        records = data.get("prices") or []
+        if not records:
+            break
+
+        hit_known = False
+        values: list[dict] = []
+        for record in records:
+            row = sale_values(item_id, region, record)
+            if row is None:
+                continue
+            key = (int(row["sale_time"].timestamp()), row["total_price"], row["amount"])
+            if key in known:
+                # Продажа уже в базе — дальше по страницам только более старые.
+                hit_known = True
+                continue
+            if key in added:
+                continue  # /history вернул одну продажу дважды в пределах прохода
+            added.add(key)
+            values.append(row)
+
+        if values:
+            result = await db.execute(
+                pg_insert(SalesHistory).values(values).on_conflict_do_nothing(
+                    index_elements=["item_id", "region", "sale_time", "total_price", "amount"]
+                )
+            )
+            inserted += result.rowcount or 0
+            await db.commit()
+
+        if hit_known or len(records) < HISTORY_PAGE_LIMIT:
+            break
+        await asyncio.sleep(FEED_REQUEST_DELAY)
+
+    return requests, inserted

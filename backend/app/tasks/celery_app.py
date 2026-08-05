@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.tasks.analyzers",
         "app.tasks.tiers",
         "app.tasks.audit",
+        "app.tasks.feed_collector",
     ],
 )
 
@@ -61,6 +62,41 @@ celery_app.conf.update(
         "sweep-expired-tiers": {
             "task": "app.tasks.tiers.sweep_expired_tiers",
             "schedule": crontab(hour=3, minute=30),
+        },
+        # ── Лента артефактов (docs/tasks/artifact-feed.md) ──────────────────
+        # Обход всех артефактов с полной пагинацией /lots. Раз в минуту по
+        # СТЕННЫМ часам (crontab), а не timedelta(60): у timedelta фаза
+        # привязана к моменту старта beat, поэтому при рестарте контейнеров
+        # цикл ленты выпускался в ту же секунду, что и watchlist-тик и
+        # collect_emission — форма всплеска, дававшая реальные 429 при среднем
+        # расходе всего ~42% лимита. Внутри задачи старт дополнительно смещён
+        # джиттером FEED_CYCLE_JITTER_SEC. Наложения прогонов не бывает:
+        # Redis-лок feed:scan:lock. В окне collect_all_history (:00–:11) цикл
+        # выпускается по расписанию, но сам урезает бюджет и порог
+        # предохранителя (FEED_WINDOW_* в feed_collector.py) — джиттера в 10 с
+        # не хватало, чтобы развести ленту с одиннадцатиминутным всплеском
+        # истории, и верхушка каждого часа давала 429.
+        "collect-artifact-lots": {
+            "task": "app.tasks.feed_collector.collect_artifact_lots",
+            "schedule": crontab(minute="*"),
+        },
+        # История продаж по всем артефактам (опора расчёта прибыли) — раз в час
+        # на :15 (окно :00–:11 занято collect_all_history, слот :14 —
+        # calculate_artifact_variant_stats, к API не ходит). Обход растянут
+        # HISTORY_ITEM_DELAY примерно на 4 минуты (~52 ед/мин вместо 206 ед за
+        # одну минуту) и смещён джиттером FEED_HISTORY_JITTER_SEC.
+        "collect-artifact-history": {
+            "task": "app.tasks.feed_collector.collect_artifact_history",
+            "schedule": crontab(minute="15"),
+        },
+        # Статистика вариантов «предмет × качество × заточка» — опора скоринга
+        # ленты. Слоты :14,:24,:34,:44,:54: шаг 10 мин, не пересекается ни с
+        # окном collect_all_history (:00–:11), ни со слотами
+        # calculate_market_stats_batch (:12–:57 шаг 5) — чтобы не воспроизвести
+        # docs/tasks/cpu-spikes-recurring-2026-07-06.md.
+        "calculate-artifact-variant-stats": {
+            "task": "app.tasks.feed_collector.calculate_artifact_variant_stats",
+            "schedule": crontab(minute="14,24,34,44,54"),
         },
         # Telegram-уведомления — обрабатываются telegram_bot сервисом (polling),
         # scan_and_notify отключён во избежание дублирования.

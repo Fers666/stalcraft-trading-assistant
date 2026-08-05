@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, String, Integer, BigInteger, Boolean, Float,
+    Column, String, Integer, BigInteger, SmallInteger, Boolean, Float,
     DateTime, ForeignKey, Text, ARRAY, Numeric, Index
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -167,7 +167,10 @@ class SalesHistory(Base):
     __tablename__ = "sales_history"
 
     id               = Column(Integer, primary_key=True)
-    user_id          = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # NULL = глобально собранная продажа (задача collect_artifact_history по всем
+    # артефактам, вне чьего-либо watchlist) — та же конвенция, что у
+    # collected_data.user_id и market_statistics.user_id.
+    user_id          = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     item_id          = Column(String(50), nullable=False)
     region           = Column(String(10), nullable=False)
     sale_time        = Column(DateTime(timezone=True), nullable=False)
@@ -409,5 +412,115 @@ class EmissionEvent(Base):
     __table_args__ = (
         Index("ix_emission_region_started", "region", "started_at"),
         Index("ix_emission_active", "region", "ended_at"),
+    )
+
+
+# ─── Лента артефактов ─────────────────────────────────────────────────────────
+
+class FeedLot(Base):
+    """
+    Живой отскоренный срез ТОЛЬКО выгодных лотов (одна строка = один лот).
+
+    Переписывается каждым циклом collect_artifact_lots: лот исчез из среза =
+    выкуплен, истёк или перестал быть выгодным. Персональный порог видимости
+    применяется при чтении (margin_adj_pct >= min_profit_margin_percent),
+    поэтому один общий срез обслуживает всех пользователей.
+    """
+    __tablename__ = "feed_lots"
+
+    id                   = Column(BigInteger, primary_key=True)
+    item_id              = Column(String(50), ForeignKey("master_items.item_id"), nullable=False)
+    region               = Column(String(10), nullable=False)
+    # startTime|qlt|ptn|buyoutPrice|amount — см. feed_collector.lot_identity_key:
+    # startTime один не различает лоты, выставленные в одну секунду.
+    # 128 при реалистичном максимуме ~58 символов: переполнение роняет запись
+    # предмета целиком, запас ничего не стоит
+    lot_key              = Column(String(128), nullable=False)
+    qlt                  = Column(SmallInteger, nullable=False)  # 0-5
+    ptn                  = Column(SmallInteger, nullable=False)  # 0-15
+    amount               = Column(Integer, nullable=False)
+    buyout_price         = Column(BigInteger, nullable=False)    # итого к оплате
+    buyout_per_unit      = Column(BigInteger, nullable=False)
+    start_time           = Column(DateTime(timezone=True), nullable=True)
+    end_time             = Column(DateTime(timezone=True), nullable=True)
+    # Скоринг: всё из pricing.evaluate_lot_profit + artifact_variant_stats
+    ref_price            = Column(BigInteger, nullable=False)
+    sell_price_used      = Column(BigInteger, nullable=False)
+    breakeven_per_unit   = Column(BigInteger, nullable=False)
+    profit_per_unit      = Column(BigInteger, nullable=False)
+    profit_total         = Column(BigInteger, nullable=False)    # profit_per_unit * amount, сортировка по умолчанию
+    profit_pct           = Column(Numeric(8, 2), nullable=False)
+    # profit_pct / risk_mult — sargable-форма фильтра profit_pct >= user_min * risk_mult
+    margin_adj_pct       = Column(Numeric(8, 2), nullable=False)
+    profit_per_hour      = Column(Numeric(14, 2))   # НА ЕДИНИЦУ (evaluate_lot_profit)
+    # profit_total / est_sell_hours — ровно та величина, которую печатает UI в
+    # колонке «₽/час». Материализована, потому что сортировка обязана идти по
+    # показанному числу: сортировка по profit_per_hour (на единицу) при amount > 1
+    # инвертировала выдачу.
+    profit_per_hour_total = Column(Numeric(14, 2))
+    est_sell_hours       = Column(Numeric(8, 2))
+    risk                 = Column(String(10), nullable=False)    # low/medium/high
+    risk_mult            = Column(Numeric(3, 2), nullable=False)  # pricing.RISK_MARGIN_MULT
+    volatility_7d        = Column(Numeric(6, 2))
+    trend_24h            = Column(String(10))                    # falling/stable/rising/unknown
+    trend_24h_pct        = Column(Numeric(8, 2))
+    trend_7d_pct         = Column(Numeric(8, 2))
+    sales_per_day        = Column(Numeric(10, 2))
+    supply_coverage_days = Column(Numeric(10, 2))                # Σ amount живых лотов варианта / sales_per_day
+    stats_confidence     = Column(String(10))
+    stats_samples        = Column(Integer)
+    first_seen_at        = Column(DateTime(timezone=True), nullable=False)  # ставится только при вставке
+    seen_at              = Column(DateTime(timezone=True), nullable=False)  # последний цикл, подтвердивший лот
+
+    __table_args__ = (
+        Index("uq_feed_lots_lot", "item_id", "region", "lot_key", unique=True),
+        Index("ix_feed_lots_profit_total", text("profit_total DESC")),
+        Index("ix_feed_lots_profit_pct", text("profit_pct DESC")),
+        Index("ix_feed_lots_margin_adj", text("margin_adj_pct DESC")),
+        Index("ix_feed_lots_item", "item_id"),
+        Index("ix_feed_lots_variant", "qlt", "ptn"),
+        Index("ix_feed_lots_end_time", "end_time"),
+        Index("ix_feed_lots_seen_at", "seen_at"),
+    )
+
+
+class ArtifactVariantStats(Base):
+    """
+    Статистика варианта «предмет x качество x заточка» по реальным сделкам.
+
+    Опора скоринга ленты: вариант без ref_price/sell_options в скоринге
+    пропускается (нет сделок — нет честной базы для расчёта прибыли).
+    """
+    __tablename__ = "artifact_variant_stats"
+
+    id                  = Column(BigInteger, primary_key=True)
+    item_id             = Column(String(50), ForeignKey("master_items.item_id"), nullable=False)
+    region              = Column(String(10), nullable=False)
+    qlt                 = Column(SmallInteger, nullable=False)
+    ptn                 = Column(SmallInteger, nullable=False)
+    ref_price           = Column(BigInteger)                 # compute_reference()["ref"]
+    ref_source          = Column(String(20))                 # weighted_history / history / current_fallback
+    ref_confidence      = Column(String(10))                 # high / low
+    ref_samples         = Column(Integer)
+    median_24h          = Column(Numeric(14, 2))
+    median_7d           = Column(Numeric(14, 2))
+    median_30d          = Column(Numeric(14, 2))
+    sales_volume_24h    = Column(Integer)
+    sales_volume_7d     = Column(Integer)
+    sales_volume_30d    = Column(Integer)
+    sales_per_day       = Column(Numeric(10, 2))             # sales_volume_7d / 7
+    volatility_7d       = Column(Numeric(6, 2))
+    risk                = Column(String(10))                 # classify_risk(volatility_7d)
+    trend_24h           = Column(String(10))
+    trend_24h_pct       = Column(Numeric(8, 2))              # median_24h vs median_7d
+    trend_7d_pct        = Column(Numeric(8, 2))              # median_7d vs median_30d
+    sell_options        = Column(JSONB)                      # make_sell_options(...)
+    batch_stats         = Column(JSONB)
+    avg_sell_time_hours = Column(Numeric(8, 2))
+    calculated_at       = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("uq_artifact_variant", "item_id", "region", "qlt", "ptn", unique=True),
+        Index("ix_avs_item", "item_id", "region"),
     )
 

@@ -525,6 +525,32 @@ def _recent_bulk_signal(sales: list, now: datetime) -> dict | None:
     }
 
 
+def extract_time_price_pairs(sales: list) -> list[tuple[float, int]]:
+    """
+    Пары (часы_на_рынке, цена) из продаж с восстановленным lot_start.
+
+    Отсекает всё вне 0 < hours <= MAX_LOT_LIFETIME_HOURS: лот живёт на аукционе
+    максимум 48 ч, большее значение — мусор матчинга снэпшот→история.
+    Единственное место извлечения пар: их потребляют и _calculate_sell_options,
+    и статистика вариантов ленты (analytics/variant_stats.py) — формула не
+    должна расходиться.
+    """
+    pairs: list[tuple[float, int]] = []
+    for s in sales:
+        info = s.additional_info or {}
+        lot_start_str = info.get("lot_start")
+        if not lot_start_str:
+            continue
+        try:
+            lot_start = datetime.fromisoformat(lot_start_str.replace("Z", "+00:00"))
+            hours = (s.sale_time - lot_start).total_seconds() / 3600
+            if 0 < hours <= MAX_LOT_LIFETIME_HOURS:
+                pairs.append((hours, s.price_per_unit))
+        except Exception:
+            continue
+    return pairs
+
+
 def _avg_sell_time_from_buyouts(sales: list) -> float | None:
     """
     Среднее время продажи в часах.
@@ -573,20 +599,7 @@ async def _calculate_sell_options(
     2. Объём продаж за 7 дней — косвенный показатель активности рынка
     """
     # ── 1. Реальные данные о времени продажи ─────────────────────────────────
-    time_price_pairs: list[tuple[float, int]] = []
-    for s in sales_30d:
-        info = s.additional_info or {}
-        lot_start_str = info.get("lot_start")
-        if not lot_start_str:
-            continue
-        try:
-            lot_start = datetime.fromisoformat(lot_start_str.replace("Z", "+00:00"))
-            hours = (s.sale_time - lot_start).total_seconds() / 3600
-            # > MAX_LOT_LIFETIME_HOURS — ошибка матчинга, см. _avg_sell_time_from_buyouts
-            if 0 < hours <= MAX_LOT_LIFETIME_HOURS:
-                time_price_pairs.append((hours, s.price_per_unit))
-        except Exception:
-            continue
+    time_price_pairs = extract_time_price_pairs(sales_30d)
 
     # ── 2. Текущий минимум ликвидных лотов ───────────────────────────────────
     last_snapshot = (await db.execute(

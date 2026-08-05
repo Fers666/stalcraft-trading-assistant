@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.db.session import get_db
 from app.models.models import User, UserSettings
@@ -22,7 +22,10 @@ class SettingsResponse(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    min_profit_margin_percent: int | None = None
+    # Порог валидируется на сервере, а не только клампом в UI:
+    # min_profit_margin_percent входит и в WHERE ленты, и в ключ кэша витрины —
+    # произвольные значения дают перебор выдачи по строке и обход TTL 30 с.
+    min_profit_margin_percent: int | None = Field(None, ge=0, le=100)
     exclude_less_than_amount: int | None = None
     notify_telegram: bool | None = None
     notify_browser_push: bool | None = None

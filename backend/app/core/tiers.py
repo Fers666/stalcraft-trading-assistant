@@ -22,13 +22,20 @@ class TierLimits:
     auction_access: bool
     buy_sniper_access: bool           # доступ к разделу «Закупки» (видеть/добавлять/мониторить)
     buy_sniper_notifications: bool    # Telegram-алерты при падении цены ниже порога
+    # «Лента артефактов»: feed_access — полная лента (сводка 24 ч и счётчики
+    # фильтров гейтируются им же); уведомлений по ленте нет — раздел смотрят
+    # с портала. feed_rows_limit — сколько строк видит тариф без полного
+    # доступа (None = без ограничений).
+    # Инвариант: feed_access == (feed_rows_limit is None).
+    feed_access: bool
+    feed_rows_limit: int | None
 
 
 TIERS: dict[str, TierLimits] = {
-    "base":          TierLimits(watchlist_limit=6,  telegram_notifications=False, stats_windows=("24h",),                    auction_access=False, buy_sniper_access=False, buy_sniper_notifications=False),
-    "advanced":      TierLimits(watchlist_limit=10, telegram_notifications=True,  stats_windows=("24h", "48h"),               auction_access=False, buy_sniper_access=True,  buy_sniper_notifications=False),
-    "advanced_plus": TierLimits(watchlist_limit=20, telegram_notifications=True,  stats_windows=("24h", "48h", "7d"),         auction_access=True,  buy_sniper_access=True,  buy_sniper_notifications=True),
-    "advanced_max":  TierLimits(watchlist_limit=25, telegram_notifications=True,  stats_windows=("24h", "48h", "7d", "30d"),  auction_access=True,  buy_sniper_access=True,  buy_sniper_notifications=True),
+    "base":          TierLimits(watchlist_limit=6,  telegram_notifications=False, stats_windows=("24h",),                    auction_access=False, buy_sniper_access=False, buy_sniper_notifications=False, feed_access=False, feed_rows_limit=1),
+    "advanced":      TierLimits(watchlist_limit=10, telegram_notifications=True,  stats_windows=("24h", "48h"),               auction_access=False, buy_sniper_access=True,  buy_sniper_notifications=False, feed_access=False, feed_rows_limit=10),
+    "advanced_plus": TierLimits(watchlist_limit=20, telegram_notifications=True,  stats_windows=("24h", "48h", "7d"),         auction_access=True,  buy_sniper_access=True,  buy_sniper_notifications=True,  feed_access=False, feed_rows_limit=20),
+    "advanced_max":  TierLimits(watchlist_limit=25, telegram_notifications=True,  stats_windows=("24h", "48h", "7d", "30d"),  auction_access=True,  buy_sniper_access=True,  buy_sniper_notifications=True,  feed_access=True,  feed_rows_limit=None),
 }
 
 DEFAULT_TIER = "base"
@@ -37,7 +44,41 @@ ADMIN_LIMITS = TierLimits(
     watchlist_limit=None, telegram_notifications=True,
     stats_windows=("24h", "48h", "7d", "30d"), auction_access=True,
     buy_sniper_access=True, buy_sniper_notifications=True,
+    feed_access=True, feed_rows_limit=None,
 )
+
+
+def is_tier_expired(user: User) -> bool:
+    """
+    Истёк ли платный тариф — ЧИСТАЯ проверка, без записи в БД.
+
+    apply_tier_expiry коммитит понижение и работает только на HTTP-запрос
+    пользователя, а sweep_expired_tiers — раз в сутки. Между ними есть окно до
+    ~24 ч, в котором user.tier ещё «Макс», хотя срок вышел. Фоновым
+    потребителям (консьюмеры push/Telegram) писать в БД нельзя, но и слать по
+    истёкшему тарифу нельзя тем более — поэтому здесь только чтение.
+    """
+    expires = user.tier_expires_at
+    if expires is None or user.is_admin or user.tier == DEFAULT_TIER:
+        return False
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return expires < datetime.now(timezone.utc)
+
+
+def current_tier(user: User) -> str:
+    """Тариф с учётом истечения срока (без записи в БД) — источник для лимитов."""
+    return DEFAULT_TIER if is_tier_expired(user) else user.tier
+
+
+def effective_feed_rows_limit(user: User) -> int | None:
+    """
+    Сколько строк «Ленты артефактов» видит пользователь.
+    None = без ограничений (админ и тариф «Макс»); иначе лимит тарифа.
+    """
+    if user.is_admin:
+        return ADMIN_LIMITS.feed_rows_limit
+    return TIERS.get(current_tier(user), TIERS[DEFAULT_TIER]).feed_rows_limit
 
 
 def effective_watchlist_limit(user: User) -> int | None:
@@ -50,14 +91,19 @@ def effective_watchlist_limit(user: User) -> int | None:
         return ADMIN_LIMITS.watchlist_limit
     if user.favorites_limit_override is not None:
         return user.favorites_limit_override
-    return TIERS.get(user.tier, TIERS[DEFAULT_TIER]).watchlist_limit
+    return TIERS.get(current_tier(user), TIERS[DEFAULT_TIER]).watchlist_limit
 
 
 def get_tier_limits(user: User) -> TierLimits:
-    """is_admin обходит все лимиты целиком, независимо от user.tier."""
+    """
+    is_admin обходит все лимиты целиком, независимо от user.tier.
+
+    Тариф берётся через current_tier: истёкший срок = лимиты base, даже если
+    ленивое понижение ещё не отработало (фоновые консьюмеры уведомлений).
+    """
     if user.is_admin:
         return ADMIN_LIMITS
-    base = TIERS.get(user.tier, TIERS[DEFAULT_TIER])
+    base = TIERS.get(current_tier(user), TIERS[DEFAULT_TIER])
     if user.favorites_limit_override is not None:
         return replace(base, watchlist_limit=user.favorites_limit_override)
     return base
@@ -97,9 +143,7 @@ async def apply_tier_expiry(user: User, db: AsyncSession) -> None:
     в остальных случаях (tier_expires_at не NULL только для платных тарифов
     с установленным сроком).
     """
-    if (user.tier != "base" and not user.is_admin
-            and user.tier_expires_at is not None
-            and user.tier_expires_at < datetime.now(timezone.utc)):
+    if is_tier_expired(user):
         user.tier = "base"
         user.tier_expires_at = None
         new_limit = effective_watchlist_limit(user)
