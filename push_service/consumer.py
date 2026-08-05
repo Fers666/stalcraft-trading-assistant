@@ -196,6 +196,9 @@ async def send_to_subscriptions(db: AsyncSession, subs: list, payload: dict) -> 
 
 async def _load_user_gate(db: AsyncSession, user_id: int, gate_attr: str) -> Optional[User]:
     """Загружает пользователя и проверяет канал (notify_browser_push) + тариф.
+    Тариф берётся через get_tier_limits — он же учитывает истёкший
+    tier_expires_at: ленивое понижение здесь не сработает (консьюмер в БД не
+    пишет), а рассылка по истёкшему тарифу шла бы до суток.
     Возвращает User если можно слать, иначе None."""
     row = (await db.execute(
         select(User, UserSettings)
