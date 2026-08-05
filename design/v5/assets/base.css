@@ -466,9 +466,8 @@ select.input{cursor:pointer;font-family:var(--mono);font-size:var(--fs-12);color
 .gbtn:disabled:hover{background:var(--gold-dim);color:var(--gold-2)}
 
 /* ============================================================
-   added by: feed — словарь страницы «Лента возможностей»
-   (sticky-панель фильтров, чип-тумблер типа события, лента
-   карточек-строк на 1px-щелях, разделители времени, спарклайн,
+   added by: feed — словарь страницы «Лента артефактов»
+   (sticky-панель фильтров, чип-тумблер группы артефактов,
    live-статус «обновлено», пустое состояние ленты)
    ============================================================ */
 
@@ -482,7 +481,7 @@ select.input{cursor:pointer;font-family:var(--mono);font-size:var(--fs-12);color
 .fbar select.input{height:26px}
 .fbar .mlft{margin-left:auto;display:flex;align-items:center;gap:10px}
 
-/* чип-тумблер типа события (aria-pressed = включён) */
+/* чип-тумблер группы артефактов (aria-pressed = включён) */
 .fchip{
   display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px;
   border:1px solid var(--line);border-radius:var(--r);color:var(--mut);background:var(--s2);
@@ -494,52 +493,6 @@ select.input{cursor:pointer;font-family:var(--mono);font-size:var(--fs-12);color
 .fchip .fc-d{width:6px;height:6px;flex:none;background:var(--fcc,var(--faint))}
 .fchip .fc-n{font-family:var(--mono);font-size:var(--fs-105);font-variant-numeric:tabular-nums;color:var(--faint)}
 .fchip[aria-pressed="true"] .fc-n{color:var(--gold-2)}
-
-/* лента событий: карточки-строки с 1px-щелями */
-.evlist{display:flex;flex-direction:column;gap:1px;background:var(--line);border-top:1px solid var(--line)}
-
-/* разделитель временной группы */
-.ev-sep{display:flex;align-items:baseline;gap:8px;padding:5px 16px;background:var(--s2)}
-.ev-sep .n{font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);font-variant-numeric:tabular-nums}
-
-/* карточка-строка события; тип задаёт акцент через --evc/--evd */
-.ev{--evc:var(--mut);--evd:var(--s2);display:flex;align-items:center;gap:14px;padding:9px 16px;background:var(--s1);box-shadow:inset 2px 0 0 var(--evc)}
-.ev.t-lot{--evc:var(--green);--evd:var(--green-dim)}
-.ev.t-spike{--evc:var(--amber);--evd:var(--amber-dim)}
-.ev.t-move{--evc:var(--gold-2);--evd:var(--gold-dim)}
-.ev.t-emis{--evc:var(--red);--evd:var(--red-dim)}
-.ev-g{width:30px;height:30px;flex:none;display:grid;place-items:center;color:var(--evc);background:var(--evd);border:1px solid var(--line)}
-.ev.fresh .ev-g{box-shadow:0 0 12px -2px var(--evc)}
-.ev-main{flex:1;min-width:0;line-height:1.35}
-.ev-hr{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap}
-.ev-k{font-family:var(--head);font-weight:700;font-size:var(--fs-10);letter-spacing:.14em;text-transform:uppercase;color:var(--evc);white-space:nowrap}
-.ev-nm{font-size:var(--fs-125);font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ev-hr .chip{padding:1px 6px}
-.ev-tx{margin-top:2px;font-size:var(--fs-12);color:var(--mut)}
-.ev-tx .mono{font-size:var(--fs-115);color:var(--text)}
-.ev-tx .mono.dim{color:var(--faint)}
-/* колонки метрик события (цифры — mono, right-align) */
-.ev-col{flex:none;min-width:96px;text-align:right;line-height:1.3}
-.ev-col .v{display:block;font-family:var(--mono);font-size:var(--fs-14);font-weight:500;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
-.ev-col .v.g{color:var(--green)}
-.ev-col .v.a{color:var(--amber)}
-.ev-col .v.r{color:var(--red)}
-.ev-col .s{display:block;font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap;margin-top:1px}
-/* спарклайн: линия — приглушённое золото, конечная точка — акцент */
-.ev-spark{flex:none;width:118px;text-align:right;line-height:1}
-.spk{display:block;margin-left:auto;color:var(--gold-1)}
-.spk .sd{fill:var(--gold-2);stroke:var(--s1);stroke-width:2}
-.ev-spark .s{display:block;font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);margin-top:2px}
-.ev-act{flex:none;display:flex;gap:6px}
-.ev-act .qbtn{height:24px;padding:0 9px;text-decoration:none}
-.ev-t{flex:none;width:74px;text-align:right;line-height:1.3}
-.ev-t .hm{display:block;font-family:var(--mono);font-size:var(--fs-125);color:var(--text);font-variant-numeric:tabular-nums}
-.ev-t .ago{display:block;font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);font-variant-numeric:tabular-nums}
-/* появление нового live-события (reduced-motion глушится глобально) */
-@keyframes ev-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
-.ev.enew{animation:ev-in var(--mid) var(--ease)}
-/* пометка «вне избранного» */
-.chip.out{border-style:dashed;color:var(--faint)}
 
 /* пустое состояние ленты — учит следующему шагу */
 .ev-empty{
@@ -642,3 +595,58 @@ a.gbtn,a.qbtn{display:inline-flex;align-items:center;justify-content:center;text
   .rv.in{opacity:1;animation:rv-in var(--mid) var(--ease)}
 }
 @keyframes rv-in{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+/* ============================================================
+   added by: feed — «Лента артефактов» (табличная).
+   Только ДОБАВЛЕНИЯ к словарю: широкая read-only модалка-обозреватель,
+   прокручиваемый оверлей, двухстрочная ячейка таблицы, компактный
+   locked-блок, и общий словарь карточки предмета (варианты продажи +
+   пачки) — им пользуются и «Избранное», и модалка «Ленты».
+   ============================================================ */
+
+/* широкая модалка — ТОЛЬКО read-only карточка-обозреватель (DIRECTION §4, исключение) */
+.modal.wide{width:min(1080px,94vw)}
+/* высокая модалка: оверлей прокручивается, карточка прижата к верху */
+.modal-ov.tall{place-items:start center;overflow-y:auto}
+/* тело модалки без внутреннего поля — под свою сетку .statusline/.grid-2 */
+.modal-b.flush{padding:0}
+
+/* двухстрочная ячейка таблицы: значение + подпись (обе mono, tabular-nums) */
+.tc{display:block;line-height:1.22}
+.tc .v{display:block;font-family:var(--mono);font-size:var(--fs-125);color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tc .s{display:block;font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap;margin-top:2px}
+.tc .v.g,.tc .s.g{color:var(--green)}
+.tc .v.a,.tc .s.a{color:var(--amber)}
+.tc .v.r,.tc .s.r{color:var(--red)}
+.tc .v.g{font-weight:500}
+
+/* компактный locked-блок (витрина по тарифу под таблицей) */
+.pagelock.compact{min-height:0;padding:20px 24px;border-top:1px solid var(--line)}
+
+/* --- варианты продажи (было page-local в favorites.html; DIRECTION §4 .sellgrid) --- */
+.sellgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line)}
+.sell{background:var(--s2);padding:10px 14px 12px}
+.sell .name{font-family:var(--head);font-weight:700;font-size:var(--fs-11);letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}
+.sell.f .name{color:var(--mut)}
+.sell.n .name{color:var(--gold-2)}
+.sell.p .name{color:var(--gold-hi)}
+.sell dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px}
+.sell dt{font-size:var(--fs-11);color:var(--faint);white-space:nowrap}
+.sell dd{margin:0;font-family:var(--mono);font-size:var(--fs-125);font-variant-numeric:tabular-nums;text-align:right;color:var(--text);white-space:nowrap}
+.sell dd.pos{color:var(--green);font-weight:500}
+.sell dd.neg{color:var(--red)}
+.sell .conf{margin-top:8px;padding-top:7px;border-top:1px solid var(--line);font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);font-variant-numeric:tabular-nums}
+.sell-note{grid-column:1/-1;background:var(--s1);padding:14px;text-align:center;color:var(--faint);font-size:var(--fs-12)}
+
+/* --- пачки (было page-local в favorites.html) --- */
+.batch{display:grid;grid-template-columns:64px 1fr 118px;gap:6px 10px;align-items:center}
+.batch .bl{font-family:var(--mono);font-size:var(--fs-115);color:var(--mut);font-variant-numeric:tabular-nums;white-space:nowrap}
+.batch .bar{height:14px;background:var(--s2);border:1px solid var(--line);position:relative}
+.batch .bar i{
+  position:absolute;inset:1px auto 1px 1px;background:linear-gradient(90deg,var(--gold-1),var(--gold));
+  min-width:2px;transition:width var(--mid) var(--ease);
+}
+.batch .bar.top i{background:linear-gradient(90deg,var(--gold),var(--gold-hi));box-shadow:0 0 10px -2px var(--gold-glow)}
+.batch .bv{font-family:var(--mono);font-size:var(--fs-115);color:var(--faint);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.batch .bv b{color:var(--text);font-weight:500}
+.batch-note{margin-top:10px;font-family:var(--mono);font-size:var(--fs-11);color:var(--faint);font-variant-numeric:tabular-nums}

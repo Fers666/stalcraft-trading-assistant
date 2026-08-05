@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SC Trading — Лента возможностей</title>
+<title>SC Trading — Лента артефактов</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
@@ -11,41 +11,125 @@
 <link rel="stylesheet" href="../assets/base.css">
 <style>
 /* ============================================================
-   Страничные стили «Ленты возможностей». Только то, чего нет
+   Страничные стили «Ленты артефактов». Только то, чего нет
    в base.css. Цвета — только var(--…): хекс здесь = дефект.
    ============================================================ */
 
-/* левая колонка: шапка + sticky-фильтры + лента */
+/* колонка контента: шапка + sticky-фильтры + таблица */
 .feedcol{display:flex;flex-direction:column;gap:12px;min-width:0}
 
-/* сводка в сайдбаре: метрики на 1px-щелях (реюз .st) */
-.sumgrid{display:grid;gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
+/* --- шапка --- */
+.hstat{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.hcut{font-family:var(--mono);font-size:var(--fs-105);color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* демо-переключатель состояний: пунктир = не продукт (как .demo в навбаре) */
+.dstates{display:inline-flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+.dstates .qbtn{height:22px;padding:0 8px;font-size:var(--fs-10);letter-spacing:.08em}
 
-/* лучший сигнал дня */
+/* --- панель фильтров (sticky .fbar из base.css) --- */
+.fbar .fgrp{display:flex;align-items:center;gap:6px}
+.fbar .fgrp .kick{white-space:nowrap}
+.fbar select.input{max-width:210px}
+.fbar .fright{margin-left:auto;display:flex;align-items:center;gap:8px}
+.fchips{flex-basis:100%;display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:2px;padding-top:8px;border-top:1px solid var(--line)}
+.fchips .kick{margin-right:2px}
+.fchip:disabled{opacity:.5;cursor:not-allowed}
+.fbar .input:disabled{opacity:.5;cursor:not-allowed}
+/* значок «фильтры закрыты тарифом» */
+.flock{display:inline-flex;align-items:center;gap:6px;padding:0 8px;height:26px;
+  border:1px solid var(--gold-line);border-radius:var(--r);background:var(--gold-dim);
+  font-family:var(--head);font-weight:700;font-size:var(--fs-10);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--gold-2);white-space:nowrap}
+.flock[hidden]{display:none}
+
+/* --- таблица ленты --- */
+.ftbl td{padding:7px 8px;vertical-align:middle}
+.ftbl th .thb{padding:6px 8px}
+.ftbl td.tl{text-align:left;white-space:normal}
+.ftbl th.tl .thb{justify-content:flex-start}
+.ftbl .w-act{width:38px}
+.hlk{display:inline-flex;color:var(--faint)}
+.hlk:empty{display:none}
+/* тултипы правых колонок — не за viewport */
+.ftbl th:nth-last-child(-n+3) .thb[data-tip]:hover::after,
+.ftbl th:nth-last-child(-n+3) .thb[data-tip]:focus-visible::after{left:auto;right:0;transform:none}
+
+/* ячейка «предмет»: иконка + имя + чипы качества и заточки */
+.f-it{display:flex;align-items:center;gap:9px;min-width:0}
+.f-it .fi-t{min-width:0;line-height:1.2}
+.f-it .fi-nm{display:block;font-family:var(--ui);font-size:var(--fs-125);font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.f-it .fi-v{display:flex;align-items:center;gap:5px;margin-top:3px}
+.f-it .fi-v .chip{padding:1px 6px}
+.f-it .fi-v .chip.mono.z{color:var(--faint)}
+
+/* ячейка «рынок»: чип риска + тренд 24ч в одну строку */
+.tc.mkt .v{display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.tc.mkt .risk{padding:1px 7px}
+.tr-up{color:var(--green)}
+.tr-dn{color:var(--red)}
+.tr-fl{color:var(--faint)}
+
+/* служебная строка таблицы не притворяется кликабельной */
+tr.norow{cursor:default}
+tr.norow:hover{background:transparent}
+
+/* --- подвал таблицы --- */
+.ffoot{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 12px 10px;
+  border-top:1px solid var(--line);font-family:var(--mono);font-size:var(--fs-11);
+  color:var(--faint);font-variant-numeric:tabular-nums;
+}
+.ffoot .rpp{display:flex;align-items:center;gap:6px}
+.ffoot .rpp select.input{height:24px;padding:0 5px;font-size:var(--fs-11)}
+.ffoot .pager{padding:0;flex:1}
+.ffoot .cut{white-space:nowrap}
+.ffoot .cut b{color:var(--mut);font-weight:500}
+
+/* --- сайдбар: сводка 24ч --- */
+.sumgrid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border-bottom:1px solid var(--line)}
 .best{padding:12px}
 .best .bi{display:flex;align-items:center;gap:9px;margin-top:8px;min-width:0}
 .best .bi .bn{flex:1;min-width:0;line-height:1.3}
 .best .bi .bn .nm{display:block;font-size:var(--fs-125);font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .best .bi .bn .qq{font-size:var(--fs-105);font-weight:600;color:var(--qc,var(--q-default))}
-/* пик иерархии экрана — один, с глоу */
+/* единственный «пик» экрана: прибыль лучшего лота — с глоу */
 .bestv{
   display:block;margin-top:8px;font-family:var(--mono);font-weight:700;font-size:var(--fs-28);
   line-height:1.05;color:var(--gold-hi);font-variant-numeric:tabular-nums;
   text-shadow:0 0 22px var(--gold-glow);
 }
 .bests{display:block;margin-top:2px;font-family:var(--mono);font-size:var(--fs-11);color:var(--faint);font-variant-numeric:tabular-nums}
-.best .gbtn{display:block;width:100%;margin-top:10px;text-align:center;text-decoration:none}
+.best .gbtn{display:block;width:100%;margin-top:10px;text-align:center}
 .best-empty{margin-top:8px;font-size:var(--fs-12);color:var(--faint)}
+/* сводка, закрытая тарифом */
+.sidegate{display:flex;flex-direction:column;align-items:center;gap:8px;padding:24px 16px;text-align:center;border-bottom:1px solid var(--line)}
+.sidegate svg{color:var(--gold)}
+.sidegate .big{font-family:var(--head);font-weight:700;font-size:var(--fs-12);letter-spacing:.12em;text-transform:uppercase;color:var(--gold-2)}
+.sidegate .note{font-size:var(--fs-12);color:var(--faint);max-width:30ch}
 
-/* мини-блок «Настройка сигналов» */
-.side-note{padding:12px;border-top:1px solid var(--line);font-size:var(--fs-12);color:var(--mut);line-height:1.5}
-.side-note .crit{font-family:var(--mono);color:var(--gold-2);font-variant-numeric:tabular-nums;white-space:nowrap}
-.side-note .qbtn{margin-top:9px;text-decoration:none}
-
-/* иконка предмета в строке события / в «лучшем сигнале» */
+/* иконка предмета в «лучшем лоте» и в модалке */
 .e-ico{width:26px;height:26px;flex:none;position:relative;background:var(--s2);border:1px solid var(--line);display:grid;place-items:center}
 .e-ico img{width:22px;height:22px;object-fit:contain}
 .e-ico .fb{font-size:12px;position:absolute;inset:0}
+
+/* --- модалка «Карточка артефакта» (read-only обозреватель) --- */
+.am-h{display:flex;align-items:flex-start;gap:14px;padding:14px 16px 12px}
+.am-ico{width:44px;height:44px;flex:none;position:relative;background:var(--s2);border:1px solid var(--line);display:grid;place-items:center}
+.am-ico img{width:38px;height:38px;object-fit:contain}
+.am-ico .fb{font-size:20px;position:absolute;inset:0}
+.am-main{flex:1;min-width:0}
+.am-trow{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.am-trow .nm{font-family:var(--head);font-weight:700;font-size:var(--fs-26);letter-spacing:.03em;line-height:1;color:var(--text)}
+.am-en{font-size:var(--fs-12);color:var(--faint)}
+.am-id{font-family:var(--mono);font-size:var(--fs-11);color:var(--faint);border:1px solid var(--line);padding:1px 6px;border-radius:var(--r)}
+.am-chips{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+.am-right{flex:none;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+/* ключевая цифра модалки — БЕЗ глоу: единственный пик экрана занят «лучшим лотом» */
+.am-ref{font-family:var(--mono);font-weight:700;font-size:var(--fs-26);line-height:1.05;color:var(--gold-2);font-variant-numeric:tabular-nums}
+.am-sub{font-family:var(--mono);font-size:var(--fs-11);color:var(--faint);font-variant-numeric:tabular-nums}
+.am-hint{padding:10px 16px 12px;font-size:var(--fs-12);color:var(--faint);border-top:1px solid var(--line)}
+.vtbl td{padding:5px 8px}
+/* ячейка-контейнер пустого состояния (без собственных полей и линии) */
+.t-flat{padding:0;border-bottom:0}
 </style>
 </head>
 <body>
@@ -55,542 +139,1031 @@
 
 <main class="layout">
   <div class="feedcol">
-    <!-- шапка страницы -->
-    <section class="panel" aria-label="Лента возможностей — шапка">
+
+    <!-- Блок 1 · шапка -->
+    <section class="panel" aria-label="Лента артефактов — шапка">
       <div class="pg-h">
         <div class="tt">
-          <span class="kick">ЛЕНТА ВОЗМОЖНОСТЕЙ // OPPORTUNITY FEED</span>
-          <h1>Что купить прямо сейчас</h1>
-          <div class="sub">Сигналы по твоему избранному в реальном времени: выгодные лоты ниже медианы, всплески оптовых сделок, движения цены и события Зоны.</div>
+          <span class="kick">ЛЕНТА АРТЕФАКТОВ // ARTEFACT FEED</span>
+          <h1>Что выгодно купить прямо сейчас</h1>
+          <div class="sub">Мы обходим все артефакты рынка и оставляем только лоты, которые реально выгодно купить и перепродать: прибыль уже за вычетом комиссии 5 %, каждое качество и каждая заточка сравниваются отдельно. Строка — один живой лот.</div>
+          <div class="demo dstates" title="Демо-режим прототипа: показ состояний страницы">
+            <span class="demo-k">состояния</span>
+            <button type="button" class="qbtn" id="d-empty">Пустая лента</button>
+            <button type="button" class="qbtn" id="d-reset">Сброс</button>
+          </div>
         </div>
-        <div class="pr"><span class="livehint" id="livehint">обновлено —</span></div>
+        <div class="pr">
+          <div class="hstat">
+            <span class="livehint" id="lh">обновлено —</span>
+            <span class="hcut" id="hcut">срез —</span>
+          </div>
+        </div>
       </div>
     </section>
 
-    <!-- панель фильтров (sticky под навбаром) -->
+    <!-- Блок 2 · фильтры (sticky под навбаром) -->
     <section class="panel fbar" id="fbar" aria-label="Фильтры ленты">
-      <button type="button" class="fchip" id="ch-all" aria-pressed="true">Все<span class="fc-n" id="cn-all">0</span></button>
-      <button type="button" class="fchip" data-type="lot" aria-pressed="true" style="--fcc:var(--green)"><span class="fc-d" aria-hidden="true"></span>Выгодные лоты<span class="fc-n" id="cn-lot">0</span></button>
-      <button type="button" class="fchip" data-type="spike" aria-pressed="true" style="--fcc:var(--amber)"><span class="fc-d" aria-hidden="true"></span>Всплески<span class="fc-n" id="cn-spike">0</span></button>
-      <button type="button" class="fchip" data-type="move" aria-pressed="true" style="--fcc:var(--gold-2)"><span class="fc-d" aria-hidden="true"></span>Движения цены<span class="fc-n" id="cn-move">0</span></button>
-      <button type="button" class="fchip" data-type="emis" aria-pressed="true" style="--fcc:var(--red)"><span class="fc-d" aria-hidden="true"></span>Выброс<span class="fc-n" id="cn-emis">0</span></button>
-      <span class="fsep" aria-hidden="true"></span>
-      <div class="mlft">
-        <label class="kick flab" for="minp">Мин. профит</label>
-        <select class="input" id="minp" aria-label="Минимальный профит выгодного лота">
-          <option value="5">5 %</option>
-          <option value="10">10 %</option>
-          <option value="15" selected>15 %</option>
-          <option value="25">25 %</option>
-        </select>
-        <span class="fsep" aria-hidden="true"></span>
-        <label class="switch"><input type="checkbox" id="favonly" checked><span class="sl" aria-hidden="true"></span><span class="lb">Только избранное</span></label>
+      <div class="fgrp">
+        <label class="kick" for="f-item">Артефакт</label>
+        <select class="input" id="f-item" aria-label="Артефакт"></select>
       </div>
+      <div class="fgrp">
+        <label class="kick" for="f-qlt">Качество</label>
+        <select class="input" id="f-qlt" aria-label="Качество"></select>
+      </div>
+      <div class="fgrp">
+        <label class="kick" for="f-ptn">Заточка</label>
+        <select class="input" id="f-ptn" aria-label="Заточка"></select>
+      </div>
+      <span class="fsep" aria-hidden="true"></span>
+      <div class="fgrp">
+        <label class="kick" for="f-minp">Мин. профит</label>
+        <select class="input" id="f-minp" aria-label="Минимальный профит">
+          <option value="10" selected>10 %</option>
+          <option value="15">15 %</option>
+          <option value="20">20 %</option>
+          <option value="30">30 %</option>
+          <option value="50">50 %</option>
+        </select>
+      </div>
+      <div class="fright">
+        <button type="button" class="qbtn" id="f-rst" hidden>Сбросить</button>
+        <span class="flock" id="f-lock" hidden data-tip="Фильтры и сортировка открываются на тарифе ПРОДВИНУТАЯ МАКС"></span>
+      </div>
+      <div class="fchips" id="fchips"></div>
     </section>
 
-    <!-- поток событий -->
-    <section class="panel" aria-label="Поток сигналов">
-      <div class="evlist" id="evlist" role="feed" aria-label="События ленты"></div>
-      <div class="tfoot-line" id="ffoot"></div>
+    <!-- Блок 3 · таблица (строка = один лот) -->
+    <section class="panel" aria-label="Выгодные лоты артефактов">
+      <table class="ftbl" aria-label="Выгодные лоты артефактов">
+        <thead>
+          <tr id="fhead">
+            <th class="tl" data-k="name"><button class="thb" type="button">Предмет<span class="hlk"></span><span class="si"></span></button></th>
+            <th data-k="per"><button class="thb" type="button" data-tip="Цена за штуку · количество · итог к оплате">Лот<span class="hlk"></span><span class="si"></span></button></th>
+            <th data-k="ref"><button class="thb" type="button" data-tip="Опорная цена — медиана реальных сделок за 7 дней, взвешенная по свежести">Опора<span class="hlk"></span><span class="si"></span></button></th>
+            <th data-k="profitTotal"><button class="thb" type="button" data-tip="Прибыль со всего лота, уже за вычетом комиссии аукциона 5 %">Прибыль<span class="hlk"></span><span class="si"></span></button></th>
+            <th data-k="vol"><button class="thb" type="button" data-tip="Волатильность 7 д, риск и тренд. Тренд — метка, а не поправка к цене">Рынок<span class="hlk"></span><span class="si"></span></button></th>
+            <th data-k="spd"><button class="thb" type="button" data-tip="Сделок в день и за сколько дней рынок переварит нынешнее предложение">Ликвидность<span class="hlk"></span><span class="si"></span></button></th>
+            <th data-k="left"><button class="thb" type="button" data-tip="Сколько лоту осталось жить (максимум 48 ч) и когда его заметила лента">Время<span class="hlk"></span><span class="si"></span></button></th>
+            <th class="w-act"><span class="thx r"></span></th>
+          </tr>
+        </thead>
+        <tbody id="frows"></tbody>
+      </table>
+      <!-- витрина по тарифу: CTA под таблицей -->
+      <div class="pagelock compact" id="showbox" hidden></div>
+      <!-- Блок 4 · подвал -->
+      <div class="ffoot" id="ffoot"></div>
     </section>
   </div>
 
-  <!-- сайдбар: сводка 24ч -->
+  <!-- Блок 5–6 · сайдбар -->
   <aside class="side" aria-label="Сводка за 24 часа">
     <div class="side-h"><h2>Сводка 24ч</h2><span class="n" id="sm-n">—</span></div>
-    <div class="sumgrid" id="sumgrid"></div>
-    <div class="best" id="best"></div>
-    <div class="side-note">
-      Сигналы считаются от критерия выгодности в профиле — сейчас <span class="crit" id="critv">15 %</span>.
-      Telegram-бот шлёт те же сигналы, что попадают в ленту.
-      <br><a class="qbtn" href="settings.html">Настройка сигналов</a>
-    </div>
+    <div id="sidebody"></div>
   </aside>
 </main>
 
 <script src="../assets/data.js"></script>
 <script src="../assets/app.js"></script>
+<script src="../assets/charts.js"></script>
 <script src="../assets/shell.js"></script>
 <script>
 /* ============================================================
-   Страница «Лента возможностей»: продуктовый концепт.
-   События выводятся ДЕТЕРМИНИРОВАННО из реальных данных
-   SC_DATA.favorites (лоты, статистика, дневная история):
-     lot   — лучший лот предмета с профитом vs медиана 7д;
-     spike — объём сделок 24ч ≥ 4× дневной нормы недели;
-     move  — |средняя 24ч − средняя 7д| / средняя 7д ≥ 20%;
-     emis  — событие игры «выброс» (виджет в навбаре).
-   Добор вне избранного — от категорийных медиан (как в Радаре).
+   Страница «Лента артефактов»: таблица живых лотов, которые
+   выгодно купить и перепродать. Строка = один лот; товар =
+   предмет × качество × заточка.
+
+   Данные ДЕТЕРМИНИРОВАННЫ и выведены из реальных данных
+   SC_DATA: артефакты «Избранного» (медиана 7д, объёмы, история)
+   + артефакты каталога (метрики от медианы соседей по группе).
+   Формулы зеркалят бэкенд:
+     безубыток   = опора × 0.95            (комиссия аукциона 5 %)
+     прибыль/шт  = безубыток − цена/шт
+     прибыль лота = прибыль/шт × количество
+     порог видимости = «мин. профит» × множитель риска (1 / 1.3 / 1.6)
+   Тренд — метка, из цены НЕ вычитается.
    ============================================================ */
 (function(){
 "use strict";
-var D = window.SC_DATA, A = window.SC_APP, S = window.SC_SHELL;
+var D = window.SC_DATA, A = window.SC_APP, S = window.SC_SHELL, C = window.SC_CHARTS;
 var NOW = A.NOW;
 var esc = A.esc, fmtN = A.fmtN, fmtP = A.fmtP, fmtCompact = A.fmtCompact,
     fmtHM = A.fmtHM, fmtLeft = A.fmtLeft;
-var FAVS = D.favorites || [];
+var QNAME = A.QNAME, CONF = A.CONF;
+var QV = ["--q-default","--q-newbie","--q-stalker","--q-veteran","--q-master","--q-legend"];
 
 /* --- оболочка --- */
 S.render("feed");
 
-/* ============ ДЕТЕРМИНИРОВАННЫЕ ХЕЛПЕРЫ ============ */
+/* ============ ХЕЛПЕРЫ ============ */
 function hash(s){ var h = 0; for (var i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) >>> 0; return h; }
-/* «минут назад» из ключа: разброс lo…hi минут, без рандома */
-function stampMin(key, lo, hi){ return lo + hash(key) % Math.max(1, hi - lo); }
-function jit(id, salt, lo, hi){ return lo + (hi - lo) * (hash(id + salt) % 1000) / 1000; }
+function rng(seed){
+  var s = (seed >>> 0) || 1;
+  return function(){ s = (s*1664525 + 1013904223) >>> 0; return s/4294967296; };
+}
+function plu(n, f){
+  var m10 = n % 10, m100 = n % 100;
+  return f[(m10 === 1 && m100 !== 11) ? 0 : (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) ? 1 : 2];
+}
+function d1(v){ return (Math.round(v*10)/10).toLocaleString("ru-RU"); }
+function isoOf(ms){ return new Date(ms).toISOString().replace(/\.\d+Z$/, "Z"); }
 function median(a){
   if (!a.length) return 0;
   var s = a.slice().sort(function(x,y){ return x - y; });
   var m = s.length >> 1;
   return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
 }
-function topCat(c){ return (c || "").split("/")[0]; }
-
-/* ряды спарклайнов — из реальной дневной истории */
-function priceSeries(f){
-  return (f.historyDaily || []).slice(-7).map(function(r){ return r.avg; }).filter(function(v){ return v > 0; });
+/* линейная интерполяция перцентиля — аналог percentile_cont */
+function pcont(sorted, q){
+  if (!sorted.length) return 0;
+  var pos = (sorted.length - 1) * q;
+  var lo = Math.floor(pos), hi = Math.ceil(pos);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
 }
-function salesSeries(f){
-  return (f.historyDaily || []).slice(-7).map(function(r){ return r.sales || 0; });
-}
-/* синтетический ряд для добора вне избранного (от категорийной базы) */
-function synthSeries(id, base, last){
-  var out = [];
-  for (var i=0;i<6;i++) out.push(base * jit(id, "s" + i, 0.78, 1.22));
-  out.push(last);
-  return out;
+function dayKey(ms){
+  var d = new Date(ms);
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
 }
 
-/* категорийные медианы по избранному — база метрик добора (как в Радаре) */
-var GROUPS = {}, ALLG = {p24:[], v7:[]};
-FAVS.forEach(function(f){
-  var k = topCat(f.category);
-  var g = GROUPS[k] = GROUPS[k] || {p24:[], v7:[]};
-  [g, ALLG].forEach(function(o){
-    o.p24.push(f.stats.avgPrice24h || 0);
-    o.v7.push(f.stats.salesVolume7d || 0);
-  });
+/* ============ ИСТОЧНИК: 12 АРТЕФАКТОВ ============ */
+var SUBNAME = {
+  biochemical:"Био", thermal:"Терм", gravity:"Грав",
+  electrophysical:"Электро", other_arts:"Прочие", proto:"Прото"
+};
+var SUBORDER = ["biochemical","gravity","thermal","electrophysical","proto","other_arts"];
+function isArt(c){ return (c || "").indexOf("artefact") === 0; }
+function subOf(cat){
+  var p = (cat || "").split("/")[1] || "other_arts";
+  return SUBNAME[p] ? p : "other_arts";
+}
+
+var SRC = [];
+(D.favorites || []).forEach(function(f){
+  if (!isArt(f.category)) return;
+  SRC.push({id:f.itemId, nameRu:f.nameRu, nameEn:f.nameEn, category:f.category,
+            color:f.color, icon:f.icon, region:f.region || "RU", fav:f});
 });
-function catMed(cat){
-  var g = GROUPS[topCat(cat)] || ALLG;
-  return {p24: median(g.p24), v7: median(g.v7)};
+(D.catalogExtra || []).forEach(function(it){
+  if (!isArt(it.category)) return;
+  SRC.push({id:it.itemId, nameRu:it.nameRu, nameEn:it.nameEn, category:it.category,
+            color:it.color, icon:it.icon, region:"RU", fav:null});
+});
+var ART_MED = median(SRC.filter(function(s){ return s.fav; })
+                        .map(function(s){ return s.fav.stats.medianPrice7d || 0; })
+                        .filter(function(v){ return v > 0; }));
+
+/* синтетическая история для артефактов каталога (в «Избранном» их нет) */
+function synthHistory(src, med){
+  var r = rng(hash(src.id + "·hist"));
+  var scatter = [], daily = [];
+  for (var d = 29; d >= 0; d--){
+    var dayMs = NOW - d*86400000;
+    var base = med * (0.78 + 0.5*r());
+    var sales = 2 + Math.floor(r()*9);
+    daily.push({day:dayKey(dayMs), min:Math.round(base*0.58), max:Math.round(base*1.75),
+                avg:Math.round(base), sales:sales});
+    var pts = d < 2 ? (7 + Math.floor(r()*9)) : (1 + Math.floor(r()*3));
+    for (var k=0;k<pts;k++){
+      var t = dayMs - Math.floor(r()*86400000);
+      if (t > NOW) t = NOW - 60000;
+      scatter.push({t:isoOf(t), p:Math.max(1, Math.round(base*(0.62 + r()*0.9))), a:1});
+    }
+  }
+  return {scatter:scatter, daily:daily};
+}
+function statsOf(src){
+  if (src._st) return src._st;
+  var st;
+  if (src.fav){
+    var s = src.fav.stats;
+    st = {med:s.medianPrice7d || 0, v24:s.salesVolume24h || 0, v7:s.salesVolume7d || 0,
+          v30:s.salesVolume30d || 0, hours:s.avgSellTimeHours || 6,
+          vol:s.volatility7d == null ? 60 : s.volatility7d,
+          batch:s.batchStats, opts:s.sellOptions || null,
+          scatter:src.fav.historyScatter || [], daily:src.fav.historyDaily || []};
+  } else {
+    var r = rng(hash(src.id + "·st"));
+    var med = Math.max(120, Math.round((ART_MED || 40000) * (0.4 + r()*1.9)));
+    var h = synthHistory(src, med);
+    st = {med:med, v24:8 + Math.floor(r()*46), v7:60 + Math.floor(r()*280),
+          v30:300 + Math.floor(r()*1100), hours:2 + r()*10, vol:22 + r()*180,
+          batch:null, opts:null, scatter:h.scatter, daily:h.daily};
+  }
+  src._st = st;
+  return st;
 }
 
-/* ============ ГЕНЕРАЦИЯ СОБЫТИЙ ============ */
-var ALLEV = [], POOL = [], MOVES = [];
-
-FAVS.forEach(function(f){
-  var st = f.stats;
-  var med = st.medianPrice7d || 0;
-
-  /* 1) выгодный лот — лучший по профиту на штуку */
-  if (med > 0){
-    var good = A.lotsOf(f).filter(function(l){ return l.profit > 0 && l.left > 0; });
-    good.sort(function(a,b){ return b.profit - a.profit || a.idx - b.idx; });
-    if (good.length){
-      var best = good[0];
-      var margin = Math.round(best.profit / med * 100);
-      if (margin >= 5){
-        ALLEV.push({
-          type:"lot", fav:true, item:f, lot:best, med:med, margin:margin,
-          spark:priceSeries(f), sparkLab:"цена 7д",
-          ago:stampMin(f.itemId + ":lot", 2, 240)
-        });
+/* ============ СРЕЗ ЛЕНТЫ: строка = один лот ============ */
+var QMUL = [1, 1.28, 1.7, 2.35, 3.3, 4.6];      /* множитель качества */
+var RMUL = {lo:1, md:1.3, hi:1.6};              /* RISK_MARGIN_MULT */
+var AMTS = [1,1,1,2,3,5,10];
+var ROWS = [];
+(function build(){
+  var seq = 0;
+  SRC.forEach(function(src){
+    var st = statsOf(src);
+    var r = rng(hash(src.id + "·feed"));
+    /* качества варианта: 2–3 подряд идущих, начиная с 1–3 */
+    var q0 = 1 + Math.floor(r()*3), qn = 2 + Math.floor(r()*2), qs = [];
+    for (var i=0;i<qn;i++){ var q = Math.min(5, q0 + i); if (qs.indexOf(q) < 0) qs.push(q); }
+    qs.forEach(function(qlt){
+      var pn = 1 + Math.floor(r()*2), ps = [];
+      for (var j=0;j<pn;j++){
+        var p = [0,5,10,15][Math.floor(r()*4)];
+        if (ps.indexOf(p) < 0) ps.push(p);
       }
-      /* пул live-добавок: второй лучший лот предмета */
-      if (good.length > 1){
-        var b2 = good[1], m2 = Math.round(b2.profit / med * 100);
-        if (m2 >= 5){
-          POOL.push({
-            type:"lot", fav:true, item:f, lot:b2, med:med, margin:m2,
-            spark:priceSeries(f), sparkLab:"цена 7д", ago:0
+      ps.forEach(function(ptn){
+        var ref = Math.round(st.med * QMUL[qlt] * (1 + 0.055*ptn) * (0.85 + r()*0.4));
+        if (ref < 60) ref = 60 + Math.round(r()*240);
+        var vol = Math.round(Math.max(6, Math.min(190, st.vol * 0.22 * (0.55 + r()*1.6))) * 10) / 10;
+        var risk = A.riskOf(vol), mult = RMUL[risk.cls];
+        var spd = Math.round(Math.max(0.3, (st.v7/7) * (0.07 + r()*0.42)) * 10) / 10;
+        var cover = Math.round((0.3 + r()*8.5) * 10) / 10;
+        var t24 = Math.round((r()*16 - 9) * 10) / 10;
+        var t7  = Math.round((r()*22 - 11) * 10) / 10;
+        var estH = Math.max(1, Math.round(st.hours * (0.4 + r()*1.0) * 10) / 10);
+        var brk = Math.round(ref * 0.95);
+        var n = 2 + Math.floor(r()*3);
+        for (var k=0;k<n;k++){
+          var target = 8 + r()*52;                       /* целевой профит, % */
+          var per = Math.max(1, Math.round(brk / (1 + target/100)));
+          var profit = brk - per;
+          if (profit <= 0) continue;
+          var amount = AMTS[Math.floor(r()*AMTS.length)];
+          var seen = Math.floor(r()*94);
+          seq++;
+          ROWS.push({
+            key: isoOf(NOW - seen*60000 - seq*1000),
+            src: src, st: st, qlt: qlt, ptn: ptn, sub: subOf(src.category),
+            ref: ref, brk: brk, per: per, amount: amount, buyout: per*amount,
+            profit: profit, profitTotal: profit*amount,
+            pct: Math.round(profit/per*1000)/10,
+            estH: estH, pph: Math.round(profit*amount/estH),
+            vol: vol, risk: risk, mult: mult,
+            t24: t24, t7: t7, spd: spd, cover: cover,
+            left: Math.round((0.2 + r()*47) * 3600000), seen: seen,
+            name: src.nameRu
           });
         }
-      }
-    }
-  }
-
-  /* 2) всплеск опта: сделки 24ч ≥ 4× дневной нормы недели */
-  var v24 = st.salesVolume24h || 0, v7 = st.salesVolume7d || 0;
-  var norm = v7 / 7;
-  if (norm > 0 && v24 / norm >= 4){
-    ALLEV.push({
-      type:"spike", fav:true, item:f,
-      v24:v24, norm:Math.round(norm), pct:Math.round((v24 / norm - 1) * 100),
-      spark:salesSeries(f), sparkLab:"объём 7д",
-      ago:stampMin(f.itemId + ":spk", 10, 360)
-    });
-  }
-
-  /* 3) движение цены: средняя 24ч против средней 7д */
-  var a24 = st.avgPrice24h || 0, a7 = st.avgPrice7d || 0;
-  if (a7 > 0){
-    var dev = (a24 - a7) / a7;
-    if (Math.abs(dev) >= 0.2){
-      MOVES.push({
-        type:"move", fav:true, item:f, a24:a24, a7:a7, med:med,
-        pct:Math.round(dev * 100),
-        spark:priceSeries(f), sparkLab:"цена 7д",
-        ago:stampMin(f.itemId + ":mov", 60, 480)
       });
-    }
-  }
-});
-
-/* движения — только 6 самых сильных, иначе шум */
-MOVES.sort(function(a,b){ return Math.abs(b.pct) - Math.abs(a.pct); });
-ALLEV = ALLEV.concat(MOVES.slice(0, 6));
-
-/* 4) выброс — глобальное событие (видно и в режиме «только избранное») */
-ALLEV.push({type:"emis", fav:true, item:null, ago:120});
-
-/* добор вне избранного: 3 события от категорийных медиан */
-function exById(id){
-  var arr = D.catalogExtra || [];
-  for (var i=0;i<arr.length;i++) if (arr[i].itemId === id) return arr[i];
+    });
+  });
+})();
+function rowByKey(k){
+  for (var i=0;i<ROWS.length;i++) if (ROWS[i].key === k) return ROWS[i];
   return null;
 }
-[
-  {id:"g34p",  kind:"spike"},   /* Юла */
-  {id:"5rpq",  kind:"move"},    /* Янтарник */
-  {id:"w29o",  kind:"spike"}    /* Патрон 9 мм жгучий */
-].forEach(function(x){
-  var it = exById(x.id);
-  if (!it) return;
-  var m = catMed(it.category);
-  if (x.kind === "spike"){
-    var nrm = Math.max(4, Math.round(m.v7 / 7 * jit(x.id, "n", 0.6, 1.3)));
-    var pct = 150 + hash(x.id + "p") % 160;
-    var v24 = Math.round(nrm * (1 + pct / 100));
-    ALLEV.push({
-      type:"spike", fav:false, item:it, v24:v24, norm:nrm, pct:pct,
-      spark:synthSeries(x.id, nrm, v24), sparkLab:"объём 7д",
-      ago:stampMin(x.id + ":spk", 20, 420)
-    });
-  } else {
-    var base = Math.max(10, Math.round(m.p24 * jit(x.id, "b", 0.5, 1.4)));
-    var mpct = -(20 + hash(x.id + "m") % 18);
-    var a24x = Math.round(base * (1 + mpct / 100));
-    ALLEV.push({
-      type:"move", fav:false, item:it, a24:a24x, a7:base, med:0, pct:mpct,
-      spark:synthSeries(x.id, base, a24x), sparkLab:"цена 7д",
-      ago:stampMin(x.id + ":mov", 20, 420)
-    });
-  }
-});
+function variantLots(r){
+  return ROWS.filter(function(x){ return x.src.id === r.src.id && x.qlt === r.qlt && x.ptn === r.ptn; })
+             .sort(function(a,b){ return b.profitTotal - a.profitTotal; });
+}
 
-/* лучший лот дня — «только что»: свежий верх ленты с глоу */
-var bestLot = null;
-ALLEV.forEach(function(e){ if (e.type === "lot" && (!bestLot || e.margin > bestLot.margin)) bestLot = e; });
-if (bestLot) bestLot.ago = 3;
+/* ============ СОСТОЯНИЕ ============ */
+var ST = {item:"all", qlt:"all", ptn:"all", minp:10, subs:{}, page:0, rpp:25, empty:false};
+SUBORDER.forEach(function(k){ ST.subs[k] = true; });
+var sort = {key:"profitTotal", dir:-1};
 
-/* виртуальные таймстампы + сортировка: свежее сверху */
-var seq = 0;
-ALLEV.forEach(function(e){ e.t = NOW - e.ago * 60000; e.id = "e" + (seq++); });
-ALLEV.sort(function(a,b){ return b.t - a.t; });
-POOL.forEach(function(e){ e.id = "p" + (seq++); });
+/* тарифная витрина: сколько строк видит роль (Ревизия 2) */
+var LIMITS = {base:1, advanced:10, advanced_plus:20, advanced_max:null};
+function rowsLimit(){
+  var t = S.getTier();
+  return Object.prototype.hasOwnProperty.call(LIMITS, t) ? LIMITS[t] : null;
+}
+function isShow(){ return rowsLimit() !== null; }
 
-/* ============ ФИЛЬТРЫ ============ */
-var ST = {types:{lot:true, spike:true, move:true, emis:true}, minMargin:15, favOnly:true};
-
-/* база для счётчиков чипов: все ограничения, кроме тумблеров типов */
+/* база: только лоты, выгодные при пороге пользователя (как base_filter на бэкенде) */
 function baseSet(){
-  return ALLEV.filter(function(e){
-    if (ST.favOnly && !e.fav) return false;
-    if (e.type === "lot" && e.margin < ST.minMargin) return false;
+  if (ST.empty) return [];
+  return ROWS.filter(function(r){ return r.pct >= ST.minp * r.mult; });
+}
+function filtered(){
+  return baseSet().filter(function(r){
+    if (ST.item !== "all" && r.src.id !== ST.item) return false;
+    if (ST.qlt !== "all" && r.qlt !== Number(ST.qlt)) return false;
+    if (ST.ptn !== "all" && r.ptn !== Number(ST.ptn)) return false;
+    if (!ST.subs[r.sub]) return false;
     return true;
   });
 }
-function visible(){
-  return baseSet().filter(function(e){ return ST.types[e.type]; });
+function sorted(list){
+  var k = sort.key, d = sort.dir;
+  return list.slice().sort(function(a,b){
+    var av = a[k], bv = b[k], c;
+    if (k === "name") c = String(av).localeCompare(String(bv), "ru");
+    else c = av - bv;
+    return c*d || (a.key < b.key ? -1 : 1);
+  });
 }
-function anyTypeOn(){
-  return ST.types.lot || ST.types.spike || ST.types.move || ST.types.emis;
+/* витрина: ценовая полоса 25–75 перцентиль, внутри — топ по прибыли (Р2.2) */
+function showcaseRows(){
+  var lim = rowsLimit();
+  var pool = baseSet();
+  if (lim == null) return pool;
+  if (pool.length >= 4){
+    var prices = pool.map(function(r){ return r.buyout; }).sort(function(a,b){ return a - b; });
+    var lo = pcont(prices, 0.25), hi = pcont(prices, 0.75);
+    var band = pool.filter(function(r){ return r.buyout >= lo && r.buyout <= hi; });
+    if (band.length) pool = band;
+  }
+  return pool.slice().sort(function(a,b){ return b.profitTotal - a.profitTotal; }).slice(0, lim);
 }
 
-/* ============ РЕНДЕР СОБЫТИЯ ============ */
-var GLYPH = {
-  lot:  '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M1.5 1.5h5.2l6.8 6.8-5.2 5.2-6.8-6.8z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="4.7" cy="4.7" r="1.1" fill="currentColor"/></svg>',
-  spike:'<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M2 13V9.5M5.7 13V5.5M9.3 13V7.5M13 13V2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-  move: '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M1.5 11.5 5.5 7l3 3 5-6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.8 3.5h3.7v3.7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  emis: '<svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true"><path d="M7.5 1.8 14 13.2H1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M7.5 6v3.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="7.5" cy="11.2" r=".8" fill="currentColor"/></svg>'
-};
-var TYPE_KICK = {lot:"Выгодный лот", spike:"Всплеск опта", move:"Движение цены", emis:"Выброс"};
+/* ============ ФИЛЬТРЫ ============ */
+function fillSelects(){
+  var base = baseSet();
+  var byItem = {}, byQ = {}, byP = {};
+  base.forEach(function(r){
+    byItem[r.src.id] = (byItem[r.src.id] || 0) + 1;
+    byQ[r.qlt] = (byQ[r.qlt] || 0) + 1;
+    byP[r.ptn] = (byP[r.ptn] || 0) + 1;
+  });
+  var it = document.getElementById("f-item");
+  it.innerHTML = '<option value="all">Все артефакты (' + fmtN(base.length) + ')</option>' +
+    SRC.slice().sort(function(a,b){ return (byItem[b.id]||0) - (byItem[a.id]||0) || a.nameRu.localeCompare(b.nameRu,"ru"); })
+       .map(function(s){
+         return '<option value="' + esc(s.id) + '">' + esc(s.nameRu) + ' (' + (byItem[s.id] || 0) + ')</option>';
+       }).join("");
+  it.value = ST.item;
+  if (it.value !== ST.item){ ST.item = "all"; it.value = "all"; }
 
-function sparkSvg(vals, lab){
-  if (!vals || vals.length < 2) return "";
-  var w = 110, h = 26;
-  var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
-  var span = (mx - mn) || 1;
-  var pts = [];
-  for (var i=0;i<vals.length;i++){
-    pts.push([
-      (3 + (w - 6) * i / (vals.length - 1)).toFixed(1),
-      (h - 3 - (h - 6) * ((vals[i] - mn) / span)).toFixed(1)
-    ]);
-  }
-  var dAttr = "M" + pts.map(function(p){ return p[0] + "," + p[1]; }).join(" L");
-  var last = pts[pts.length - 1];
-  return '<svg class="spk" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
-    '<path d="' + dAttr + '" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>' +
-    '<circle class="sd" cx="' + last[0] + '" cy="' + last[1] + '" r="2.5"/></svg>' +
-    '<span class="s">' + lab + '</span>';
+  var q = document.getElementById("f-qlt");
+  q.innerHTML = '<option value="all">Все качества</option>' +
+    Object.keys(byQ).sort(function(a,b){ return a - b; }).map(function(v){
+      return '<option value="' + v + '">' + (QNAME[v] || ("кач. " + v)) + ' (' + byQ[v] + ')</option>';
+    }).join("");
+  q.value = ST.qlt;
+  if (q.value !== ST.qlt){ ST.qlt = "all"; q.value = "all"; }
+
+  var p = document.getElementById("f-ptn");
+  p.innerHTML = '<option value="all">Все заточки</option>' +
+    Object.keys(byP).sort(function(a,b){ return a - b; }).map(function(v){
+      return '<option value="' + v + '">' + (Number(v) === 0 ? "Без заточки" : "+" + v) + ' (' + byP[v] + ')</option>';
+    }).join("");
+  p.value = ST.ptn;
+  if (p.value !== ST.ptn){ ST.ptn = "all"; p.value = "all"; }
 }
-function agoTxt(min){
-  if (min <= 0) return "только что";
-  if (min < 60) return min + " м назад";
-  var hh = Math.floor(min / 60);
-  return hh + " ч назад";
+function renderChips(){
+  var base = baseSet().filter(function(r){
+    if (ST.item !== "all" && r.src.id !== ST.item) return false;
+    if (ST.qlt !== "all" && r.qlt !== Number(ST.qlt)) return false;
+    if (ST.ptn !== "all" && r.ptn !== Number(ST.ptn)) return false;
+    return true;
+  });
+  var cnt = {};
+  base.forEach(function(r){ cnt[r.sub] = (cnt[r.sub] || 0) + 1; });
+  var allOn = SUBORDER.every(function(k){ return ST.subs[k]; });
+  var show = isShow();
+  var h = '<span class="kick">Группы</span>' +
+    '<button type="button" class="fchip" data-sub="all" aria-pressed="' + allOn + '"' +
+      (show ? " disabled" : "") + '>Все<span class="fc-n">' + fmtN(base.length) + '</span></button>';
+  SUBORDER.forEach(function(k){
+    h += '<button type="button" class="fchip" data-sub="' + k + '" aria-pressed="' + !!ST.subs[k] + '"' +
+      (show ? " disabled" : "") + '>' + SUBNAME[k] +
+      '<span class="fc-n">' + fmtN(cnt[k] || 0) + '</span></button>';
+  });
+  var box = document.getElementById("fchips");
+  box.innerHTML = h;
+  Array.prototype.forEach.call(box.querySelectorAll(".fchip"), function(b){
+    b.addEventListener("click", function(){
+      var k = b.getAttribute("data-sub");
+      if (k === "all") SUBORDER.forEach(function(x){ ST.subs[x] = true; });
+      else ST.subs[k] = !ST.subs[k];
+      ST.page = 0;
+      render();
+    });
+  });
 }
-function chipsOf(e){
-  var out = "";
-  if (e.item){
-    var r = A.rankOf(e.item);
-    out += '<span class="chip q" style="--qc:var(' + r.v + ')"><span class="qd" aria-hidden="true"></span>' + r.name + '</span>';
-    if (e.item.enchantFilter) out += '<span class="chip mono">+' + e.item.enchantFilter + '</span>';
+function syncReset(){
+  var dirty = ST.item !== "all" || ST.qlt !== "all" || ST.ptn !== "all" ||
+              !SUBORDER.every(function(k){ return ST.subs[k]; });
+  document.getElementById("f-rst").hidden = dirty === false || isShow();
+}
+
+/* ============ ТАБЛИЦА ============ */
+var LOTS_ICON = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">' +
+  '<path d="M1.5 4.2 7 1.4l5.5 2.8v5.6L7 12.6 1.5 9.8z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>' +
+  '<path d="M1.5 4.2 7 7l5.5-2.8M7 7v5.6" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+
+function trendHtml(v){
+  if (Math.abs(v) < 1) return '<span class="tr-fl">→ 0 %</span>';
+  return v > 0 ? '<span class="tr-up">↑ ' + d1(v) + ' %</span>'
+               : '<span class="tr-dn">↓ ' + d1(Math.abs(v)) + ' %</span>';
+}
+function rowHtml(r){
+  var qn = QNAME[r.qlt] || ("кач. " + r.qlt);
+  var expiring = r.left < 7200000;
+  var fresh = r.seen <= 5;
+  var aria = "Лот: " + r.src.nameRu + " " + qn + " +" + r.ptn +
+             ", " + fmtP(r.per) + " за штуку, ×" + r.amount +
+             ", прибыль +" + fmtN(r.profitTotal) + " рублей (" + d1(r.pct) + " %)";
+  return '<tr tabindex="0" data-key="' + esc(r.key) + '" aria-label="' + esc(aria) + '">' +
+    '<td class="tl"><span class="f-it">' + A.iconHtml(r.src, "t-ico") +
+      '<span class="fi-t"><span class="fi-nm">' + esc(r.src.nameRu) + '</span>' +
+      '<span class="fi-v">' +
+        '<span class="chip q" style="--qc:var(' + QV[r.qlt] + ')"><span class="qd" aria-hidden="true"></span>' + qn + '</span>' +
+        '<span class="chip mono' + (r.ptn ? '' : ' z') + '">+' + r.ptn + '</span>' +
+      '</span></span></span></td>' +
+    '<td><span class="tc"><span class="v">' + fmtP(r.per) + '</span>' +
+      '<span class="s">×' + fmtN(r.amount) + ' · ' + fmtP(r.buyout) + '</span></span></td>' +
+    '<td><span class="tc"><span class="v">' + fmtP(r.ref) + '</span>' +
+      '<span class="s">безуб. ' + fmtN(r.brk) + '</span></span></td>' +
+    '<td><span class="tc"><span class="v g">+' + fmtP(r.profitTotal) + '</span>' +
+      '<span class="s g">+' + d1(r.pct) + ' % · ' + fmtCompact(r.pph) + '/ч</span></span></td>' +
+    '<td><span class="tc mkt"><span class="v"><span class="risk ' + r.risk.cls + '">' + r.risk.label + '</span>' +
+      trendHtml(r.t24) + '</span>' +
+      '<span class="s">vol ' + d1(r.vol) + ' % · 7д ' + (r.t7 > 0 ? "+" : "−") + d1(Math.abs(r.t7)) + ' %</span></span></td>' +
+    '<td><span class="tc"><span class="v">' + d1(r.spd) + ' сд/дн</span>' +
+      '<span class="s">запас ' + d1(r.cover) + ' дн</span></span></td>' +
+    '<td><span class="tc"><span class="v' + (expiring ? " a" : "") + '">' + fmtLeft(r.left) + '</span>' +
+      '<span class="s' + (fresh ? " g" : "") + '">замечен ' + (r.seen <= 0 ? "только что" : r.seen + " м") + '</span></span></td>' +
+    '<td><a class="ibtn" href="lots.html?item=' + encodeURIComponent(r.src.id) + '" data-lots="1" ' +
+      'data-tip="Все лоты предмета" aria-label="Все лоты предмета ' + esc(r.src.nameRu) + '">' + LOTS_ICON + '</a></td>' +
+    '</tr>';
+}
+function emptyHtml(){
+  var allEmpty = ST.empty || !baseSet().length;
+  return '<tr class="norow"><td colspan="8" class="t-flat"><div class="ev-empty">' +
+    '<svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true">' +
+      '<circle cx="13" cy="13" r="10.5" stroke="currentColor" stroke-width="1.4"/>' +
+      '<path d="M13 13 20 6.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>' +
+      '<circle cx="13" cy="13" r="1.4" fill="currentColor"/></svg>' +
+    '<span class="tt">' + (allEmpty ? "Выгодных лотов сейчас нет" : "По текущим фильтрам лотов нет") + '</span>' +
+    '<span class="tx">' + (allEmpty
+      ? "Рынок артефактов сейчас дороже опорной цены — покупать нечего, и лента честно молчит. Она обходит все артефакты каждую минуту: как только появится лот дешевле безубытка, он встанет здесь первой строкой."
+      : "Понизь «мин. профит», выбери другой артефакт или верни группы — порог считается от твоего критерия выгодности и повышается для волатильных товаров.") + '</span>' +
+    '<button type="button" class="qbtn" id="resetf">' + (allEmpty ? "Сбросить порог до 10 %" : "Сбросить фильтры") + '</button>' +
+    '</div></td></tr>';
+}
+
+function renderTable(){
+  var tbody = document.getElementById("frows");
+  var show = isShow();
+  var list = show ? showcaseRows() : sorted(filtered());
+  var total = show ? baseSet().length : list.length;
+  var pages = show ? 1 : Math.max(1, Math.ceil(list.length / ST.rpp));
+  if (ST.page >= pages) ST.page = pages - 1;
+  var from = show ? 0 : ST.page * ST.rpp;
+  var page = show ? list : list.slice(from, from + ST.rpp);
+
+  tbody.innerHTML = page.length
+    ? page.map(function(r){ return rowHtml(r); }).join("")
+    : emptyHtml();
+
+  A.markSort(document.getElementById("fhead"), show ? {key:"profitTotal", dir:-1} : sort);
+  bindRows(tbody);
+  renderFoot(list.length, total, pages, from, from + page.length, show);
+  renderShowbox(show, page.length, total);
+}
+function bindRows(tbody){
+  Array.prototype.forEach.call(tbody.querySelectorAll("tr[data-key]"), function(tr){
+    function open(){
+      var r = rowByKey(tr.getAttribute("data-key"));
+      if (r) openCard(r, tr);
+    }
+    tr.addEventListener("click", function(e){
+      if (e.target.closest("[data-lots]")) return;      /* ссылка «все лоты» — свой маршрут */
+      open();
+    });
+    tr.addEventListener("keydown", function(e){
+      if (e.key === "Enter" || e.key === " "){ e.preventDefault(); open(); }
+    });
+  });
+  var rf = document.getElementById("resetf");
+  if (rf) rf.addEventListener("click", function(){
+    if (ST.empty || !baseSet().length){ ST.empty = false; ST.minp = 10; document.getElementById("f-minp").value = "10"; }
+    ST.item = "all"; ST.qlt = "all"; ST.ptn = "all";
+    SUBORDER.forEach(function(k){ ST.subs[k] = true; });
+    ST.page = 0;
+    fillSelects();
+    render();
+  });
+}
+
+/* --- подвал: 25/50/100 + пагинация + строка среза --- */
+function renderFoot(shown, total, pages, from, to, show){
+  var foot = document.getElementById("ffoot");
+  if (show){
+    foot.innerHTML = '<span class="cut">срез <b>' + fmtHM(NOW) + '</b> · порог ' + ST.minp +
+      ' % · показано <b>' + fmtN(shown) + '</b> из <b>' + fmtN(total) + '</b> выгодных лотов</span>';
+    return;
   }
-  if (!e.fav) out += '<span class="chip out">вне избранного</span>';
+  var h = '<span class="rpp">показывать ' +
+    '<select class="input" id="rpp" aria-label="Строк на страницу">' +
+      [25,50,100].map(function(v){ return '<option value="' + v + '"' + (v === ST.rpp ? " selected" : "") + '>' + v + '</option>'; }).join("") +
+    '</select></span>';
+  h += '<span class="pager">' + pagerHtml(pages) + '</span>';
+  h += '<span class="cut">' + (shown ? fmtN(from+1) + '–' + fmtN(to) + ' из ' : "") +
+       '<b>' + fmtN(shown) + '</b> ' + plu(shown, ["выгодный лот","выгодных лота","выгодных лотов"]) +
+       ' · срез <b>' + fmtHM(NOW) + '</b> · порог ' + ST.minp + ' %</span>';
+  foot.innerHTML = h;
+
+  var rpp = document.getElementById("rpp");
+  if (rpp) rpp.addEventListener("change", function(e){
+    ST.rpp = Number(e.target.value); ST.page = 0; renderTable();
+  });
+  Array.prototype.forEach.call(foot.querySelectorAll("[data-pg]"), function(b){
+    b.addEventListener("click", function(){
+      ST.page = Number(b.getAttribute("data-pg"));
+      renderTable();
+      window.scrollTo({top:0, behavior:"smooth"});
+    });
+  });
+}
+function pagerHtml(pages){
+  var cur = ST.page;
+  var out = '<button type="button" class="pgbtn" data-pg="' + (cur-1) + '" aria-label="Предыдущая страница"' +
+    (cur === 0 ? " disabled" : "") + '>‹</button>';
+  var list = [];
+  for (var i=0;i<pages;i++){
+    if (i === 0 || i === pages-1 || Math.abs(i - cur) <= 1) list.push(i);
+    else if (list[list.length-1] !== -1) list.push(-1);
+  }
+  list.forEach(function(i){
+    if (i === -1){ out += '<span class="gap">…</span>'; return; }
+    out += '<button type="button" class="' + (i === cur ? "on" : "") + '" data-pg="' + i + '"' +
+      (i === cur ? ' aria-current="page"' : '') + '>' + (i+1) + '</button>';
+  });
+  out += '<button type="button" class="pgbtn" data-pg="' + (cur+1) + '" aria-label="Следующая страница"' +
+    (cur >= pages-1 ? " disabled" : "") + '>›</button>';
   return out;
 }
-function m(v){ return '<span class="mono">' + v + '</span>'; }
-function col(v, cls, s){
-  return '<span class="ev-col"><span class="v' + (cls ? " " + cls : "") + '">' + v + '</span><span class="s">' + s + '</span></span>';
-}
-function acts(e){
-  var out = '<span class="ev-act">';
-  if (e.type === "lot"){
-    out += '<a class="qbtn" href="lots.html?item=' + encodeURIComponent(e.item.itemId) + '">Лоты</a>' +
-           '<a class="qbtn" href="favorites.html?item=' + encodeURIComponent(e.item.itemId) + '">Карточка</a>';
-  } else if (e.type === "emis"){
-    out += '<a class="qbtn" href="catalog.html">Каталог</a>';
-  } else if (e.fav){
-    out += '<a class="qbtn" href="favorites.html?item=' + encodeURIComponent(e.item.itemId) + '">Карточка</a>';
-  } else {
-    out += '<a class="qbtn" href="catalog.html">Каталог</a>';
-  }
-  return out + '</span>';
-}
 
-function evHtml(e, fresh, isNew){
-  var name, tx, cols = "", spark = "";
-  if (e.type === "lot"){
-    name = e.item.nameRu;
-    tx = 'лот ' + m(fmtP(e.lot.buyout)) + ' × ' + m(fmtN(e.lot.amount) + " шт") +
-      ' · осталось ' + m(fmtLeft(e.lot.left)) +
-      ' · перепродажа по медиане даст ' + m("+" + fmtCompact(e.lot.profit * e.lot.amount));
-    cols = col(fmtP(e.lot.per), "", "цена/шт") +
-           col("+" + e.margin + " %", "g", "мед. " + fmtCompact(e.med));
-    spark = sparkSvg(e.spark, e.sparkLab);
-  } else if (e.type === "spike"){
-    name = e.item.nameRu;
-    tx = 'скупают оптом: ' + m(fmtN(e.v24) + " сделок") + ' за 24ч при норме ' +
-      m(fmtN(e.norm) + "/день") + ' — возможен разгон цены';
-    cols = col(fmtN(e.v24), "", "сделок за 24ч") +
-           col("+" + fmtN(e.pct) + " %", "a", "к норме недели");
-    spark = sparkSvg(e.spark, e.sparkLab);
-  } else if (e.type === "move"){
-    name = e.item.nameRu;
-    var up = e.pct > 0;
-    tx = 'средняя за сутки ' + m(fmtCompact(e.a24)) + ' против ' + m(fmtCompact(e.a7)) +
-      ' за неделю' + (e.med > 0 ? ' · медиана 7д ' + m(fmtCompact(e.med)) : '') +
-      (up ? ' — не переплачивай на закупке' : ' — окно для закупки ниже обычного');
-    cols = col(fmtCompact(e.a24), "", "средняя 24ч") +
-           col((up ? "+" : "−") + fmtN(Math.abs(e.pct)) + " %", up ? "g" : "r", "к средней 7д");
-    spark = sparkSvg(e.spark, e.sparkLab);
-  } else {
-    name = "Зона · STALZONE";
-    tx = 'выброс завершился ' + m("2 ч назад") +
-      ' — в первые часы после выброса цены артефактов обычно проседают. Окно для закупки по избранному.';
-  }
-  return '<article class="ev t-' + e.type + (fresh ? " fresh" : "") + (isNew ? " enew" : "") + '"' +
-      ' aria-label="' + esc(TYPE_KICK[e.type]) + ': ' + esc(name) + '">' +
-    '<span class="ev-g" aria-hidden="true">' + GLYPH[e.type] + '</span>' +
-    '<span class="ev-main">' +
-      '<span class="ev-hr"><span class="ev-k">' + TYPE_KICK[e.type] + '</span>' +
-      (e.item ? A.iconHtml(e.item, "e-ico") : '') +
-      '<span class="ev-nm">' + esc(name) + '</span>' + chipsOf(e) + '</span>' +
-      '<span class="ev-tx">' + tx + '</span>' +
-    '</span>' +
-    cols +
-    '<span class="ev-spark">' + spark + '</span>' +
-    acts(e) +
-    '<span class="ev-t"><span class="hm">' + fmtHM(e.t) + '</span><span class="ago">' + agoTxt(e.ago) + '</span></span>' +
-    '</article>';
+/* --- витрина по тарифу: строки полные, CTA под таблицей --- */
+function renderShowbox(show, shown, total){
+  var box = document.getElementById("showbox");
+  if (!show){ box.hidden = true; box.innerHTML = ""; return; }
+  box.hidden = false;
+  box.innerHTML =
+    S.lockSvg(22, 24, 1.1) +
+    '<span class="kick">Лента артефактов</span>' +
+    (shown
+      ? '<span class="big">Показано ' + fmtN(shown) + ' из ' + fmtN(total) + ' выгодных лотов</span>' +
+        '<span class="note">Твой тариф — ' + S.tierName() + '. Строки выше настоящие и ничего не скрывают: это лоты из середины ценового диапазона, самые прибыльные в ней. ' +
+          'Все строки, фильтры и сортировка открываются на тарифе ПРОДВИНУТАЯ МАКС.</span>'
+      : '<span class="big">Лента мониторит весь рынок артефактов</span>' +
+        '<span class="note">Твой тариф — ' + S.tierName() + '. Сейчас выгодных лотов нет вообще — показывать нечего никому. ' +
+          'Мы обходим все артефакты каждую минуту и оставляем только те лоты, которые реально выгодно купить и перепродать: ' +
+          'весь список, фильтры и сортировка — на тарифе ПРОДВИНУТАЯ МАКС.</span>') +
+    '<div class="acts">' +
+      '<button type="button" class="gbtn" id="sb-plans">Смотреть тарифы</button>' +
+      '<button type="button" class="qbtn" id="sb-demo">Сменить тариф в демо</button>' +
+    '</div>';
+  document.getElementById("sb-plans").addEventListener("click", function(){
+    A.toast("Экран тарифов — вне охвата прототипа");
+  });
+  document.getElementById("sb-demo").addEventListener("click", highlightDemo);
+}
+function highlightDemo(){
+  var d = document.querySelector(".topbar .demo");
+  if (!d) return;
+  d.classList.add("hl");
+  var sel = document.getElementById("demo-tier");
+  if (sel) sel.focus();
+  setTimeout(function(){
+    var d2 = document.querySelector(".topbar .demo");
+    if (d2) d2.classList.remove("hl");
+  }, 3200);
+}
+function focusCta(){
+  var b = document.getElementById("sb-plans");
+  if (b) b.focus();
 }
 
-/* ============ РЕНДЕР ЛЕНТЫ ============ */
-var GROUP_LABEL = ["Только что", "За последний час", "Сегодня"];
-function groupOf(min){ return min <= 15 ? 0 : (min <= 60 ? 1 : 2); }
+/* ============ САЙДБАР: СВОДКА 24Ч + ЛУЧШИЙ ЛОТ ============ */
+function stCell(k, v, cls){
+  return '<div class="st"><span class="k">' + k + '</span><span class="v' + (cls ? " " + cls : "") + '">' + v + '</span></div>';
+}
+function renderSide(){
+  var body = document.getElementById("sidebody");
+  var show = isShow();
 
-function renderFeed(newId){
-  var list = document.getElementById("evlist");
-  var foot = document.getElementById("ffoot");
-  var evs = visible();
-
-  if (!evs.length){
-    var allOff = !anyTypeOn();
-    list.innerHTML = '<div class="ev-empty">' +
-      '<svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-hidden="true"><circle cx="13" cy="13" r="10.5" stroke="currentColor" stroke-width="1.4"/><path d="M13 13 20 6.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="13" cy="13" r="1.4" fill="currentColor"/></svg>' +
-      '<span class="tt">' + (allOff ? "Все типы сигналов выключены" : "По текущим фильтрам событий нет") + '</span>' +
-      '<span class="tx">Настрой фильтры — сигналы появятся здесь. ' +
-      (allOff ? "Включи хотя бы один тип события." : "Понизь минимальный профит или сними «только избранное».") + '</span>' +
-      '<button type="button" class="qbtn" id="resetf">Включить все типы</button>' +
-      '</div>';
-    foot.innerHTML = '<span class="mr">окно 24ч · срез ' + fmtHM(NOW) + '</span><span>0 событий</span>';
-    var rb = document.getElementById("resetf");
-    if (rb) rb.addEventListener("click", function(){
-      ST.types = {lot:true, spike:true, move:true, emis:true};
-      syncChips(); renderAll();
+  if (show){
+    document.getElementById("sm-n").textContent = "—";
+    body.innerHTML = '<div class="sidegate">' + S.lockSvg(22, 24, 1.1) +
+      '<span class="kick">Сводка 24ч</span>' +
+      '<span class="big">Тариф ПРОДВИНУТАЯ МАКС</span>' +
+      '<span class="note">Сводка по всему рынку артефактов и «лучший лот сейчас» считаются для полной ленты.</span>' +
+      '<button type="button" class="gbtn" id="sg-plans">Смотреть тарифы</button></div>';
+    document.getElementById("sg-plans").addEventListener("click", function(){
+      A.toast("Экран тарифов — вне охвата прототипа");
     });
     return;
   }
 
-  var freshId = evs[0].id;
-  var html = "", lastG = -1;
-  var gCount = [0, 0, 0];
-  evs.forEach(function(e){ gCount[groupOf(e.ago)]++; });
-  evs.forEach(function(e){
-    var g = groupOf(e.ago);
-    if (g !== lastG){
-      html += '<div class="ev-sep"><span class="kick">' + GROUP_LABEL[g] + '</span>' +
-        '<span class="n">' + gCount[g] + '</span></div>';
-      lastG = g;
-    }
-    html += evHtml(e, e.id === freshId, e.id === newId);
-  });
-  list.innerHTML = html;
-
-  foot.innerHTML =
-    '<span class="mr">окно 24ч · срез ' + fmtHM(NOW) + ' · профит считается от медианы 7д</span>' +
-    '<span>' + evs.length + ' ' + plural(evs.length, "событие", "события", "событий") + '</span>';
-}
-function plural(n, one, few, many){
-  var m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
-}
-
-/* ============ СЧЁТЧИКИ ЧИПОВ ============ */
-function syncChips(){
+  /* сводка не зависит от фильтров списка — только от порога (как /feed/summary) */
   var base = baseSet();
-  var cnt = {lot:0, spike:0, move:0, emis:0};
-  base.forEach(function(e){ cnt[e.type]++; });
-  ["lot", "spike", "move", "emis"].forEach(function(k){
-    document.getElementById("cn-" + k).textContent = cnt[k];
-    var b = document.querySelector('.fchip[data-type="' + k + '"]');
-    b.setAttribute("aria-pressed", String(ST.types[k]));
-  });
-  document.getElementById("cn-all").textContent = base.length;
-  document.getElementById("ch-all").setAttribute("aria-pressed",
-    String(ST.types.lot && ST.types.spike && ST.types.move && ST.types.emis));
-}
+  var sumProfit = 0, sumPct = 0;
+  base.forEach(function(r){ sumProfit += r.profitTotal; sumPct += r.pct; });
+  var sales24 = 0;
+  SRC.forEach(function(s){ sales24 += statsOf(s).v24 || 0; });
+  document.getElementById("sm-n").textContent = fmtN(base.length);
 
-/* ============ СВОДКА В САЙДБАРЕ ============ */
-function renderSummary(){
-  var evs = visible();
-  var lots = baseSet().filter(function(e){ return e.type === "lot"; });
-  document.getElementById("sm-n").textContent = evs.length;
+  var best = null;
+  base.forEach(function(r){ if (!best || r.profitTotal > best.profitTotal) best = r; });
 
-  var avg = 0;
-  lots.forEach(function(e){ avg += e.margin; });
-  avg = lots.length ? Math.round(avg / lots.length) : 0;
+  var h = '<div class="sumgrid">' +
+    stCell("Выгодных лотов", fmtN(base.length), base.length ? "g" : "") +
+    stCell("Средняя прибыль", base.length ? "+" + d1(sumPct/base.length) + " %" : "—", base.length ? "g" : "") +
+    stCell("Сумма прибыли", fmtCompact(sumProfit), "") +
+    stCell("Сделок за 24ч", fmtN(sales24), "a") +
+  '</div>';
 
-  document.getElementById("sumgrid").innerHTML =
-    sCell("Сигналов за 24ч", fmtN(evs.length), "") +
-    sCell("Выгодных лотов", fmtN(lots.length), lots.length ? "g" : "") +
-    sCell("Средний профит сигнала", lots.length ? "+" + avg + " %" : "—", lots.length ? "g" : "") +
-    sCell("Всплесков опта", fmtN(baseSet().filter(function(e){ return e.type === "spike"; }).length), "a");
-
-  var bb = document.getElementById("best");
-  var top = null;
-  lots.forEach(function(e){ if (!top || e.margin > top.margin) top = e; });
-  if (!top){
-    bb.innerHTML = '<span class="kick">Лучший сигнал дня</span>' +
-      '<div class="best-empty">Нет лотов выше критерия ' + ST.minMargin + ' % — понизь порог в фильтрах.</div>';
-    return;
+  if (!best){
+    h += '<div class="best"><span class="kick">Лучший лот сейчас</span>' +
+      '<div class="best-empty">Выгодных лотов при пороге ' + ST.minp + ' % нет — понизь «мин. профит» в фильтрах.</div></div>';
+  } else {
+    h += '<div class="best"><span class="kick">Лучший лот сейчас</span>' +
+      '<div class="bi">' + A.iconHtml(best.src, "e-ico") +
+        '<span class="bn"><span class="nm">' + esc(best.src.nameRu) + '</span>' +
+        '<span class="qq" style="--qc:var(' + QV[best.qlt] + ')">' + (QNAME[best.qlt] || "") + ' +' + best.ptn + '</span></span></div>' +
+      '<span class="bestv">+' + fmtP(best.profitTotal) + '</span>' +
+      '<span class="bests">' + fmtP(best.per) + '/шт × ' + fmtN(best.amount) + ' · +' + d1(best.pct) + ' % · ' +
+        fmtLeft(best.left) + ' до конца</span>' +
+      '<button type="button" class="gbtn" id="best-open">Открыть карточку</button></div>';
   }
-  var r = A.rankOf(top.item);
-  bb.innerHTML =
-    '<span class="kick">Лучший сигнал дня</span>' +
-    '<div class="bi">' + A.iconHtml(top.item, "e-ico") +
-      '<span class="bn"><span class="nm">' + esc(top.item.nameRu) + '</span>' +
-      '<span class="qq" style="--qc:var(' + r.v + ')">' + r.name + '</span></span></div>' +
-    '<span class="bestv">+' + top.margin + ' %</span>' +
-    '<span class="bests">лот ' + fmtP(top.lot.buyout) + ' × ' + fmtN(top.lot.amount) +
-      ' шт · +' + fmtCompact(top.lot.profit * top.lot.amount) + ' к медиане</span>' +
-    '<a class="gbtn" href="lots.html?item=' + encodeURIComponent(top.item.itemId) + '">Смотреть лоты</a>';
-}
-function sCell(k, v, cls){
-  return '<div class="st"><span class="k">' + k + '</span><span class="v' + (cls ? " " + cls : "") + '">' + v + '</span></div>';
+  body.innerHTML = h;
+  var bo = document.getElementById("best-open");
+  if (bo && best) bo.addEventListener("click", function(){ openCard(best, bo); });
 }
 
 /* ============ LIVE-СТАТУС ============ */
+var born = Date.now();
 function renderLive(){
-  var evs = visible();
-  var min = evs.length ? evs[0].ago : null;
-  document.getElementById("livehint").textContent =
-    min === null ? "сигналов нет" : (min <= 0 ? "обновлено только что" : "обновлено " + agoTxt(min));
+  var sec = Math.floor((Date.now() - born)/1000);
+  var txt = sec < 60 ? ("обновлено " + Math.max(1, sec) + " с назад")
+                     : ("обновлено " + Math.floor(sec/60) + " м назад");
+  document.getElementById("lh").textContent = txt;
+  document.getElementById("hcut").textContent =
+    "срез " + fmtHM(NOW) + " · " + SRC.length + " " + plu(SRC.length, ["артефакт","артефакта","артефактов"]) +
+    " · регион RU";
 }
 
-function renderAll(newId){
-  syncChips();
-  renderFeed(newId);
-  renderSummary();
+/* ============ МОДАЛКА «КАРТОЧКА АРТЕФАКТА» ============
+   Read-only обозреватель: ничего не меняет, ESC/клик вне закрывают,
+   фокус удерживается внутри и возвращается на строку-источник
+   (исключение из правила модалок — DIRECTION §4).                */
+function cardHtml(r, vlots){
+  var qn = QNAME[r.qlt] || ("кач. " + r.qlt);
+  var h = '<div class="am-h">' + A.iconHtml(r.src, "am-ico") +
+    '<div class="am-main">' +
+      '<div class="am-trow"><span class="nm">' + esc(r.src.nameRu) + '</span>' +
+      '<span class="am-en">' + esc(r.src.nameEn || "") + '</span>' +
+      '<span class="am-id">' + esc(r.src.id) + '</span></div>' +
+      '<div class="am-chips">' +
+        '<span class="chip q" style="--qc:var(' + QV[r.qlt] + ')"><span class="qd" aria-hidden="true"></span>' + qn + '</span>' +
+        '<span class="chip mono">+' + r.ptn + '</span>' +
+        '<span class="chip mono">' + esc(r.src.region) + '</span>' +
+        '<span class="risk ' + r.risk.cls + '"><b>РИСК 7Д</b>' + r.risk.label + ' · ' + d1(r.vol) + ' %</span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="am-right"><span class="kick">Опорная цена 7Д</span>' +
+      '<span class="am-ref">' + fmtP(r.ref) + '</span>' +
+      '<span class="am-sub">безубыток ' + fmtP(r.brk) + '/шт</span>' +
+      '<span class="am-sub">медиана сделок, вес по свежести</span></div>' +
+  '</div>';
+
+  h += '<div class="statusline">' +
+    stCell("Сделок в день", d1(r.spd), "") +
+    stCell("Покрытие", d1(r.cover) + ' <span class="u">дн</span>', "") +
+    stCell("Волатильность 7д", d1(r.vol) + " %", r.risk.cls === "lo" ? "g" : (r.risk.cls === "md" ? "a" : "r")) +
+    stCell("Тренд 24ч", (r.t24 > 0 ? "+" : "−") + d1(Math.abs(r.t24)) + " %", r.t24 > 0 ? "g" : "") +
+    stCell("Тренд 7д", (r.t7 > 0 ? "+" : "−") + d1(Math.abs(r.t7)) + " %", r.t7 > 0 ? "g" : "") +
+    stCell("Ср. время продажи", "~" + d1(r.estH) + " ч", "") +
+  '</div>';
+
+  h += '<div class="grid-2">' +
+    '<section class="cell">' +
+      '<header class="sec-h"><h2>Выгодные лоты варианта</h2>' +
+      '<span class="cnt">' + vlots.length + '</span>' +
+      '<span class="hint">клик по строке — пересчёт вариантов продажи</span></header>' +
+      '<table class="vtbl" aria-label="Выгодные лоты варианта"><thead><tr>' +
+        '<th><span class="thx r">Цена/шт</span></th>' +
+        '<th><span class="thx r">Кол-во</span></th>' +
+        '<th><span class="thx r">Итого</span></th>' +
+        '<th><span class="thx r">Прибыль</span></th>' +
+        '<th><span class="thx r">Осталось</span></th>' +
+      '</tr></thead><tbody id="am-lots"></tbody></table>' +
+    '</section>' +
+    '<section class="cell">' +
+      '<header class="sec-h"><h2>Продажи варианта</h2>' +
+      '<div class="tabs" role="tablist" aria-label="Окно графика">' +
+        '<button role="tab" data-t="24" aria-selected="true">24Ч</button>' +
+        '<button role="tab" data-t="48" aria-selected="false">48Ч</button>' +
+        '<button role="tab" data-t="7d" aria-selected="false">7Д</button>' +
+        '<button role="tab" data-t="30d" aria-selected="false">30Д</button>' +
+      '</div></header>' +
+      '<div class="c-meta" id="am-meta"></div>' +
+      '<div class="chart-wrap" id="am-chart" role="img" aria-label="График сделок варианта"></div>' +
+    '</section>' +
+    '<section class="cell">' +
+      '<header class="sec-h"><h2>Варианты продажи</h2><span class="hint" id="am-sellsub"></span></header>' +
+      '<div class="sellgrid" id="am-sell"></div>' +
+    '</section>' +
+    '<section class="cell">' +
+      '<header class="sec-h"><h2>Пачки · распределение</h2><span class="hint" id="am-batchsub"></span></header>' +
+      '<div class="batch" id="am-batch"></div>' +
+      '<div class="batch-note" id="am-batchnote"></div>' +
+    '</section>' +
+  '</div>';
+
+  h += '<div class="am-hint">Те же цифры, что в строке ленты: опора — медиана реальных сделок за 7 дней ' +
+    'по этому качеству и этой заточке, прибыль — уже за вычетом комиссии аукциона 5 %. ' +
+    'Тренд показывает направление рынка и не вычитается из ожидаемой цены продажи повторно.</div>';
+  return h;
+}
+function renderCardLots(ov, r, vlots, sel){
+  var tb = ov.querySelector("#am-lots");
+  tb.innerHTML = vlots.map(function(l){
+    var expiring = l.left < 7200000;
+    return '<tr tabindex="0" data-key="' + esc(l.key) + '" aria-selected="' + (l.key === sel.key) + '">' +
+      '<td>' + fmtP(l.per) + '</td>' +
+      '<td>' + fmtN(l.amount) + '</td>' +
+      '<td>' + fmtP(l.buyout) + '</td>' +
+      '<td class="pos">+' + fmtP(l.profitTotal) + '</td>' +
+      '<td class="' + (expiring ? "texp" : "dim") + '">' + fmtLeft(l.left) + '</td>' +
+      '</tr>';
+  }).join("");
+  Array.prototype.forEach.call(tb.querySelectorAll("tr[data-key]"), function(tr){
+    function pick(){
+      var l = rowByKey(tr.getAttribute("data-key"));
+      if (!l) return;
+      renderCardLots(ov, r, vlots, l);
+      renderCardSell(ov, r, l);
+    }
+    tr.addEventListener("click", pick);
+    tr.addEventListener("keydown", function(e){
+      if (e.key === "Enter" || e.key === " "){ e.preventDefault(); pick(); }
+    });
+  });
+}
+function renderCardSell(ov, r, lot){
+  var box = ov.querySelector("#am-sell");
+  var sub = ov.querySelector("#am-sellsub");
+  sub.textContent = "от лота " + fmtP(lot.buyout) + " × " + lot.amount + " шт";
+  var opts = r.st.opts || null;
+  var plans = [
+    {cls:"f", name:"Быстро",    m:0.93, t:0.5, o:opts && opts[0]},
+    {cls:"n", name:"Нормально", m:1.00, t:1.0, o:opts && opts[1]},
+    {cls:"p", name:"Выгодно",   m:1.08, t:2.0, o:opts && opts[2]}
+  ];
+  box.innerHTML = plans.map(function(p){
+    var per = Math.round(r.ref * p.m);
+    var list = per * lot.amount;
+    var net = Math.round(list * 0.95);
+    var profit = net - lot.buyout;
+    var h = Math.max(1, Math.round(r.estH * p.t));
+    return '<div class="sell ' + p.cls + '">' +
+      '<div class="name">' + p.name + '</div>' +
+      '<dl>' +
+        '<dt>выставить за</dt><dd>' + fmtP(list) + '</dd>' +
+        '<dt>получишь (−5 %)</dt><dd>' + fmtP(net) + '</dd>' +
+        '<dt>прибыль</dt><dd class="' + (profit > 0 ? "pos" : "neg") + '">' +
+          (profit > 0 ? "+" : "−") + fmtP(Math.abs(profit)) + '</dd>' +
+        '<dt>срок</dt><dd>~' + h + ' ч</dd>' +
+      '</dl>' +
+      '<div class="conf">уверенность: ' +
+        (p.o ? (CONF[p.o.confidence] || p.o.confidence) + " · " + fmtN(p.o.data_points) + " сделок"
+             : "по варианту · ~" + Math.max(1, Math.round(r.spd*7)) + " сделок за 7д") +
+      '</div></div>';
+  }).join("");
+}
+function renderCardBatch(ov, r, vlots){
+  var box = ov.querySelector("#am-batch");
+  var note = ov.querySelector("#am-batchnote");
+  var sub = ov.querySelector("#am-batchsub");
+  var bs = r.st.batch, rows = [], src = "";
+  if (bs && bs.by_size){
+    Object.keys(bs.by_size).forEach(function(k){
+      var b = bs.by_size[k];
+      rows.push({label:b.label, pct:b.share_pct, count:b.count});
+    });
+    src = "по " + fmtN(bs.total_analyzed) + " продажам за 30д";
+    note.textContent = "медианная пачка: " + fmtN(bs.median_amount) + " шт · пачками продаётся " + bs.batch_ratio_pct + " % объёма";
+  } else {
+    var all = ROWS.filter(function(x){ return x.src.id === r.src.id; });
+    var buckets = [[1,1,"1 шт"],[2,5,"2–5 шт"],[6,10,"6–10 шт"],[11,25,"11–25 шт"],[26,50,"26–50 шт"]];
+    var total = all.length || 1;
+    buckets.forEach(function(b){
+      var c = all.filter(function(l){ return l.amount >= b[0] && l.amount <= b[1]; }).length;
+      if (c > 0) rows.push({label:b[2], pct:Math.round(c/total*1000)/10, count:c});
+    });
+    src = "по " + fmtN(all.length) + " выгодным лотам предмета";
+    note.textContent = "статистики продаж по пачкам нет — распределение по текущим лотам";
+  }
+  sub.textContent = src;
+  if (!rows.length){
+    box.innerHTML = '<div class="sell-note">Данных о пачках нет.</div>';
+    note.textContent = "";
+    return;
+  }
+  var maxPct = rows.reduce(function(a,b){ return Math.max(a, b.pct); }, 0) || 1;
+  box.innerHTML = rows.map(function(x){
+    var w = Math.max(1, x.pct / maxPct * 100);
+    return '<span class="bl">' + x.label + '</span>' +
+      '<span class="bar' + (x.pct === maxPct ? " top" : "") + '"><i style="width:' + w + '%"></i></span>' +
+      '<span class="bv"><b>' + x.pct.toLocaleString("ru-RU") + ' %</b> · ' + fmtN(x.count) + '</span>';
+  }).join("");
+}
+function renderCardChart(ov, r, tab){
+  var wrap = ov.querySelector("#am-chart");
+  var meta = ov.querySelector("#am-meta");
+  var st = r.st;
+  /* история в data.js — по предмету целиком; вариант «качество × заточка» стоит дороже,
+     поэтому ряд приводится к опорной цене варианта (на бэкенде сделки уже отфильтрованы). */
+  var k = st.med > 0 ? r.ref / st.med : 1;
+  if (tab === "24" || tab === "48"){
+    var hours = tab === "24" ? 24 : 48;
+    var from = NOW - hours*3600000;
+    var pts = (st.scatter || []).map(function(p){ return {t:Date.parse(p.t), p:Math.round(p.p * k)}; })
+      .filter(function(p){ return p.t >= from && p.t <= NOW; });
+    var s = C.scatter(wrap, pts, {from:from, to:NOW, median:r.ref, stepH:hours === 24 ? 4 : 8,
+      emptyText:"Нет сделок варианта в окне " + hours + " ч."});
+    meta.innerHTML = s
+      ? '<span>окно ' + hours + 'ч · <b>' + s.count + ' сделок</b></span>' +
+        '<span>мин <b>' + fmtCompact(s.min) + '</b></span>' +
+        '<span>макс <b>' + fmtCompact(s.max) + '</b></span>' +
+        '<span class="lg"><span class="sw dot g"></span>ниже опоры</span>' +
+        '<span class="lg"><span class="sw dot gd"></span>выше</span>'
+      : '<span>окно ' + hours + 'ч · <b>0 сделок</b></span>';
+    return;
+  }
+  var days = tab === "7d" ? 7 : 30;
+  var from2 = NOW - days*86400000;
+  var rows = (st.daily || []).map(function(x){
+      return {t:Date.parse(x.day + "T12:00:00+03:00"), min:Math.round(x.min * k),
+              max:Math.round(x.max * k), avg:Math.round(x.avg * k), sales:x.sales};
+    }).filter(function(x){ return x.t >= from2; })
+      .sort(function(a,b){ return a.t - b.t; });
+  var s2 = C.band(wrap, rows, {median:r.ref, emptyText:"Нет дневной истории в окне " + days + " д."});
+  meta.innerHTML = s2
+    ? '<span>окно ' + days + 'д · <b>' + s2.days + ' дн. с данными</b></span>' +
+      '<span>продаж <b>' + fmtN(s2.sales) + '</b></span>' +
+      '<span class="lg"><span class="sw band"></span>коридор мин–макс</span>' +
+      '<span class="lg"><span class="sw line"></span>средняя</span>'
+    : '<span>окно ' + days + 'д · <b>0 дней</b></span>';
+}
+var cardOv = null;
+function openCard(r, srcEl){
+  if (isShow()){
+    A.toast("Карточка артефакта открывается на тарифе ПРОДВИНУТАЯ МАКС");
+    focusCta();
+    return;
+  }
+  var vlots = variantLots(r);
+  var back = srcEl || document.activeElement;
+  var ov = A.openModal({
+    title: "Карточка артефакта · " + r.src.nameRu + " " + (QNAME[r.qlt] || "") + " +" + r.ptn,
+    body: cardHtml(r, vlots),
+    actions: [
+      {label:"Смотреть лоты", primary:true, onClick:function(){
+        location.href = "lots.html?item=" + encodeURIComponent(r.src.id);
+      }},
+      {label:"Закрыть"}
+    ]
+  });
+  cardOv = ov;
+  ov.classList.add("tall");
+  var modal = ov.querySelector(".modal");
+  modal.classList.add("wide");
+  ov.querySelector(".modal-b").classList.add("flush");
+
+  renderCardLots(ov, r, vlots, r);
+  renderCardSell(ov, r, r);
+  renderCardBatch(ov, r, vlots);
+  renderCardChart(ov, r, "24");
+  A.tabs(ov.querySelector(".tabs"), function(t){ renderCardChart(ov, r, t); });
+
+  /* фокус-трап + возврат фокуса на строку-источник */
+  ov.addEventListener("keydown", function(e){
+    if (e.key !== "Tab") return;
+    var f = ov.querySelectorAll('button:not([disabled]), a[href], [tabindex="0"]');
+    if (!f.length) return;
+    var first = f[0], last = f[f.length-1];
+    if (e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+  });
+  function onEsc(e){ if (e.key === "Escape") restore(); }
+  function restore(){
+    document.removeEventListener("keydown", onEsc);
+    cardOv = null;
+    setTimeout(function(){
+      if (back && document.contains(back)) back.focus();
+    }, 0);
+  }
+  ov.addEventListener("click", function(e){ if (e.target === ov) restore(); });
+  ov.querySelector("[data-close]").addEventListener("click", restore);
+  Array.prototype.forEach.call(ov.querySelectorAll("[data-act]"), function(b){
+    b.addEventListener("click", restore);
+  });
+  document.addEventListener("keydown", onEsc);
+}
+
+/* ============ ГЕЙТ ФИЛЬТРОВ И СОРТИРОВКИ (витрина) ============ */
+/* исходные тултипы заголовков сохраняем — в витрине они подменяются на замок */
+Array.prototype.forEach.call(document.querySelectorAll("#fhead .thb"), function(b){
+  b.setAttribute("data-tip0", b.getAttribute("data-tip") || "");
+});
+function applyLocks(){
+  var show = isShow();
+  ["f-item","f-qlt","f-ptn","f-minp"].forEach(function(id){
+    document.getElementById(id).disabled = show;
+  });
+  var lock = document.getElementById("f-lock");
+  lock.hidden = !show;
+  lock.innerHTML = show ? (S.lockSvg(10, 11, 1.5) + "Фильтры на тарифе МАКС") : "";
+  document.getElementById("fbar").classList.toggle("locked", show);
+  Array.prototype.forEach.call(document.querySelectorAll("#fhead .hlk"), function(sl){
+    sl.innerHTML = show ? S.lockSvg(9, 10, 1.5) : "";
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("#fhead .thb"), function(b){
+    if (show){
+      b.setAttribute("data-tip", "Сортировка открывается на тарифе ПРОДВИНУТАЯ МАКС");
+      return;
+    }
+    var t0 = b.getAttribute("data-tip0");
+    if (t0) b.setAttribute("data-tip", t0);
+    else b.removeAttribute("data-tip");
+  });
+}
+
+/* ============ ОБЩИЙ РЕНДЕР ============ */
+function render(){
+  applyLocks();
+  renderChips();
+  syncReset();
+  renderTable();
+  renderSide();
   renderLive();
 }
 
 /* ============ СОБЫТИЯ UI ============ */
-Array.prototype.forEach.call(document.querySelectorAll(".fchip[data-type]"), function(b){
-  b.addEventListener("click", function(){
-    var k = b.getAttribute("data-type");
-    ST.types[k] = !ST.types[k];
-    renderAll();
-  });
+document.getElementById("f-item").addEventListener("change", function(e){
+  ST.item = e.target.value; ST.page = 0; render();
 });
-document.getElementById("ch-all").addEventListener("click", function(){
-  ST.types = {lot:true, spike:true, move:true, emis:true};
-  renderAll();
+document.getElementById("f-qlt").addEventListener("change", function(e){
+  ST.qlt = e.target.value; ST.page = 0; render();
 });
-document.getElementById("minp").addEventListener("change", function(e){
-  ST.minMargin = Number(e.target.value) || 15;
-  renderAll();
+document.getElementById("f-ptn").addEventListener("change", function(e){
+  ST.ptn = e.target.value; ST.page = 0; render();
 });
-document.getElementById("favonly").addEventListener("change", function(e){
-  ST.favOnly = e.target.checked;
-  renderAll();
+document.getElementById("f-minp").addEventListener("change", function(e){
+  ST.minp = Number(e.target.value) || 10;
+  ST.empty = false;
+  ST.page = 0;
+  fillSelects();
+  render();
+});
+document.getElementById("f-rst").addEventListener("click", function(){
+  ST.item = "all"; ST.qlt = "all"; ST.ptn = "all"; ST.page = 0;
+  SUBORDER.forEach(function(k){ ST.subs[k] = true; });
+  fillSelects();
+  render();
 });
 
-/* ============ ДЕМО-ЖИВОСТЬ: новое событие раз в 45 с ============ */
-var liveIdx = 0;
-function passesNow(e){
-  if (!ST.types[e.type]) return false;
-  if (ST.favOnly && !e.fav) return false;
-  if (e.type === "lot" && e.margin < ST.minMargin) return false;
-  return true;
-}
-if (POOL.length){
-  setInterval(function(){
-    /* берём следующий из пула; предпочитаем проходящий текущие фильтры,
-       чтобы добавление было видно — иначе первый попавшийся */
-    var src = null;
-    for (var i = 0; i < POOL.length; i++){
-      var cand = POOL[(liveIdx + i) % POOL.length];
-      if (passesNow(cand)){ src = cand; liveIdx += i; break; }
+/* сортировка: в витрине зафиксирована */
+A.sortTable(document.getElementById("fhead"), sort,
+  {name:1, per:1, ref:-1, profitTotal:-1, vol:1, spd:-1, left:1}, function(){
+    if (isShow()){
+      sort.key = "profitTotal"; sort.dir = -1;
+      A.toast("Сортировка открывается на тарифе ПРОДВИНУТАЯ МАКС");
+      renderTable();
+      return;
     }
-    if (!src) src = POOL[liveIdx % POOL.length];
-    liveIdx++;
-    var copy = {};
-    for (var k in src) if (Object.prototype.hasOwnProperty.call(src, k)) copy[k] = src[k];
-    copy.id = "live" + liveIdx;
-    copy.ago = 0;
-    copy.t = NOW + liveIdx * 1000;   /* поверх всех: свежее сверху */
-    ALLEV.unshift(copy);
-    renderAll(copy.id);
-  }, 45000);
-}
+    ST.page = 0;
+    renderTable();
+  });
 
-renderAll();
+/* демо-состояния прототипа */
+document.getElementById("d-empty").addEventListener("click", function(){
+  ST.empty = true; ST.page = 0;
+  fillSelects();
+  render();
+  A.toast("Показано пустое состояние ленты");
+});
+document.getElementById("d-reset").addEventListener("click", function(){
+  ST.empty = false;
+  ST.item = "all"; ST.qlt = "all"; ST.ptn = "all"; ST.minp = 10; ST.page = 0;
+  SUBORDER.forEach(function(k){ ST.subs[k] = true; });
+  document.getElementById("f-minp").value = "10";
+  fillSelects();
+  render();
+});
+
+/* смена тарифа в демо-переключателе: витрина/полная лента без перезагрузки */
+window.addEventListener("sc:tier", function(){
+  if (cardOv) A.closeModal();
+  cardOv = null;
+  ST.page = 0;
+  render();
+});
+
+/* ============ СТАРТ ============ */
+fillSelects();
+render();
+setInterval(renderLive, 5000);
 })();
 </script>
 </body>
