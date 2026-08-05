@@ -49,6 +49,16 @@ const fmtDate = (iso: string | null) => {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
+/** «1 строка» / «10 строк» — лимит строк «Ленты» в панели тарифа. */
+const rowsWord = (n: number) => {
+  const teen = n % 100
+  const last = n % 10
+  if (teen >= 11 && teen <= 14) return 'строк'
+  if (last === 1) return 'строка'
+  if (last >= 2 && last <= 4) return 'строки'
+  return 'строк'
+}
+
 // ── .switch — тумблер настроек 30×16 (base.css:442-462) ──────────────────────
 function TumblerSwitch({
   checked, onChange, disabled, label,
@@ -388,6 +398,9 @@ export default function SettingsPage() {
   const linked = !!tgStatus?.is_linked
   const margin = settings?.min_profit_margin_percent ?? 0
 
+  /** Полная лента — только «Макс» (feed_access); на остальных тарифах видно N строк. */
+  const feedAccess = !!user?.feed_access
+
   // .note-box — живой критерий выгодности (пересчитывается при вводе)
   const critNote = (
     <Box sx={{ background: tokens.goldDim, border: `1px solid ${tokens.goldLine}`, borderRadius: 1, padding: '9px 11px', fontSize: fs.f12, color: tokens.text1, lineHeight: 1.5 }}>
@@ -399,6 +412,12 @@ export default function SettingsPage() {
 
   const tierName = user?.tier ? (TIER_LABELS[user.tier as Tier] ?? user.tier) : '—'
   const favLimit = user?.favorites_limit_override ?? user?.watchlist_limit ?? null
+
+  // feed_rows_limit: null = без ограничений (Макс/админ), иначе 1 / 10 / 20.
+  const feedRows = user?.feed_rows_limit
+  const feedRowsText = feedAccess
+    ? 'все строки'
+    : feedRows == null ? '—' : `${feedRows} ${rowsWord(feedRows)}`
 
   return (
     <Box sx={pagecolSx}>
@@ -585,6 +604,7 @@ export default function SettingsPage() {
             }
           />
           {favLimit != null && <Kv k="Лимит избранного" v={`${favLimit} предметов`} />}
+          <Kv k="Лента артефактов" v={feedRowsText} tone={feedAccess ? 'on' : undefined} />
           <Kv k="Окна графиков" v={winText(user?.stats_windows)} />
           <Kv
             k="Аддон «Радар рынка»"

@@ -19,6 +19,10 @@ interface User {
   has_market_radar_addon: boolean
   buy_sniper_access: boolean
   buy_sniper_notifications: boolean
+  /** Полная «Лента артефактов» + право на уведомления по ней (только «Макс»). */
+  feed_access: boolean
+  /** Сколько строк Ленты видит тариф. null = без ограничений. */
+  feed_rows_limit: number | null
 }
 
 interface AuthState {

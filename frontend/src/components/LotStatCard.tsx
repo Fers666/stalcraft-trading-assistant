@@ -65,11 +65,15 @@ export interface LotStatCardProps {
   fullWidth?: boolean
   onViewLots?: () => void
   onDelete?: () => void
+  /** Кикер шапки. По умолчанию «Избранное · {region}» — в «Ленте» это не «Избранное». */
+  kicker?: React.ReactNode
+  /** Источник «выгодных лотов»: watchlist-сигналы или /feed/lots (см. useLotStats). */
+  signalsSource?: 'watchlist' | 'feed'
 }
 
 export default function LotStatCard({
   itemId, region, qualityFilter, enchantFilter, itemName, iconPath, minProfitMarginPercent = 0, fullWidth = false,
-  onViewLots, onDelete,
+  onViewLots, onDelete, kicker, signalsSource = 'watchlist',
 }: LotStatCardProps) {
   const [timeMode, setTimeMode] = useState<'week' | 'today'>('today')
   // Дефолт — «Неделя»: это опорная цена, по которой бэкенд и отбирал лоты в
@@ -85,7 +89,7 @@ export default function LotStatCard({
     stats, lots, loading, sellOptions, sellOptionsAreCurrent, sellPrices, trend, median24h,
     profitableLots, totalFilteredLots,
     cheapestBuy, risk, risk30, sellOptionsLocked, risk30Locked, lastUpdated,
-  } = useLotStats({ itemId, region, qualityFilter, enchantFilter, minProfitMarginPercent, lotMode })
+  } = useLotStats({ itemId, region, qualityFilter, enchantFilter, minProfitMarginPercent, lotMode, signalsSource })
 
   // Сброс выбора базового лота при изменении состава списка. Завязка на сам
   // массив сбрасывала бы выбор каждые 30с — он новый на каждом поллинге.
@@ -115,7 +119,10 @@ export default function LotStatCard({
     ? { quality: firstLot.quality_name, enchant: firstLot.enchant_level }
     : null
 
-  const baseBuy = profitableLots[selectedLotIdx]?.buyPerUnit ?? cheapestBuy
+  // Лот-база «Вариантов продажи»: от него берутся и цена покупки, и цены
+  // продажи (в «Ленте» они приведены к размеру пачки — см. useLotStats).
+  const selectedLot = profitableLots[selectedLotIdx] ?? null
+  const baseBuy = selectedLot?.buyPerUnit ?? cheapestBuy
 
   const trendBadge = (
     <TrendBadge trend={trend} median7d={stats?.median_price_7d} median24h={median24h} />
@@ -163,7 +170,7 @@ export default function LotStatCard({
         <ItemIcon src={iconUrl(iconPath) ?? undefined} name={itemName} size={56} sx={{ mt: '2px' }} />
 
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Kick>Избранное · {region}</Kick>
+          <Kick>{kicker ?? `Избранное · ${region}`}</Kick>
           <Typography
             component="h1"
             noWrap
@@ -430,18 +437,44 @@ export default function LotStatCard({
                     )}
                   </Typography>
                 )}
+                {selectedLot?.batchPricePct != null && (
+                  <Typography sx={{ fontSize: fs.f11, color: tokens.text2, mb: 1 }}>
+                    Цены — для пачки{' '}
+                    <Box component="span" className="mono" sx={{ color: tokens.text1 }}>×{fmtN(selectedLot.amount)}</Box>
+                    : сделки такими пачками идут на{' '}
+                    <Box component="span" className="mono" sx={{ color: tokens.text1 }}>
+                      {Math.abs(selectedLot.batchPricePct).toLocaleString('ru-RU')} %
+                    </Box>{' '}
+                    {selectedLot.batchPricePct > 0 ? 'дороже' : 'дешевле'} штучных. Те же цены — в таблице «Выгодные лоты».
+                  </Typography>
+                )}
                 {stats.reference_confidence === 'low' && stats.reference_samples != null && (
                   <Typography sx={{ fontSize: fs.f11, color: tokens.warning, mb: 1 }}>
                     Мало сделок ({fmtN(stats.reference_samples)}) — оценка приблизительная
                   </Typography>
                 )}
-                {/* .sellgrid — 3 равные колонки, 1px-щели через border-контейнер (прототип favorites.html) */}
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1px', background: tokens.border, border: `1px solid ${tokens.border}` }}>
+                {/* .sellgrid — 3 равные колонки, 1px-щели через border-контейнер (прототип favorites.html).
+                    minmax(0,1fr) обязателен: у голого 1fr неявный min-width:auto, трек не сжимается
+                    и в узком контейнере (модалка «Ленты», Dialog maxWidth="lg") третья карточка
+                    уезжает за границу с overflow:hidden. */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '1px', background: tokens.border, border: `1px solid ${tokens.border}` }}>
                   {sellOptions.map(opt => {
-                    const profit = baseBuy !== null ? opt.net_price_per_unit - baseBuy : null
+                    // Цены и прибыль берём у выбранного лота: там уже применён
+                    // batch-фактор бэкенда и лежит ровно то число, что в строке
+                    // таблицы. Своей поправки блок не заводит. Лота нет (список
+                    // выгодных пуст, база — cheapestBuy) → сырые опции как раньше.
+                    const lotOpt = selectedLot?.profits.find(p => p.label === opt.label) ?? null
+                    const batchedNet = lotOpt?.netUnit ?? null
+                    const priceUnit = lotOpt?.priceUnit ?? opt.price_per_unit
+                    const netUnit   = batchedNet ?? opt.net_price_per_unit
+                    const profit = batchedNet !== null && lotOpt
+                      ? lotOpt.perUnit
+                      : baseBuy !== null ? opt.net_price_per_unit - baseBuy : null
                     const isProfitable = profit !== null && profit > 0
                     const ddSx = { m: 0, fontSize: fs.f125, fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: tokens.text0, whiteSpace: 'nowrap' } as const
-                    const dtSx = { fontSize: fs.f11, color: tokens.text2, whiteSpace: 'nowrap' } as const
+                    // Подпись переносится, цифра — никогда: в узком треке место уступает текст,
+                    // а не значение (иначе «27 825 ₽» срезается до «27 825»).
+                    const dtSx = { fontSize: fs.f11, color: tokens.text2, minWidth: 0 } as const
                     return (
                       <Box key={opt.label} sx={{ background: tokens.bg2, p: '10px 14px 12px' }}>
                         <Tooltip title={SELL_OPTION_TOOLTIPS[opt.label]}>
@@ -449,12 +482,12 @@ export default function LotStatCard({
                             {opt.label_ru}
                           </Box>
                         </Tooltip>
-                        <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 10px' }}>
+                        <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: '3px 10px' }}>
                           <Box component="dt" sx={dtSx}>выставить за</Box>
-                          <Box component="dd" className="mono" sx={ddSx}>{fmtP(opt.price_per_unit)}</Box>
+                          <Box component="dd" className="mono" sx={ddSx}>{fmtP(priceUnit)}</Box>
 
                           <Box component="dt" sx={dtSx}>получишь (−5 %)</Box>
-                          <Box component="dd" className="mono" sx={ddSx}>{fmtP(opt.net_price_per_unit)}</Box>
+                          <Box component="dd" className="mono" sx={ddSx}>{fmtP(netUnit)}</Box>
 
                           {profit !== null && (
                             <>

@@ -57,6 +57,11 @@ const ILL_BUYS = [
   { name: 'Пружина мутанта', target: 640_000, cur: 705_000, lit: false },
   { name: 'Вспышка', target: 180_000, cur: 214_000, lit: false },
 ]
+const ILL_FEED = [
+  { name: 'Медуза', variant: 'Мастер +15', profit: 41_200 },
+  { name: 'Кристаллический шип', variant: 'Ветеран +10', profit: 22_900 },
+  { name: 'Медуза', variant: 'Мастер +10', profit: 18_400 },
+]
 
 const STATS = [
   { value: '5', unit: 'мин', label: 'цикл обновления данных', mono: false },
@@ -82,6 +87,7 @@ const PLANS: Plan[] = [
       { k: 'окна графиков', v: '24ч · 48ч' },
       { k: 'раздел «Лоты»', v: 'закрыт', kind: 'no' },
       { k: 'лента сигналов', v: 'включена', kind: 'ok' },
+      { k: 'лента артефактов', v: '1 лот' },
       { k: 'закупки — мониторинг', v: 'закрыт', kind: 'no' },
       { k: 'закупки — уведомления', v: 'нет', kind: 'no' },
       { k: 'радар рынка', v: 'аддон', kind: 'no' },
@@ -93,6 +99,7 @@ const PLANS: Plan[] = [
       { k: 'окна графиков', v: 'до 7 дней' },
       { k: 'раздел «Лоты»', v: 'закрыт', kind: 'no' },
       { k: 'лента сигналов', v: 'включена', kind: 'ok' },
+      { k: 'лента артефактов', v: '10 лотов' },
       { k: 'закупки — мониторинг', v: 'включён', kind: 'ok' },
       { k: 'закупки — уведомления', v: 'нет', kind: 'no' },
       { k: 'радар рынка', v: 'аддон', kind: 'no' },
@@ -104,6 +111,7 @@ const PLANS: Plan[] = [
       { k: 'окна графиков', v: 'до 30 дней' },
       { k: 'раздел «Лоты»', v: 'открыт', kind: 'ok' },
       { k: 'лента сигналов', v: 'включена', kind: 'ok' },
+      { k: 'лента артефактов', v: '20 лотов' },
       { k: 'закупки — мониторинг', v: 'включён', kind: 'ok' },
       { k: 'закупки — уведомления', v: 'да', kind: 'ok' },
       { k: 'радар рынка', v: 'аддон', kind: 'no' },
@@ -115,6 +123,7 @@ const PLANS: Plan[] = [
       { k: 'окна графиков', v: 'до 30 дней' },
       { k: 'раздел «Лоты»', v: 'открыт', kind: 'ok' },
       { k: 'лента сигналов', v: 'включена', kind: 'ok' },
+      { k: 'лента артефактов', v: 'вся лента', kind: 'ok' },
       { k: 'закупки — мониторинг', v: 'включён', kind: 'ok' },
       { k: 'закупки — уведомления', v: 'да', kind: 'ok' },
       { k: 'радар рынка', v: 'аддон', kind: 'no' },
@@ -311,7 +320,7 @@ export default function LandingPage() {
               Что внутри терминала
             </Box>
             <Box component="p" sx={{ mt: '7px', fontSize: fs.f13, color: T.text2, maxWidth: '70ch' }}>
-              Четыре контура работы с рынком — от сырых срезов аукциона до снайпера выгодной покупки.
+              Пять контуров работы с рынком — от сырых срезов аукциона до снайпера выгодной покупки.
             </Box>
           </Box>
 
@@ -404,6 +413,42 @@ export default function LandingPage() {
                 Задай цену, за которую готов купить, — терминал следит за рынком и шлёт алерт в Telegram, как только лот падает ниже твоего порога. Ловишь выгодную покупку не глядя в экран.
               </Box>
             </Box>
+
+            {/* фича 5 — Лента артефактов: широкая карточка на всю строку сетки,
+                иначе пятая ячейка повисает в четырёхколоночном ряду */}
+            <Box sx={{
+              background: T.bg1, p: '18px 20px 22px', minWidth: 0,
+              gridColumn: { xs: 'auto', sm: 'span 2', lg: 'span 4' },
+              display: 'grid', gridTemplateColumns: { xs: '1fr', md: '300px minmax(0,1fr)' }, gap: { xs: '16px', md: '24px' },
+              alignItems: 'center',
+            }}>
+              <Box aria-hidden="true" sx={{ height: 136, background: T.bg2, border: `1px solid ${T.border}`, borderRadius: 1, p: '10px 12px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '3px', overflow: 'hidden' }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 88px 78px', gap: '8px', px: '8px', py: '4px', fontFamily: T.fontHead, fontWeight: 600, fontSize: fs.f10, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.text2, borderBottom: `1px solid ${T.border}` }}>
+                  <span>артефакт</span><Box component="span" sx={{ textAlign: 'right' }}>вариант</Box><Box component="span" sx={{ textAlign: 'right' }}>профит</Box>
+                </Box>
+                {ILL_FEED.map((r) => (
+                  <Box key={`${r.name}-${r.variant}`} className="mono" sx={{
+                    display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 88px 78px', gap: '8px', px: '8px', py: '4px',
+                    fontSize: fs.f105, color: T.text1, borderRadius: 1,
+                  }}>
+                    <Box component="span" sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</Box>
+                    <Box component="span" sx={{ textAlign: 'right', whiteSpace: 'nowrap', color: T.text2 }}>{r.variant}</Box>
+                    <Box component="span" sx={{ textAlign: 'right', whiteSpace: 'nowrap', color: T.success }}>+{fmtCompact(r.profit)}</Box>
+                  </Box>
+                ))}
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Kick sx={{ color: T.text2 }}>Feed</Kick>
+                <Box component="h3" sx={{ fontFamily: T.fontHead, fontWeight: 700, fontSize: fs.f16, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.text0, m: '8px 0' }}>Лента артефактов</Box>
+                <Box component="p" sx={{ m: 0, fontSize: fs.f125, lineHeight: 1.6, color: T.text1, maxWidth: '84ch' }}>
+                  Отдельный контур по артефактам: терминал сам обходит рынок и собирает лоты, которые выгодно выкупить и перепродать. Прибыль считается от медианы реальных сделок за 7 дней за вычетом комиссии 5 %, рядом — ликвидность и запас рынка. Каждое качество и каждая заточка сравниваются отдельно, добавлять ничего не нужно.
+                </Box>
+                <Box component="p" sx={{ m: '10px 0 0', fontSize: fs.f12, lineHeight: 1.6, color: T.text2, maxWidth: '84ch' }}>
+                  Отдельный раздел портала: список обновляется сам, следить за ним нужно на месте. Сколько строк
+                  видно — зависит от тарифа. Лоты живут минуты, поэтому прибыль здесь расчётная, а не обещанная.
+                </Box>
+              </Box>
+            </Box>
           </Box>
         </Wrap>
 
@@ -478,6 +523,10 @@ export default function LandingPage() {
           </Box>
           <Box component="p" sx={{ mt: '12px', fontSize: fs.f12, color: T.text2 }}>
             «Радар рынка» — отдельный аддон к любому тарифу: сканер всего аукциона без привязки к избранному.
+          </Box>
+          <Box component="p" sx={{ mt: '6px', fontSize: fs.f12, color: T.text2 }}>
+            «Лента артефактов» открыта на всех тарифах — отличается только число строк. Вся лента,
+            фильтры и сортировка — на «Макс».
           </Box>
         </Wrap>
       </Box>

@@ -4,6 +4,7 @@ import { QLT_NAMES } from '../../store/feedStore'
 import { useFeedPolling } from '../../hooks/useFeedPolling'
 import { iconUrl, qualityColor } from '../../utils/i18n'
 import { tokens, fs } from '../../theme'
+import { signalsVisible } from '../GlobalFeed'
 
 // Лента сигналов (мобайл) — контракт .msignals (mobile.css). Горизонтальный
 // трек карточек из feedStore, данные/интервалы через useFeedPolling (та же
@@ -54,7 +55,14 @@ export default function MobileSignals() {
   const navigate = useNavigate()
   const { watchlist, feedItems, lastLotRefresh, initialized } = useFeedPolling()
 
-  if (!initialized || watchlist.length === 0) return null
+  // Условие показа — общий предикат с десктопной полосой (GlobalFeed).
+  const shown = signalsVisible({
+    initialized,
+    watchlistCount: watchlist.length,
+    feedItemsCount: feedItems.length,
+    lastLotRefresh,
+  })
+  if (!shown) return null
 
   const handleClick = (id: number) => {
     navigate('/app/monitoring', { state: { scrollTo: id } })
@@ -64,7 +72,7 @@ export default function MobileSignals() {
   if (lastLotRefresh === null) {
     return (
       <Box sx={wrapSx}>
-        <SignalsHeader live="срез —" />
+        <SignalsHeader live="обн. —" />
         <Box sx={trackSx}>
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} variant="rectangular" width={190} height={48} sx={{ flexShrink: 0, background: tokens.bg2 }} />
@@ -78,7 +86,10 @@ export default function MobileSignals() {
 
   return (
     <Box sx={wrapSx}>
-      <SignalsHeader live={`срез ${hhmm(lastLotRefresh)}`} />
+      {/* «обн.» — момент последнего опроса; «срез» (max(seen_at) строк) живёт
+          на странице «Ленты». Два разных времени под одним словом читались
+          как ошибка (прототип: .livehint «обновлено» ≠ .hcut «срез»). */}
+      <SignalsHeader live={`обн. ${hhmm(lastLotRefresh)}`} />
       <Box sx={trackSx}>
         {feedItems.map(({ entry, count, latest_lot_time }) => {
           const qColor = entry.quality_filter !== null

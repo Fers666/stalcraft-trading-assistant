@@ -44,14 +44,37 @@ export default function TierGate({
     : ({ onClick: onCta } as const)
 
   return (
+    // Контент и оверлей — в одной ячейке grid, а не «оверлей absolute поверх».
+    // Absolute-оверлей не участвует в расчёте высоты: на невысоком контенте
+    // (панель фильтров ~46px) замок + CTA (~150px) вылезали за блок и наезжали
+    // на соседей. В сетке высота ряда = max(контент, оверлей), вылезать нечему.
     <Box
-      sx={[{ position: 'relative' }, ...(Array.isArray(sx) ? sx : sx ? [sx] : [])]}
+      sx={[
+        { position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)' },
+        ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
+      ]}
     >
-      <Box sx={{ filter: 'blur(6px)', opacity: 0.45, pointerEvents: 'none' }}>{children}</Box>
       <Box
         sx={{
-          position: 'absolute',
-          inset: 0,
+          gridArea: '1 / 1',
+          display: 'flex',
+          flexDirection: 'column',
+          // Контент тянется на всю ячейку: если оверлей выше, гейт остаётся
+          // цельным блоком, а не полоской контента с пустотой под ней.
+          '& > *': { flexGrow: 1 },
+          filter: 'blur(6px)',
+          opacity: 0.45,
+          pointerEvents: 'none',
+        }}
+      >
+        {children}
+      </Box>
+      <Box
+        sx={{
+          gridArea: '1 / 1',
+          // position + z-index обязательны: blur делает контент stacking-контекстом,
+          // и без них оверлей рисовался бы под ним.
+          position: 'relative',
           zIndex: 2,
           display: 'flex',
           flexDirection: 'column',

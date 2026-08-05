@@ -7,7 +7,7 @@ import { TIER_LABELS, type Tier } from '../constants/tiers'
 import DiamondLogo from './ui/DiamondLogo'
 import LockIcon from './ui/LockIcon'
 import SysBar from './ui/SysBar'
-import GlobalFeed, { FEED_HEIGHT } from './GlobalFeed'
+import GlobalFeed, { FEED_HEIGHT, signalsVisible } from './GlobalFeed'
 import { EmissionWidget } from './EmissionWidget'
 
 const NAV_H = tokens.navH // 48
@@ -235,8 +235,14 @@ function AppNav() {
 
 export default function Layout() {
   const { watchlist, initialized, feedItems, lastLotRefresh } = useFeedStore()
-  const feedShown = initialized && watchlist.length > 0 &&
-    (lastLotRefresh === null || feedItems.length > 0)
+  // Условие показа — общий предикат с GlobalFeed: --sc-top-offset обязан
+  // совпадать с фактической высотой полосы, иначе sticky-панели разъедутся.
+  const feedShown = signalsVisible({
+    initialized,
+    watchlistCount: watchlist.length,
+    feedItemsCount: feedItems.length,
+    lastLotRefresh,
+  })
   const topOffset = NAV_H + (feedShown ? FEED_HEIGHT : 0)
 
   return (

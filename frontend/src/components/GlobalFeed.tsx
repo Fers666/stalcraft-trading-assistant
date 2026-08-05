@@ -11,6 +11,26 @@ export const FEED_GAP = 12       // отступ панели от навбар�
 export const FEED_PANEL_H = 54   // высота самой панели
 export const FEED_HEIGHT = FEED_GAP + FEED_PANEL_H  // вертикальный след ниже навбара
 
+export interface SignalsVisibility {
+  initialized: boolean
+  watchlistCount: number
+  feedItemsCount: number
+  lastLotRefresh: Date | null
+}
+
+/**
+ * Показывать ли полосу сигналов.
+ *
+ * Единый предикат для GlobalFeed, MobileSignals и Layout (--sc-top-offset):
+ * разойдись они — sticky-панели страниц уехали бы на высоту полосы.
+ * Полоса живёт по «Избранному»: пустой watchlist — полосы нет.
+ */
+export function signalsVisible(s: SignalsVisibility): boolean {
+  if (!s.initialized) return false
+  if (s.watchlistCount === 0) return false
+  return s.lastLotRefresh === null || s.feedItemsCount > 0
+}
+
 const hhmm = (d: Date | string | null): string => {
   if (!d) return '—'
   const date = typeof d === 'string' ? new Date(d) : d
@@ -33,9 +53,14 @@ const feedBarSx = {
 } as const
 
 // .sig-label
+// Показывает время ПОСЛЕДНЕГО ОПРОСА, а не срез данных: срез — это max(seen_at)
+// строк и живёт на странице «Ленты». Раньше оба назывались «срез», и два разных
+// времени на одном экране читались как ошибка (прототип различает их так же:
+// .livehint «обновлено» против .hcut «срез»).
 function FeedLabel({ lastRefresh, hasItems }: { lastRefresh: Date | null; hasItems: boolean }) {
   return (
     <Box
+      title="Время последнего опроса. Срез данных — на странице «Лента»"
       sx={{
         flexShrink: 0,
         display: 'flex',
@@ -82,7 +107,7 @@ function FeedLabel({ lastRefresh, hasItems }: { lastRefresh: Date | null; hasIte
             animation: hasItems ? 'anomaly-pulse 2s infinite' : 'none',
           }}
         />
-        срез {hhmm(lastRefresh)}
+        обн. {hhmm(lastRefresh)}
       </Box>
     </Box>
   )
@@ -93,7 +118,13 @@ export default function GlobalFeed() {
   // Дата-слой и опрос вынесены в useFeedPolling (поведение идентично).
   const { watchlist, feedItems, lastLotRefresh, initialized } = useFeedPolling()
 
-  if (!initialized || watchlist.length === 0) return null
+  const shown = signalsVisible({
+    initialized,
+    watchlistCount: watchlist.length,
+    feedItemsCount: feedItems.length,
+    lastLotRefresh,
+  })
+  if (!shown) return null
 
   const handleClick = (id: number) => {
     navigate('/app/monitoring', { state: { scrollTo: id } })

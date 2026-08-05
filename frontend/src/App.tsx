@@ -7,6 +7,7 @@ import MobileLayout from './components/mobile/MobileLayout'
 import MobileFavoritesPage from './pages/mobile/MobileFavoritesPage'
 import MobileCatalogPage from './pages/mobile/MobileCatalogPage'
 import MobileLotsPage from './pages/mobile/MobileLotsPage'
+import MobileFeedPage from './pages/mobile/MobileFeedPage'
 import MobileBuySniperPage from './pages/mobile/MobileBuySniperPage'
 import MobileNewsPage from './pages/mobile/MobileNewsPage'
 import MobileMarketRadarPage from './pages/mobile/MobileMarketRadarPage'
@@ -70,7 +71,7 @@ export default function App() {
           <Route path="monitoring"     element={<ModeSwitch desktop={<MonitoringPage />}   mobile={<MobileFavoritesPage />} />} />
           <Route path="catalog"       element={<ModeSwitch desktop={<CatalogPage />}      mobile={<MobileCatalogPage />} />} />
           <Route path="lots"          element={<ModeSwitch desktop={<LotsPage />}         mobile={<MobileLotsPage />} />} />
-          <Route path="feed"          element={<FeedPage />} />
+          <Route path="feed"          element={<ModeSwitch desktop={<FeedPage />}          mobile={<MobileFeedPage />} />} />
           <Route path="buy-sniper"    element={<ModeSwitch desktop={<BuySniperPage />}    mobile={<MobileBuySniperPage />} />} />
           <Route path="inventory"     element={<Navigate to="/app/buy-sniper" replace />} />
           <Route path="news"          element={<ModeSwitch desktop={<NewsPage />}         mobile={<MobileNewsPage />} />} />

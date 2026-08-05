@@ -53,16 +53,32 @@ export default function DCard({
       borderRadius: '2px',
       boxShadow: selected || lit ? `inset 2px 0 0 ${tokens.goldHighlight}` : 'none',
       padding: '11px 12px',
-      cursor: interactive ? 'pointer' : 'default',
-      font: 'inherit',
       color: 'inherit',
       transition: `background-color ${tokens.motion.fast}ms ${tokens.motion.ease}, border-color ${tokens.motion.fast}ms ${tokens.motion.ease}`,
-      '&:active': interactive ? { background: tokens.bg3 } : undefined,
+      // Подсветка нажатия живёт на корне, а сама кнопка — внутри (см. ниже).
+      '&:has(> button:active)': interactive ? { background: tokens.bg3 } : undefined,
     },
     ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
   ]
 
-  const inner = (
+  // Кликабельная зона — тело карточки, а НЕ корень: кнопки футера не могут
+  // быть потомками <button> (validateDOMNesting, двойное срабатывание тапа).
+  const hitSx = {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left' as const,
+    background: 'transparent',
+    border: 0,
+    padding: 0,
+    font: 'inherit',
+    color: 'inherit',
+    cursor: 'pointer',
+    // Дубль подсветки корня — фолбэк для браузеров без :has (цвет тот же).
+    '&:active': { background: tokens.bg3 },
+    '&:focus-visible': { outline: `1px solid ${tokens.goldLine}`, outlineOffset: '2px' },
+  }
+
+  const body = (
     <>
       {/* .dc-top */}
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
@@ -145,18 +161,17 @@ export default function DCard({
         </Box>
       )}
 
-      {footer != null && (
-        <Box sx={{ display: 'flex', gap: '8px', mt: '11px', '& > *': { flex: 1 } }}>{footer}</Box>
-      )}
     </>
   )
 
-  if (interactive) {
-    return (
-      <Box component="button" type="button" onClick={onClick} sx={rootSx}>
-        {inner}
-      </Box>
-    )
-  }
-  return <Box sx={rootSx}>{inner}</Box>
+  return (
+    <Box sx={rootSx}>
+      {interactive
+        ? <Box component="button" type="button" onClick={onClick} sx={hitSx}>{body}</Box>
+        : body}
+      {footer != null && (
+        <Box sx={{ display: 'flex', gap: '8px', mt: '11px', '& > *': { flex: 1 } }}>{footer}</Box>
+      )}
+    </Box>
+  )
 }

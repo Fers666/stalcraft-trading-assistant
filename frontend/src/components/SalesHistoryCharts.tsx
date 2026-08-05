@@ -34,7 +34,12 @@ export default function SalesHistoryCharts({ itemId, region, qualityFilter, ench
 
   const allows = (k: WindowKey) => statsWindows?.includes(k) ?? false
   const firstAvailable = WINDOWS.find(w => allows(w.key))?.key ?? '24h'
-  const [win, setWin] = useState<WindowKey>(firstAvailable)
+  // Стартовое окно. 24Ч у трети вариантов пустое (сделок за сутки нет) — график
+  // открывался пустым там, где недельные данные есть. median24h приходит не-null
+  // только если суточных сделок достаточно (MIN_24H_SAMPLES), иначе стартуем с
+  // самого широкого окна, доступного тарифу: точки там есть наверняка.
+  const widestAvailable = [...WINDOWS].reverse().find(w => allows(w.key))?.key ?? firstAvailable
+  const [win, setWin] = useState<WindowKey>(median24h != null ? firstAvailable : widestAvailable)
 
   const current = WINDOWS.find(w => w.key === win) ?? WINDOWS[0]
   const locked = !allows(win)

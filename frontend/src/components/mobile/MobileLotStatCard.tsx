@@ -49,10 +49,15 @@ export interface MobileLotStatCardProps {
   itemName: string
   iconPath?: string | null
   minProfitMarginPercent?: number
+  /** Кикер шапки. В «Избранном» его нет (заголовок даёт страница), в «Ленте» — «Лента · RU». */
+  kicker?: React.ReactNode
+  /** Источник «выгодных лотов»: watchlist-сигналы или /feed/lots (см. useLotStats). */
+  signalsSource?: 'watchlist' | 'feed'
 }
 
 export default function MobileLotStatCard({
   itemId, region, qualityFilter, enchantFilter, itemName, iconPath, minProfitMarginPercent = 0,
+  kicker, signalsSource = 'watchlist',
 }: MobileLotStatCardProps) {
   const [timeMode, setTimeMode] = useState<'week' | 'today'>('today')
   // Дефолт — «Неделя», как на десктопе: см. комментарий в LotStatCard
@@ -63,12 +68,15 @@ export default function MobileLotStatCard({
     stats, lots, loading, sellOptions, sellOptionsAreCurrent, trend, median24h,
     profitableLots, totalFilteredLots,
     cheapestBuy, riskKey, riskKey30, risk, risk30, sellOptionsLocked, risk30Locked, lastUpdated,
-  } = useLotStats({ itemId, region, qualityFilter, enchantFilter, minProfitMarginPercent, lotMode })
+  } = useLotStats({ itemId, region, qualityFilter, enchantFilter, minProfitMarginPercent, lotMode, signalsSource })
 
   // Завязка на сам массив сбрасывала бы выбор каждые 30с — он новый на каждом поллинге
   useEffect(() => { setSelectedLotIdx(0) }, [profitableLots.length, itemId])
 
-  const baseBuy = profitableLots[selectedLotIdx]?.buyPerUnit ?? cheapestBuy
+  // Лот-база «Вариантов продажи»: от него и цена покупки, и цены продажи
+  // (в «Ленте» приведены к размеру пачки — см. useLotStats)
+  const selectedLot = profitableLots[selectedLotIdx] ?? null
+  const baseBuy = selectedLot?.buyPerUnit ?? cheapestBuy
 
   const sellHour = timeMode === 'today'
     ? (stats?.sell_hours_by_day?.[TODAY_EN] ?? stats?.best_sell_hour)
@@ -110,6 +118,7 @@ export default function MobileLotStatCard({
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '12px', p: '12px 12px 10px' }}>
           <ItemIcon src={iconUrl(iconPath) ?? undefined} name={itemName} size={48} />
           <Box sx={{ flex: 1, minWidth: 0 }}>
+            {kicker && <Kick sx={{ display: 'block', mb: '3px' }}>{kicker}</Kick>}
             <Typography sx={{ fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f26, letterSpacing: '0.02em', lineHeight: 1.05 }}>
               {itemName}
               {enchantFilter != null && enchantFilter > 0 && (
@@ -268,6 +277,17 @@ export default function MobileLotStatCard({
                       {lotMode === 'current' && !sellOptionsAreCurrent && ' · нет свежего снапшота, цены за неделю'}
                     </Typography>
                   )}
+                  {selectedLot?.batchPricePct != null && (
+                    <Typography sx={{ fontSize: fs.f11, color: tokens.text2, mb: 1 }}>
+                      Цены — для пачки{' '}
+                      <Box component="span" className="mono" sx={{ color: tokens.text1 }}>×{fmtN(selectedLot.amount)}</Box>
+                      : сделки такими пачками идут на{' '}
+                      <Box component="span" className="mono" sx={{ color: tokens.text1 }}>
+                        {Math.abs(selectedLot.batchPricePct).toLocaleString('ru-RU')} %
+                      </Box>{' '}
+                      {selectedLot.batchPricePct > 0 ? 'дороже' : 'дешевле'} штучных. Те же цены — в списке выгодных лотов.
+                    </Typography>
+                  )}
                   {stats.reference_confidence === 'low' && stats.reference_samples != null && (
                     <Typography sx={{ fontSize: fs.f11, color: tokens.warning, mb: 1 }}>
                       Мало сделок ({fmtN(stats.reference_samples)}) — оценка приблизительная
@@ -275,7 +295,16 @@ export default function MobileLotStatCard({
                   )}
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: '1px', background: tokens.border, border: `1px solid ${tokens.border}` }}>
                     {sellOptions.map(opt => {
-                      const profit = baseBuy !== null ? opt.net_price_per_unit - baseBuy : null
+                      // Цены и прибыль — у выбранного лота (batch-фактор уже применён
+                      // в useLotStats, там же и число из списка выгодных лотов).
+                      // Лота нет → сырые опции, как раньше.
+                      const lotOpt = selectedLot?.profits.find(p => p.label === opt.label) ?? null
+                      const batchedNet = lotOpt?.netUnit ?? null
+                      const priceUnit = lotOpt?.priceUnit ?? opt.price_per_unit
+                      const netUnit   = batchedNet ?? opt.net_price_per_unit
+                      const profit = batchedNet !== null && lotOpt
+                        ? lotOpt.perUnit
+                        : baseBuy !== null ? opt.net_price_per_unit - baseBuy : null
                       const isProfitable = profit !== null && profit > 0
                       const dtSx = { fontSize: fs.f11, color: tokens.text2, whiteSpace: 'nowrap' } as const
                       const ddSx = { m: 0, fontFamily: tokens.fontMono, fontSize: fs.f125, fontVariantNumeric: 'tabular-nums', textAlign: 'right', color: tokens.text0, whiteSpace: 'nowrap' } as const
@@ -286,9 +315,9 @@ export default function MobileLotStatCard({
                           </Box>
                           <Box component="dl" sx={{ m: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '3px 10px' }}>
                             <Box component="dt" sx={dtSx}>выставить за</Box>
-                            <Box component="dd" sx={ddSx}>{fmtP(opt.price_per_unit)}</Box>
+                            <Box component="dd" sx={ddSx}>{fmtP(priceUnit)}</Box>
                             <Box component="dt" sx={dtSx}>получишь (−5 %)</Box>
-                            <Box component="dd" sx={ddSx}>{fmtP(opt.net_price_per_unit)}</Box>
+                            <Box component="dd" sx={ddSx}>{fmtP(netUnit)}</Box>
                             {profit !== null && (
                               <>
                                 <Box component="dt" sx={dtSx}>прибыль</Box>

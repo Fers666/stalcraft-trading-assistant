@@ -145,6 +145,15 @@ export interface SellPrice {
 export interface LotProfit {
   label: string
   label_ru: string
+  /**
+   * Цена выставления за штуку и она же за вычетом комиссии — ровно те, из
+   * которых получена `perUnit`. В «Ленте» это цены ПАЧКИ (batch-фактор уже
+   * применён), поэтому «Варианты продажи» показывают их, а не сырые опции:
+   * иначе два блока одной карточки отвечают по-разному на один вопрос.
+   * null — поправки нет (watchlist / фоллбек по /lots), показывать опции как есть.
+   */
+  priceUnit: number | null
+  netUnit: number | null
   perUnit: number
   total: number
 }
@@ -157,12 +166,59 @@ export interface ProfitableLot {
   buyPerUnit: number
   /** What-if по трём тирам от текущих sellPrices — считается на клиенте. */
   profits: LotProfit[]
+  /**
+   * Насколько цена пачки этого размера отличается от штучной, % (тот же
+   * batch-фактор бэкенда, второй раз он нигде не считается). null — поправки
+   * нет: amount = 1, нет статистики по пачкам или это не «Лента».
+   */
+  batchPricePct: number | null
   /** Оценка бэкенда (тир «быстро»). null — лот из фоллбека /lots, оценки нет. */
   profit: number | null
   profitPct: number | null
   tierUsed: string | null
   /** Цена продажи с нулевой прибылью после комиссии. */
   breakeven: number | null
+}
+
+/**
+ * Ответ /feed/lots → форма SignalsData.
+ *
+ * Единственная тонкость: SignalLot.profit — прибыль НА ЕДИНИЦУ (её возвращает
+ * pricing.evaluate_lot_profit), поэтому маппим profit_per_unit, а не
+ * profit_total: иначе карточка соврала бы кратно количеству в лоте.
+ */
+function feedToSignals(data: any): SignalsData | null {
+  if (!data || !Array.isArray(data.lots)) return null
+  const first = data.lots[0]
+  return {
+    lots: data.lots.map((l: any): SignalLot => ({
+      start_time:         l.lot_key,
+      buyout_per_unit:    l.buyout_per_unit,
+      buyout_price:       l.buyout_price,
+      amount:             l.amount,
+      quality_name:       l.quality_name ?? null,
+      enchant:            l.ptn ?? null,
+      profit:             l.profit_per_unit ?? null,
+      profit_pct:         l.profit_pct ?? null,
+      profit_per_hour:    l.profit_per_hour ?? null,
+      tier_used:          'fast',
+      sell_price_used:    l.sell_price_used ?? null,
+      breakeven_per_unit: l.breakeven_per_unit ?? null,
+    })),
+    // Поля уровня варианта одинаковы у всех строк — берём из первой.
+    sell_options:   null,
+    volume_7d:      null,
+    volatility_7d:  first?.volatility_7d ?? null,
+    ref:            first?.ref_price ?? null,
+    ref_source:     null,
+    ref_confidence: (first?.stats_confidence as 'high' | 'low' | undefined) ?? null,
+    ref_samples:    first?.stats_samples ?? null,
+    trend:          (first?.trend_24h as SignalsData['trend']) ?? null,
+    trend_pct:      first?.trend_24h_pct ?? null,
+    median_7d:      null,
+    risk:           first?.risk ?? null,
+    computed_at:    data.snapshot_at ?? null,
+  }
 }
 
 export interface UseLotStatsParams {
@@ -173,6 +229,16 @@ export interface UseLotStatsParams {
   minProfitMarginPercent?: number
   /** Режим цен продажи: текущие sell_options ('current') или от медианы 7д ('median'). */
   lotMode: 'current' | 'median'
+  /**
+   * Откуда брать «выгодные лоты».
+   *
+   * 'watchlist' (по умолчанию) — /monitoring/signals/{id}: ключ Redis содержит
+   * user_id и пишется только по активным записям «Избранного».
+   * 'feed' — /feed/lots: для «Ленты артефактов», где предмет у пользователя не
+   * отслеживается и watchlist-сигналы всегда пусты, из-за чего карточка ушла бы
+   * в деградированный клиентский фоллбек и разошлась бы с таблицей ленты.
+   */
+  signalsSource?: 'watchlist' | 'feed'
 }
 
 export interface UseLotStatsResult {
@@ -200,6 +266,7 @@ export interface UseLotStatsResult {
 
 export function useLotStats({
   itemId, region, qualityFilter, enchantFilter, minProfitMarginPercent = 0, lotMode,
+  signalsSource = 'watchlist',
 }: UseLotStatsParams): UseLotStatsResult {
   const [stats, setStats]     = useState<MarketStats | null>(null)
   const [lots, setLots]       = useState<LotItem[]>([])
@@ -216,14 +283,37 @@ export function useLotStats({
     if (qualityFilter !== null) params.quality_filter = qualityFilter
     if (enchantFilter !== null) params.enchant_filter = enchantFilter
 
+    const feedParams: Record<string, string | number> = { item_id: itemId, page_size: 100 }
+    if (qualityFilter !== null) feedParams.qlt = qualityFilter
+    if (enchantFilter !== null) feedParams.ptn = enchantFilter
+
+    // Статистика «Ленты» берётся из artifact_variant_stats (/feed/variant), а не
+    // из /monitoring/item: та ручка отдаёт 404 на предметах вне «Избранного»
+    // (её таблицы наполняет watchlist-коллектор) и считает по ПРЕДМЕТУ целиком,
+    // тогда как лента считает по ВАРИАНТУ «качество × заточка». Один источник
+    // на таблицу и карточку = совпадающие цифры по построению.
+    const statsRequest = () => (
+      signalsSource === 'feed'
+        ? api.get(`/feed/variant/${itemId}`, {
+            params: { region, qlt: qualityFilter ?? 0, ptn: enchantFilter ?? 0 },
+          }).catch(() => null)
+        : api.get(`/monitoring/item/${itemId}`, { params }).catch(() => null)
+    )
+
     const fetchData = () => Promise.all([
-      api.get(`/monitoring/item/${itemId}`, { params }).catch(() => null),
+      statsRequest(),
       api.get(`/lots/${itemId}`, { params }).catch(() => null),
-      api.get(`/monitoring/signals/${itemId}`, { params }).catch(() => null),
+      signalsSource === 'feed'
+        ? api.get('/feed/lots', { params: feedParams }).catch(() => null)
+        : api.get(`/monitoring/signals/${itemId}`, { params }).catch(() => null),
     ]).then(([statsRes, lotsRes, sigRes]) => {
       setStats(statsRes?.data ?? null)
       setLots(lotsRes?.data?.lots ?? [])
-      setSignals(sigRes?.data ?? null)
+      setSignals(
+        signalsSource === 'feed'
+          ? feedToSignals(sigRes?.data ?? null)
+          : (sigRes?.data ?? null),
+      )
       setLoading(false)
     })
 
@@ -232,7 +322,7 @@ export function useLotStats({
     // Сигналы пересчитываются на бэкенде каждые ~20 сек — синхронизируемся с этим циклом.
     const interval = setInterval(fetchData, 30_000)
     return () => clearInterval(interval)
-  }, [itemId, region, qualityFilter, enchantFilter])
+  }, [itemId, region, qualityFilter, enchantFilter, signalsSource])
 
   const lastUpdated = signals?.computed_at ?? stats?.calculated_at ?? null
 
@@ -278,28 +368,65 @@ export function useLotStats({
   const profitableLots = useMemo<ProfitableLot[]>(() => {
     if (signals?.lots?.length) {
       const opts = sellPrices ?? []
+      // Поправка на размер пачки. Бэкенд оценивал лот по цене sell_price_used,
+      // которая при amount > 1 отличается от тира «Быстро»
+      // (pricing.evaluate_lot_profit + batch_stats), — без неё строка таблицы и
+      // карточка расходились вплоть до смены знака. Множитель восстанавливаем
+      // из самой оценки, второй формулы не заводим.
+      // Только для «Ленты»: там stats и лоты приходят из ОДНОГО варианта
+      // (artifact_variant_stats), поэтому базы сопоставимы; у watchlist-сигналов
+      // опции карточки и оценка сигналов считаются на разных выборках.
+      const fastPrice = stats?.sell_options?.find(o => o.label === 'fast')?.price_per_unit ?? null
+      const isFeed = signalsSource === 'feed'
+
       // Бэкенд уже отобрал лоты по min_profit_margin_pct × риск-множитель от тира
       // «быстро» — это строго жёстче клиентского порога, повторно не фильтруем.
       // Порядок бэкенда (profit_per_hour desc) значим: режем ДО пересортировки,
       // иначе из выдачи вылетают самые прибыльные лоты.
       return signals.lots
         .slice(0, MAX_PROFITABLE_LOTS)
-        .map(l => ({
-          buyout_price: l.buyout_price,
-          amount: l.amount,
-          quality_name: l.quality_name,
-          enchant_level: l.enchant ?? null,
-          buyPerUnit: l.buyout_per_unit,
-          profits: opts.map(sp => ({
-            label: sp.label, label_ru: sp.label_ru,
-            perUnit: Math.round(sp.price * (1 - COMMISSION) - l.buyout_per_unit),
-            total: Math.round((sp.price * (1 - COMMISSION) - l.buyout_per_unit) * l.amount),
-          })),
-          profit: l.profit ?? null,
-          profitPct: l.profit_pct ?? null,
-          tierUsed: l.tier_used ?? null,
-          breakeven: l.breakeven_per_unit ?? null,
-        }))
+        .map(l => {
+          const factor = isFeed && fastPrice && l.sell_price_used
+            ? l.sell_price_used / fastPrice
+            : 1
+          // Отклонение цены пачки от штучной для подписи в UI — то же число,
+          // формулы не прибавилось. Меньше 0.1% — округлилось бы в «0 %».
+          const pct = Math.round((factor - 1) * 1000) / 10
+          return {
+            buyout_price: l.buyout_price,
+            amount: l.amount,
+            quality_name: l.quality_name,
+            enchant_level: l.enchant ?? null,
+            buyPerUnit: l.buyout_per_unit,
+            profits: opts.map(sp => {
+              const net = sp.price * factor * (1 - COMMISSION) - l.buyout_per_unit
+              // Тир, по которому лот оценил САМ бэкенд, показываем его числом:
+              // клиентское округление иначе даёт расхождение со строкой ленты
+              // на единицы рублей на ровном месте. Только в «Неделе»: оценка
+              // бэкенда считана от опорной цены 7д, рядом с ценами «Сейчас» она
+              // дала бы «получишь» выше цены выставления и плюс там, где what-if
+              // от текущего минимума в минусе.
+              const fromBackend = isFeed && lotMode === 'median' && sp.label === l.tier_used && l.profit != null
+              const perUnit = fromBackend ? (l.profit as number) : Math.round(net)
+              return {
+                label: sp.label, label_ru: sp.label_ru,
+                // Цены, из которых получена perUnit. «Получишь» восстанавливаем из
+                // самой прибыли (perUnit + цена покупки): тогда в «Вариантах продажи»
+                // «получишь − цена покупки» даёт ровно показанную прибыль, включая
+                // тир, посчитанный бэкендом.
+                priceUnit: isFeed ? Math.round(sp.price * factor) : null,
+                netUnit:   isFeed ? perUnit + l.buyout_per_unit : null,
+                perUnit,
+                total: fromBackend ? perUnit * l.amount : Math.round(net * l.amount),
+              }
+            }),
+            batchPricePct: isFeed && Math.abs(pct) >= 0.1 ? pct : null,
+            profit: l.profit ?? null,
+            profitPct: l.profit_pct ?? null,
+            tierUsed: l.tier_used ?? null,
+            breakeven: l.breakeven_per_unit ?? null,
+          }
+        })
         .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
     }
     if (!sellPrices || lots.length === 0) return []
@@ -322,9 +449,13 @@ export function useLotStats({
           buyPerUnit,
           profits: sellPrices.map(sp => ({
             label: sp.label, label_ru: sp.label_ru,
+            // Поправки на пачку нет — «Варианты продажи» показывают сырые опции
+            priceUnit: null,
+            netUnit:   null,
             perUnit:  Math.round(sp.price * (1 - COMMISSION) - buyPerUnit),
             total:    Math.round((sp.price * (1 - COMMISSION) - buyPerUnit) * l.amount),
           })),
+          batchPricePct: null,
           // Фоллбек по /lots: оценки бэкенда нет, есть только клиентский what-if
           profit: null,
           profitPct: null,
@@ -343,7 +474,10 @@ export function useLotStats({
       })
       .sort((a, b) => a.buyPerUnit - b.buyPerUnit)
       .slice(0, MAX_PROFITABLE_LOTS)
-  }, [signals, sellPrices, lots, qualityFilter, enchantFilter, minProfitMarginPercent])
+  }, [
+    signals, sellPrices, stats?.sell_options, signalsSource, lotMode,
+    lots, qualityFilter, enchantFilter, minProfitMarginPercent,
+  ])
 
   const totalFilteredLots = useMemo(() => lots.filter(l => {
     if (l.is_expiring) return false
