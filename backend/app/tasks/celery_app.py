@@ -23,14 +23,25 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="Europe/Moscow",
     enable_utc=True,
-    worker_concurrency=2,
+    # 3 при 4 ядрах: четвёртое оставлено postgres и backend. При concurrency=2
+    # потолок задавали слоты, а не ядра — добавление ядер на сервер не давало
+    # ничего, оба слота были заняты постоянно (замер 2026-08-06: очередь
+    # collector 2330 задач и растёт).
+    worker_concurrency=3,
     task_routes={"app.tasks.*": {"queue": "collector"}},
     beat_schedule={
         # Сбор активных лотов: каждые 20 сек, динамический батч под TARGET_CYCLE_SEC (60с).
         # Сортировка по last_successful_check ASC — самые устаревшие идут первыми.
+        #
+        # expires = такт расписания: прогон идёт 22–38с при такте 20с, и без
+        # срока годности неуспевшие тики копились в очереди бесконечно (лаг рос
+        # часами, предмет обновлялся раз в ~140с вместо 60с). Просроченный тик
+        # бессмысленен — следующий соберёт те же предметы по свежему
+        # last_successful_check, поэтому его выбрасываем, а не выполняем.
         "collect-active-lots": {
             "task": "app.tasks.collectors.collect_all_active_lots",
             "schedule": timedelta(seconds=20),
+            "options": {"expires": 20},
         },
         # Сбор истории раз в час
         "collect-history-and-stats": {
@@ -76,9 +87,15 @@ celery_app.conf.update(
         # предохранителя (FEED_WINDOW_* в feed_collector.py) — джиттера в 10 с
         # не хватало, чтобы развести ленту с одиннадцатиминутным всплеском
         # истории, и верхушка каждого часа давала 429.
+        # expires чуть меньше такта: цикл занимает 58–73с при такте 60с, так что
+        # неуспевший тик обязан умереть — иначе лента вытесняет watchlist из
+        # очереди и сама выполняется не в ту минуту, на которую планировалась
+        # (замер 2026-08-06: 11 циклов подряд отменены предохранителем «окно
+        # истории», units=0).
         "collect-artifact-lots": {
             "task": "app.tasks.feed_collector.collect_artifact_lots",
             "schedule": crontab(minute="*"),
+            "options": {"expires": 55},
         },
         # История продаж по всем артефактам (опора расчёта прибыли) — раз в час
         # на :15 (окно :00–:11 занято collect_all_history, слот :14 —
@@ -104,6 +121,7 @@ celery_app.conf.update(
         "collect-emission": {
             "task": "app.tasks.collectors.collect_emission",
             "schedule": timedelta(seconds=120),
+            "options": {"expires": 110},
         },
     },
 )
