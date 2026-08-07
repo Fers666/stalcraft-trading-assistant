@@ -245,7 +245,21 @@ export default function FeedPage() {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   }, [data])
 
-  const openLots = (lot: FeedLot) => navigate(`/app/lots?item=${encodeURIComponent(lot.item_id)}`)
+  // Через navigation state, а не через query: страница лотов инициализируется
+  // только из location.state (LotsPage / MobileLotsPage), query-параметры она не
+  // читает — по `?item=` открывалась пустая страница. Контракт тот же, что у
+  // «Радара рынка», плюс качество и заточку варианта из строки ленты.
+  const openLots = (lot: FeedLot) => navigate('/app/lots', {
+    state: {
+      item_id: lot.item_id,
+      name_ru: lot.name_ru,
+      name_en: lot.name_en,
+      icon_path: lot.icon_path,
+      region: lot.region,
+      quality_filter: lot.qlt,
+      enchant_filter: lot.ptn,
+    },
+  })
 
   const onRowClick = (lot: FeedLot) => {
     // В витрине строка ведёт на CTA тарифа, а не в карточку.

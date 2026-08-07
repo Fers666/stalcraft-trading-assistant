@@ -83,6 +83,10 @@ export default function LotStatCard({
   const [lotMode, setLotMode]   = useState<'current' | 'median'>('median')
   const [sortState, setSortState] = useState<{ col: string; dir: 'asc' | 'desc' }>({ col: 'price', dir: 'asc' })
   const [selectedLotIdx, setSelectedLotIdx] = useState(0)
+  // Медиана окна, выбранного в «Динамике цен». Крупное число шапки читает её,
+  // а не median_price_7d: у редко торгуемого варианта в 7д попадает одна сделка,
+  // и «медиана» показывала её цену — она же максимум месяца.
+  const [winMedian, setWinMedian] = useState<{ value: number; label: string } | null>(null)
 
   // Единый дата-слой карточки (десктоп и мобайл делят useLotStats → идентичный расчёт)
   const {
@@ -124,9 +128,16 @@ export default function LotStatCard({
   const selectedLot = profitableLots[selectedLotIdx] ?? null
   const baseBuy = selectedLot?.buyPerUnit ?? cheapestBuy
 
+  // Тренд остаётся сравнением 24ч против 7д — он про свежесть рынка, а не про
+  // выбранное окно графика, поэтому от winMedian не зависит.
   const trendBadge = (
     <TrendBadge trend={trend} median7d={stats?.median_price_7d} median24h={median24h} />
   )
+
+  // Пока окно не отдало медиану (закрыто тарифом или сделок в нём нет) —
+  // прежняя медиана 7д, чтобы шапка не осталась без числа.
+  const headMedian = winMedian?.value ?? stats?.median_price_7d ?? null
+  const headMedianLabel = winMedian?.label ?? '7д'
 
   const sellHour = timeMode === 'today'
     ? (stats?.sell_hours_by_day?.[TODAY_EN] ?? stats?.best_sell_hour)
@@ -247,11 +258,11 @@ export default function LotStatCard({
               )}
             </Box>
           )}
-          {stats?.median_price_7d != null && (
+          {headMedian != null && (
             <>
-              <Kick>Медиана 7Д</Kick>
+              <Kick>Медиана {headMedianLabel}</Kick>
               <Box className="mono" sx={{ fontSize: fs.f28, fontWeight: 700, lineHeight: 1.05, color: tokens.goldHighlight, textShadow: `0 0 22px ${tokens.goldGlow}`, whiteSpace: 'nowrap' }}>
-                {fmtP(stats.median_price_7d)}
+                {fmtP(headMedian)}
               </Box>
               {trendBadge}
             </>
@@ -407,6 +418,7 @@ export default function LotStatCard({
               enchantFilter={enchantFilter}
               median={stats.median_price_7d ?? undefined}
               median24h={median24h ?? undefined}
+              onWindowMedian={setWinMedian}
             />
           </Box>
 

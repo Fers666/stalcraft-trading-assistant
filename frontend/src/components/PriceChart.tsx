@@ -29,6 +29,8 @@ interface SalesChartResponse {
   sales: SaleRecord[]
   days: DayPoint[]
   total_count: number
+  /** Медиана сделок этого окна (считает бэкенд). null — сделок в окне нет. */
+  median: number | null
 }
 
 interface Props {
@@ -38,10 +40,16 @@ interface Props {
   enchantFilter?: number | null
   defaultHours?: number
   hideControls?: boolean
-  /** Медиана 7д для линии-ориентира. Если не задана — берётся медиана окна. */
+  /** Резерв для линии-ориентира (медиана 7д), пока окно не отдало свою медиану. */
   median?: number
   /** Медиана сделок за 24ч — вторая линия. Без данных линия не рисуется. */
   median24h?: number
+  /**
+   * Медиана показанного окна — наверх, в шапку карточки: крупное число и его
+   * кикер должны совпадать с золотой линией на графике, иначе карточка
+   * утверждает две разные «медианы» одновременно.
+   */
+  onWindowMedian?: (median: { value: number; label: string } | null) => void
 }
 
 const HOURS_OPTIONS = [
@@ -85,7 +93,7 @@ const axisTick = { fontSize: 11, fill: tokens.text2, fontFamily: tokens.fontMono
 
 export default function PriceChart({
   itemId, region, qualityFilter, enchantFilter, defaultHours = 48, hideControls = false,
-  median, median24h,
+  median, median24h, onWindowMedian,
 }: Props) {
   const [resp, setResp]       = useState<SalesChartResponse | null>(null)
   const [hours, setHours]     = useState(defaultHours)
@@ -143,11 +151,22 @@ export default function PriceChart({
   const mode = resp?.mode ?? 'scatter'
   const isEmpty = !resp || (mode === 'scatter' ? resp.sales.length === 0 : resp.days.length === 0)
 
-  // Медиана-ориентир: из пропа (median_price_7d) либо медиана окна
-  const windowMedian = mode === 'scatter'
+  // Медиана-ориентир: медиана сделок ЭТОГО окна с бэкенда. Локальный расчёт
+  // остаётся страховкой на случай старого ответа без поля: в daily-режиме он
+  // считает медиану дневных средних, что не то же самое (день с десятью
+  // сделками весит там столько же, сколько день с одной).
+  const localMedian = mode === 'scatter'
     ? medianOf(scatterData.map(d => d.y))
     : medianOf(dailyData.map(d => d.avg ?? 0))
-  const med = median && median > 0 ? median : windowMedian
+  const apiMedian = resp?.median && resp.median > 0 ? resp.median : 0
+  const med = apiMedian || (median && median > 0 ? median : localMedian)
+  // Подпись честная: окно своё только у медианы окна, у резерва — всегда 7д.
+  const medLabel = apiMedian ? periodLabel : '7д'
+
+  useEffect(() => {
+    onWindowMedian?.(apiMedian ? { value: apiMedian, label: periodLabel } : null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiMedian, periodLabel])
   // Фоллбека на медиану окна нет: линия «24ч» либо есть по реальным данным, либо её нет.
   const med24 = median24h && median24h > 0 ? median24h : 0
   // Точки красим относительно свежего уровня рынка: на падающем рынке всё
@@ -194,7 +213,7 @@ export default function PriceChart({
       strokeOpacity={0.8}
       ifOverflow="extendDomain"
       label={{
-        value: `медиана ${fmtCompact(med)}`,
+        value: `медиана ${medLabel} ${fmtCompact(med)}`,
         position: 'insideTopRight',
         fill: tokens.goldAccent,
         fontSize: 10,

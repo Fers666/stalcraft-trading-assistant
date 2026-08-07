@@ -152,7 +152,19 @@ export default function MobileFeedPage() {
     [data],
   )
 
-  const openLots = (lot: FeedLot) => navigate(`/app/lots?item=${encodeURIComponent(lot.item_id)}`)
+  // navigation state, а не query: MobileLotsPage читает только location.state
+  // (по `?item=` страница открывалась пустой). См. FeedPage.openLots.
+  const openLots = (lot: FeedLot) => navigate('/app/lots', {
+    state: {
+      item_id: lot.item_id,
+      name_ru: lot.name_ru,
+      name_en: lot.name_en,
+      icon_path: lot.icon_path,
+      region: lot.region,
+      quality_filter: lot.qlt,
+      enchant_filter: lot.ptn,
+    },
+  })
 
   const openCard = (lot: FeedLot) => {
     // В витрине карточка не открывается — строка ведёт на CTA тарифа.

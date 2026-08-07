@@ -484,6 +484,12 @@ class SalesChartResponse(BaseModel):
     sales: list[SaleRecord] = []
     days: list[DayPoint] = []
     total_count: int
+    # Медиана цен сделок ЗА ЭТО ОКНО. Карточка рисует линию-ориентир и крупное
+    # число шапки от неё, а не от median_price_7d: у редко торгуемого варианта
+    # в 7д попадает одна сделка, и «медиана» превращалась в её цену (она же
+    # максимум месяца). В daily-режиме окно отдаётся агрегатами по дням, из
+    # которых настоящую медиану сделок не восстановить — поэтому считаем в SQL.
+    median: int | None = None
 
 
 @router.get("/sales-chart/{item_id}", response_model=SalesChartResponse)
@@ -519,7 +525,11 @@ async def get_sales_chart(
             SaleRecord(sale_time=r.sale_time.isoformat(), price_per_unit=r.price_per_unit, amount=r.amount)
             for r in rows
         ]
-        return SalesChartResponse(mode="scatter", sales=sales, total_count=len(sales))
+        # Строки уже в памяти — доп. запрос ради медианы не нужен.
+        median = int(_statistics.median([r.price_per_unit for r in rows])) if rows else None
+        return SalesChartResponse(
+            mode="scatter", sales=sales, total_count=len(sales), median=median,
+        )
 
     else:
         trunc_expr = func.date_trunc('day', SalesHistory.sale_time)
@@ -550,7 +560,23 @@ async def get_sales_chart(
             )
             for r in rows
         ]
-        return SalesChartResponse(mode="daily", days=days, total_count=sum(d.count for d in days))
+        # Медиана считается по САМИМ сделкам окна, а не по дневным средним:
+        # день с десятью сделками иначе весил бы столько же, сколько день с одной.
+        median_row = (await db.execute(
+            select(func.percentile_cont(0.5).within_group(SalesHistory.price_per_unit.asc()))
+            .where(
+                SalesHistory.item_id == item_id,
+                SalesHistory.region  == region.upper(),
+                SalesHistory.sale_time >= cutoff,
+                *extra_conds,
+            )
+        )).scalar()
+        return SalesChartResponse(
+            mode="daily",
+            days=days,
+            total_count=sum(d.count for d in days),
+            median=int(median_row) if median_row is not None else None,
+        )
 
 
 class SignalLot(BaseModel):

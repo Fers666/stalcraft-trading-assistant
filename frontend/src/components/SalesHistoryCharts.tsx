@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Box, ToggleButtonGroup, ToggleButton, Tooltip } from '@mui/material'
 import PriceChart from './PriceChart'
@@ -13,10 +13,12 @@ interface Props {
   region: string
   qualityFilter?: number | null
   enchantFilter?: number | null
-  /** Медиана 7д — линия-ориентир на графике. */
+  /** Резерв для линии-ориентира (медиана 7д), пока окно не отдало свою медиану. */
   median?: number
   /** Медиана сделок за 24ч — вторая линия, свежий уровень рынка. */
   median24h?: number
+  /** Медиана активного окна — наверх, в шапку карточки. */
+  onWindowMedian?: (median: { value: number; label: string } | null) => void
 }
 
 type WindowKey = '24h' | '48h' | '7d' | '30d'
@@ -28,7 +30,7 @@ const WINDOWS: { key: WindowKey; label: string; hours: number; tier?: string }[]
   { key: '30d', label: '30Д', hours: 720, tier: 'Макс' },
 ]
 
-export default function SalesHistoryCharts({ itemId, region, qualityFilter, enchantFilter, median, median24h }: Props) {
+export default function SalesHistoryCharts({ itemId, region, qualityFilter, enchantFilter, median, median24h, onWindowMedian }: Props) {
   const navigate = useNavigate()
   const statsWindows = useAuthStore(s => s.user?.stats_windows)
 
@@ -43,6 +45,13 @@ export default function SalesHistoryCharts({ itemId, region, qualityFilter, ench
 
   const current = WINDOWS.find(w => w.key === win) ?? WINDOWS[0]
   const locked = !allows(win)
+
+  // Закрытое тарифом окно данных не грузит — шапке нечего показывать от него,
+  // и она возвращается к резервной медиане 7д.
+  useEffect(() => {
+    if (locked) onWindowMedian?.(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locked, win])
 
   return (
     <Box>
@@ -99,6 +108,7 @@ export default function SalesHistoryCharts({ itemId, region, qualityFilter, ench
           defaultHours={current.hours}
           median={median}
           median24h={median24h}
+          onWindowMedian={onWindowMedian}
           hideControls
         />
       )}

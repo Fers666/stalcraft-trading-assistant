@@ -63,6 +63,9 @@ export default function MobileLotStatCard({
   // Дефолт — «Неделя», как на десктопе: см. комментарий в LotStatCard
   const [lotMode, setLotMode]   = useState<'current' | 'median'>('median')
   const [selectedLotIdx, setSelectedLotIdx] = useState(0)
+  // Медиана окна «Динамики цен» — см. LotStatCard: крупное число обязано
+  // совпадать с золотой линией графика.
+  const [winMedian, setWinMedian] = useState<{ value: number; label: string } | null>(null)
 
   const {
     stats, lots, loading, sellOptions, sellOptionsAreCurrent, trend, median24h,
@@ -77,6 +80,11 @@ export default function MobileLotStatCard({
   // (в «Ленте» приведены к размеру пачки — см. useLotStats)
   const selectedLot = profitableLots[selectedLotIdx] ?? null
   const baseBuy = selectedLot?.buyPerUnit ?? cheapestBuy
+
+  // Резерв — прежняя медиана 7д, пока окно не отдало свою (закрыто тарифом
+  // либо сделок в нём нет).
+  const headMedian = winMedian?.value ?? stats?.median_price_7d ?? null
+  const headMedianLabel = winMedian?.label ?? '7д'
 
   const sellHour = timeMode === 'today'
     ? (stats?.sell_hours_by_day?.[TODAY_EN] ?? stats?.best_sell_hour)
@@ -145,14 +153,14 @@ export default function MobileLotStatCard({
         </Box>
 
         {/* медиана-пик (единственный goldHighlight) */}
-        {stats?.median_price_7d != null && (
+        {headMedian != null && (
           <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '10px', m: '0 12px 12px', p: '10px 12px', background: tokens.bg2, border: `1px solid ${tokens.border}` }}>
             <Box>
-              <Kick>Медиана 7Д</Kick>
-              <TrendBadge trend={trend} median7d={stats.median_price_7d} median24h={median24h} />
+              <Kick>Медиана {headMedianLabel}</Kick>
+              <TrendBadge trend={trend} median7d={stats?.median_price_7d} median24h={median24h} />
             </Box>
             <Box className="mono" sx={{ fontSize: fs.f28, fontWeight: 700, lineHeight: 1.05, color: tokens.goldHighlight, textShadow: `0 0 22px ${tokens.goldGlow}`, whiteSpace: 'nowrap' }}>
-              {fmtP(stats.median_price_7d)}
+              {fmtP(headMedian)}
             </Box>
           </Box>
         )}
@@ -253,6 +261,7 @@ export default function MobileLotStatCard({
               enchantFilter={enchantFilter}
               median={stats.median_price_7d ?? undefined}
               median24h={median24h ?? undefined}
+              onWindowMedian={setWinMedian}
             />
           </Box>
 
