@@ -14,8 +14,9 @@
 | `sweep_expired_tiers` | ежедневно 03:30 | `app.tasks.tiers` | Понижение до `base` пользователей с истёкшим `tier_expires_at` + деактивация лишних карточек watchlist сверх нового лимита |
 | `collect_emission` | каждые 2 мин | `app.tasks.collectors` | Опрос `GET /RU/emission`, детект start/end выброса, Redis-дедупликация (`emission:current_fingerprint`), запись событий в `emission_events` (старт → `notified=False`; конец → `ended_at`; seed первого запуска → `notified=True, end_notified=True`). С 2026-07-08 worker сам НЕ рассылает Telegram — рассылку делает `telegram_bot::notify_emission_events` (см. раздел Telegram) |
 | `audit_auction_status` | — (только вручную, beat НЕТ) | `app.tasks.audit` | Разовый бэкфилл `master_items.on_auction` — реальная торгуемость через Stalcraft API. Запуск через `POST /admin/audit-auction-status` (см. ниже) после обновления каталога |
-| `collect_artifact_lots` | `crontab(minute="*")` + джиттер старта до 10 с | `app.tasks.feed_collector` | «Лента артефактов»: обход всех артефактов каталога (`category LIKE 'artefact%' AND on_auction IS NOT FALSE`, ~103 предмета) с **полной** пагинацией `/lots` по `data["total"]`, скоринг и перезапись `feed_lots`. Бюджет `FEED_BUDGET_UNITS_PER_MIN=200` ед/прогон, Redis-лок `feed:scan:lock` (NX EX 300) против наложения, резумируемый курсор, два темпа «горячие/холодные». Расписание по **стенным часам**, а не `timedelta(60)`: у `timedelta` фаза привязана к старту beat, и при рестарте контейнеров цикл ленты выпускался в ту же секунду, что watchlist-тик и `collect_emission` (реальные 429 при среднем расходе ~42 % лимита) |
+| `collect_artifact_lots` | `crontab(minute="*")` + джиттер старта до 10 с | `app.tasks.feed_collector` | «Лента артефактов»: обход всех артефактов каталога (`category LIKE 'artefact%' AND on_auction IS NOT FALSE`, ~103 предмета) с **полной** пагинацией `/lots` по `data["total"]`, скоринг и перезапись `feed_lots` + апсерт наблюдений в `lot_observations` (все лоты среза, не только выгодные). Бюджет `FEED_BUDGET_UNITS_PER_MIN=200` ед/прогон, Redis-лок `feed:scan:lock` (NX EX 300) против наложения, резумируемый курсор, два темпа «горячие/холодные». Расписание по **стенным часам**, а не `timedelta(60)`: у `timedelta` фаза привязана к старту beat, и при рестарте контейнеров цикл ленты выпускался в ту же секунду, что watchlist-тик и `collect_emission` (реальные 429 при среднем расходе ~42 % лимита) |
 | `collect_artifact_history` | раз в час (мин. 15) + джиттер до 30 с | `app.tasks.feed_collector` | История продаж по всем артефактам — опора расчёта прибыли ленты. Пишет `sales_history` с `user_id = NULL`. ~3.4 ед/мин в часовом среднем. Минута :15 выбрана вне окна `collect_all_history` (:00–:11); обход растянут паузой `HISTORY_ITEM_DELAY = 2.0` с между предметами примерно на 4 минуты (~52 ед/мин вместо 206 ед за одну минуту) |
+| `resolve_lot_observations` | `crontab(minute="13,28,43,58")` | `app.tasks.feed_collector` | Закрывает наблюдения за исчезнувшими лотами: `sold` / `expired` / `withdrawn`. К внешнему API **не обращается** — читает только `lot_observations` и `sales_history`. Строка берётся не раньше чем через `LOT_OBS_RESOLVE_DELAY_HOURS = 2` после `last_seen_at`: история артефактов приезжает раз в час, на свежих строках сделки в `sales_history` ещё нет и резолвер пометил бы их `withdrawn`. Порция — `LOT_OBS_RESOLVE_BATCH = 5000`. Минуты выбраны вне окна `collect_all_history` (:00–:11) и вне слотов `calculate_market_stats_batch` / `calculate_artifact_variant_stats` / `collect_artifact_history` |
 | `calculate_artifact_variant_stats` | :14, :24, :34, :44, :54 | `app.tasks.feed_collector` (сервис — `app.services.analytics.variant_stats`) | Пересчёт `artifact_variant_stats` (вариант = предмет × qlt × ptn) по продажам за 30 д. Шаг 10 мин вне окна `collect_all_history` и вне слотов `calculate_market_stats_batch` — чтобы не воспроизвести CPU-плато (`docs/tasks/cpu-spikes-recurring-2026-07-06.md`) |
 
 ### Логика дедупликации watchlist
@@ -271,6 +272,11 @@ OAuth2 Client Credentials flow для Stalcraft API.
 оговорки — `docs/BUSINESS_LOGIC.md` §4). Ветка этого модуля свои множители больше не
 держит: `tier_prices` + `FILL_PROBABILITY` импортируются из `pricing`.
 
+⚠ **Имя поля историческое: это не вероятность продажи лота** (поправка 2026-08-16) — величина
+посчитана по ценам **состоявшихся** сделок и о непроданных лотах не знает ничего. Подпись в
+UI — «сделок дороже». Вероятность исполнения даст только кривая дожития по
+`lot_observations` (P1-4, фаза B).
+
 `net_price_per_unit = price × 0.95` — цена после комиссии аукциона 5% (показывается рядом с ценой выставления).
 
 **Лучший час/день продажи** (best_sell_hour / best_sell_day):  
@@ -492,7 +498,7 @@ DIRECT-exchange `push.events` (fan-out по routing_key `push`): `push.notificat
 > Лента — отдельный раздел, мониторинг ведётся с портала. Полоса сигналов вернулась к
 > прежнему поведению: только «Избранное».
 
-### app/tasks/feed_collector.py — три Celery-задачи
+### app/tasks/feed_collector.py — четыре Celery-задачи
 
 **`collect_artifact_lots`** (beat `crontab(minute="*")`) — обход артефактов и перезапись
 `feed_lots`.
@@ -566,6 +572,61 @@ FEED_ITEM_PARK_TTL        = 900   # на сколько припаркованн
 
 **`calculate_artifact_variant_stats`** (beat :14,:24,:34,:44,:54) — тонкая Celery-обёртка над
 `services/analytics/variant_stats.py`.
+
+**`resolve_lot_observations`** (beat :13,:28,:43,:58) — резолвер исходов наблюдений, см.
+подраздел ниже.
+
+#### Наблюдения за лотами (`lot_observations`, P1-4 фаза A)
+
+Сбор идёт **в том же проходе**, что скоринг ленты, и внешний API не трогает вовсе.
+
+```python
+LOT_OBS_UPSERT_CHUNK             = 500   # как UPSERT_CHUNK в variant_stats.py
+LOT_OBS_RESOLVE_DELAY_HOURS      = 2     # отставание резолвера от last_seen_at
+LOT_OBS_RESOLVE_BATCH            = 5000  # строк за один прогон резолвера
+LOT_OBS_EXPIRE_TOLERANCE_MINUTES = 30    # допуск к end_time при разборе expired
+LOT_OBS_RETENTION_DAYS           = 30    # удаление закрытых строк в delete_old_data
+```
+
+- **`observation_rows(item_id, region, lots, variants, seen_at)`** — строки по **всем** лотам
+  среза, а не по выгодным: кривая дожития, построенная только по прибыльным (то есть дешёвым)
+  лотам, систематически завысит вероятность продажи. Не фильтруются и неликвидные (< 2 ч до
+  конца) — это как раз тот случай, ради которого различаются `expired` и `withdrawn`.
+  Пропускаются только лоты без `buyoutPrice` / `amount` / `startTime` — по ним нечего наблюдать.
+- **`variant_queues(lots, now)`** — очередь по цене внутри каждого варианта `(qlt, ptn)` за один
+  проход по срезу: `queue_rank` = 1 + число живых лотов **строго** дешевле, `cheaper_units` =
+  Σ `amount` тех же лотов, `variant_live_lots` — знаменатель. Ранг **соревновательный**: у лотов
+  с одинаковой ценой он один и тот же, иначе порядок внутри группы пришлось бы доопределять
+  произвольно и одно и то же состояние рынка давало бы разные числа. «Живой» = ликвидный по
+  общему `_is_liquid` (≥ 2 ч до конца): лот в последние два часа очередь покупателю не создаёт,
+  у него все три поля `NULL`, а не 0. Стоимость — ~1 мс на предмет с 1160 лотами.
+- **`upsert_lot_observations`** — апсерт по `(item_id, region, lot_key)` чанками; обновляется по
+  сути только `last_seen_at` (`observation_update_columns`). Заморожены `first_seen_at`,
+  `ref_price_at_seen`, состояние стакана и поля исхода: это снимок условий, в которых лот был
+  выставлен.
+
+**Резолвер `_resolve_observations`** берёт строки `outcome IS NULL AND last_seen_at <
+resolve_cutoff(now)` по `ix_lot_obs_pending`, одним запросом поднимает сделки всей порции и
+раскладывает их по варианту (`variant_key`), затем:
+
+- **`classify_outcome(obs, sales, used_sale_ids)`** → `(исход, id сделки)`. Сделка
+  **расходуется**: берётся самая ранняя подходящая из ещё не занятых. Раньше искалась любая
+  подходящая и не расходовалась — одна продажа помечала `sold` **все** неразличимые наблюдения
+  варианта (та же цена лота и количество). Совпадение сделки — `sale_matches`: `total_price ==
+  buyout_price`, `amount == amount`, `sale_time ∈ [first_seen_at, last_seen_at + 2 ч]`.
+- **`resolve_batch(rows, sales_by_variant, used_sale_ids)`** — раздача **детерминирована** и не
+  зависит от плана запроса: наблюдения перебираются от старейшего (`first_seen_at`, затем `id`),
+  сделки внутри варианта — от ранней (`sale_time`, затем `id`). `used_sale_ids` на входе —
+  сделки, израсходованные прошлыми прогонами (поднимаются диапазоном `matched_sale_id` по
+  частичному уникальному индексу, без раздувания списка параметров). Без фиксированного порядка
+  тот же набор строк давал бы разные исходы от прогона к прогону.
+- Запись: `sold` — bulk UPDATE по первичному ключу (у каждой строки свой `matched_sale_id`),
+  `expired` / `withdrawn` — по спискам id. Лог прогона — распределение исходов.
+
+**Что дал переход на расход сделок (прод, 2026-08-16):** 3198 недостоверных меток сброшены и
+переклассифицированы, итоговое распределение `sold` **73.2 %** / `withdrawn` **16.3 %** /
+`expired` **10.4 %** против 77.9 / 14.7 / 7.4 со сломанным матчем. Смысл — в
+`docs/BUSINESS_LOGIC.md` §19.
 
 **Redis-ключи ленты:** `feed:scan:lock` (лок цикла, NX EX 300), `feed:scan:last:{item_id}`
 (ISO-время последнего успешного обхода, TTL 24 ч; у припаркованного предмета — метка из
