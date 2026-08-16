@@ -456,6 +456,52 @@ def score_item_lots(
     return rows
 
 
+def variant_queues(
+    lots: list[dict], now: datetime,
+) -> dict[tuple[int, int], tuple[dict[int, tuple[int, int]], int]]:
+    """
+    Очередь по цене внутри каждого варианта: (qlt, ptn) -> (карта цены, живых лотов).
+
+    Карта цены: buyout_per_unit -> (queue_rank, cheaper_units), где rank = 1 +
+    число живых лотов СТРОГО дешевле, а cheaper_units = Σ amount тех же строго
+    дешёвых лотов. Ранг «соревновательный»: у лотов с одинаковой ценой он один
+    и тот же — иначе порядок внутри группы пришлось бы доопределять чем-то
+    произвольным, и одно и то же состояние рынка давало бы разные числа.
+
+    Очередь считается ПО ВАРИАНТУ (item_id, qlt, ptn), не по предмету: качество
+    и заточка — главный ценообразующий признак, и агрегат по предмету смешивает
+    разные товары.
+
+    Живой = ликвидный по общему критерию (_is_liquid, >= 2 ч до конца): лот в
+    последние два часа аукциона очередь покупателю не создаёт.
+    """
+    from app.services.analytics.pricing import _is_liquid, _lot_quality_enchant
+
+    live: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for lot in lots:
+        amount = lot.get("amount", 1) or 0
+        buyout = lot.get("buyoutPrice", 0) or 0
+        if buyout <= 0 or amount <= 0 or not _is_liquid(lot, now):
+            continue
+        # master не нужен: у артефактов qlt/ptn берутся из lot["additional"]
+        variant = _lot_quality_enchant(lot, None, True)
+        live.setdefault(variant, []).append((buyout // amount, amount))
+
+    queues: dict[tuple[int, int], tuple[dict[int, tuple[int, int]], int]] = {}
+    for variant, entries in live.items():
+        entries.sort()
+        ranks: dict[int, tuple[int, int]] = {}
+        cheaper_lots = cheaper_units = 0
+        for price, amount in entries:
+            # Первая встреча цены — все просмотренные лоты строго дешевле неё.
+            if price not in ranks:
+                ranks[price] = (cheaper_lots + 1, cheaper_units)
+            cheaper_lots += 1
+            cheaper_units += amount
+        queues[variant] = (ranks, len(entries))
+    return queues
+
+
 def observation_rows(
     item_id: str,
     region: str,
@@ -480,11 +526,21 @@ def observation_rows(
     на момент наблюдения не восстановить. Отсутствие опоры (нет сделок либо
     ниже пола по данным, P0-2) — это NULL, а не повод пропустить лот.
 
+    Позиция в очереди по цене (queue_rank / cheaper_units / variant_live_lots)
+    пишется здесь по той же причине, что и опора: восстановить её задним числом
+    нельзя — нужен весь срез варианта на тот момент, — а сборщик держит стакан
+    в руках в этом же проходе. Заполняется ТОЛЬКО при вставке (первое
+    наблюдение); при повторной встрече лота не трогается, см.
+    observation_update_columns. Времязависимые версии этих признаков (как
+    позиция менялась за жизнь лота) — сознательно фаза B.
+
     Пропускаются только лоты, по которым нечего наблюдать: без buyoutPrice
     (продаются лишь ставками, сделку с ними не сматчить), без amount и без
     startTime (нет ключа идентичности — см. lot_identity_key).
     """
-    from app.services.analytics.pricing import _lot_quality_enchant
+    from app.services.analytics.pricing import _is_liquid, _lot_quality_enchant
+
+    queues = variant_queues(lots, seen_at)
 
     rows: list[dict] = []
     for lot in lots:
@@ -500,6 +556,11 @@ def observation_rows(
         variant  = variants.get((qlt, ptn))
         ref      = getattr(variant, "ref_price", None)
 
+        # Неликвидный лот в очереди не стоит: у него все три поля NULL, а не
+        # ноль — «не участвовал» и «первый в очереди» не должны слипнуться.
+        ranks, live_lots = queues.get((qlt, ptn), ({}, 0))
+        place = ranks.get(buyout // amount) if _is_liquid(lot, seen_at) else None
+
         rows.append({
             "item_id":           item_id,
             "region":            region,
@@ -512,6 +573,9 @@ def observation_rows(
             "buyout_price":      buyout,
             "buyout_per_unit":   buyout // amount,
             "ref_price_at_seen": int(ref) if ref else None,
+            "queue_rank":        place[0] if place else None,
+            "cheaper_units":     place[1] if place else None,
+            "variant_live_lots": live_lots if place else None,
             "first_seen_at":     seen_at,
             "last_seen_at":      seen_at,
         })
@@ -527,7 +591,9 @@ def observation_update_columns() -> set[str]:
     идентичности, first_seen_at (иначе теряется момент появления — основа
     времени дожития), ref_price_at_seen (опора нужна НА МОМЕНТ ПЕРВОГО
     наблюдения, иначе через сутки в строке окажется свежая опора и связь
-    «цена vs вероятность продажи» рассыплется) и поля исхода, которые ставит
+    «цена vs вероятность продажи» рассыплется), состояние стакана
+    (queue_rank / cheaper_units / variant_live_lots — по той же причине: это
+    снимок условий, в которых лот был ВЫСТАВЛЕН) и поля исхода, которые ставит
     резолвер.
 
     Уже закрытую строку апсерт не переоткрывает: если предмет надолго выпал из
@@ -540,7 +606,8 @@ def observation_update_columns() -> set[str]:
     frozen = {
         "id", "item_id", "region", "lot_key", "qlt", "ptn",
         "start_time", "end_time", "amount", "buyout_price", "buyout_per_unit",
-        "ref_price_at_seen", "first_seen_at", "outcome", "resolved_at",
+        "ref_price_at_seen", "queue_rank", "cheaper_units", "variant_live_lots",
+        "first_seen_at", "outcome", "resolved_at", "matched_sale_id",
     }
     return {col.name for col in LotObservation.__table__.columns} - frozen
 
@@ -574,34 +641,77 @@ def resolve_cutoff(now: datetime) -> datetime:
     return now - timedelta(hours=LOT_OBS_RESOLVE_DELAY_HOURS)
 
 
-def classify_outcome(obs, sales: list[tuple[datetime, int, int]]) -> str:
+def classify_outcome(
+    obs,
+    sales: list[tuple[datetime, int, int, int]],
+    used_sale_ids: set[int] | frozenset[int] = frozenset(),
+) -> tuple[str, int | None]:
     """
-    Исход наблюдения: sold / expired / withdrawn. Порядок проверок из ТЗ §5.
+    Исход наблюдения: (sold|expired|withdrawn, id закрывшей сделки или None).
 
     obs — строка lot_observations (нужны buyout_price, amount, first_seen_at,
     last_seen_at, end_time), sales — сделки ТОГО ЖЕ предмета и варианта,
-    кортежи (sale_time, total_price, amount).
+    кортежи (sale_time, sale_id, total_price, amount), упорядоченные по времени.
+
+    Сделка РАСХОДУЕТСЯ: берётся самая ранняя подходящая из ещё не занятых
+    (used_sale_ids — занятые в этом прогоне и в прошлых, по matched_sale_id).
+    Раньше искалась любая подходящая, и одна продажа помечала sold все
+    неразличимые наблюдения — тот же предмет, вариант, цена лота и количество.
+    Замер на проде: 47.5% строк sold сидели в таких группах (худшая — 42
+    наблюдения на одну возможную сделку), то есть доля продаж была не оценкой,
+    а завышенной верхней границей. Если свободной сделки нет, наблюдение идёт
+    по обычным правилам в expired / withdrawn.
 
     expired — лот дожил до конца аукциона и не был куплен: для survival-анализа
     это ПОЛНОЕ наблюдение «не продался». withdrawn — пропал раньше end_time:
     ЦЕНЗУРИРОВАННОЕ наблюдение (продавец снял либо матч не нашёл сделку).
     Смешать их — значит систематически исказить кривую, поэтому исходов три,
     а не флаг «продан / не продан».
-
-    Ограничение: одна сделка может закрыть два неразличимых наблюдения (тот же
-    предмет, вариант, цена и количество). Расходовать сделки нельзя: резолвер
-    не помнит, что сматчил в прошлом прогоне. Доля таких совпадений мала, а
-    учитывать её — задача фазы B.
     """
-    for sale_time, total_price, amount in sales:
+    for sale_time, sale_id, total_price, amount in sales:
+        if sale_id in used_sale_ids:
+            continue
         if sale_matches(obs, sale_time, total_price, amount):
-            return "sold"
+            return "sold", sale_id
 
     tolerance = timedelta(minutes=LOT_OBS_EXPIRE_TOLERANCE_MINUTES)
     if obs.end_time is not None and obs.end_time <= obs.last_seen_at + tolerance:
-        return "expired"
+        return "expired", None
 
-    return "withdrawn"
+    return "withdrawn", None
+
+
+def resolve_batch(
+    rows,
+    sales_by_variant: dict[tuple[str, str, int, int], list[tuple[datetime, int, int, int]]],
+    used_sale_ids: set[int] | frozenset[int] = frozenset(),
+) -> dict[int, tuple[str, int | None]]:
+    """
+    Исходы порции наблюдений: id наблюдения -> (исход, id закрывшей сделки).
+
+    Раздача сделок ДЕТЕРМИНИРОВАНА и не зависит от плана запроса: наблюдения
+    перебираются от самого старого (first_seen_at, затем id), сделки внутри
+    варианта — от самой ранней (sale_time, затем id). Одна сделка достаётся
+    ровно одному наблюдению: занятая уходит в used_sale_ids и дальше
+    пропускается. Без фиксированного порядка тот же набор строк давал бы разные
+    исходы от прогона к прогону.
+
+    used_sale_ids на входе — сделки, уже израсходованные ПРОШЛЫМИ прогонами
+    (lot_observations.matched_sale_id): резолвер идёт порциями и обязан помнить,
+    что раздал раньше.
+    """
+    used = set(used_sale_ids)
+    ordered_sales = {key: sorted(sales) for key, sales in sales_by_variant.items()}
+
+    outcomes: dict[int, tuple[str, int | None]] = {}
+    for obs in sorted(rows, key=lambda r: (r.first_seen_at, r.id)):
+        outcome, sale_id = classify_outcome(
+            obs, ordered_sales.get((obs.item_id, obs.region, obs.qlt, obs.ptn), []), used,
+        )
+        if sale_id is not None:
+            used.add(sale_id)
+        outcomes[obs.id] = (outcome, sale_id)
+    return outcomes
 
 
 def _parse_lot_time(value: str | None) -> datetime | None:
@@ -1414,6 +1524,12 @@ async def _resolve_observations(db, now: datetime) -> dict[str, int]:
 
     Сделки грузятся ОДНИМ запросом на всю порцию и раскладываются по варианту:
     построчный поиск дал бы до LOT_OBS_RESOLVE_BATCH запросов за прогон.
+
+    Уже израсходованные сделки (matched_sale_id прошлых прогонов) поднимаются
+    диапазоном id — по частичному уникальному индексу uq_lot_obs_matched_sale,
+    без раздувания списка параметров. Сам индекс — последний рубеж: если два
+    прогона резолвера всё же наложатся, коммит второго упадёт на уникальности,
+    а не тихо припишет одну сделку двум наблюдениям.
     """
     from sqlalchemy import select, update
     from app.models.models import LotObservation, SalesHistory
@@ -1436,7 +1552,7 @@ async def _resolve_observations(db, now: datetime) -> dict[str, int]:
     regions  = {row.region for row in rows}
     sales = (await db.execute(
         select(
-            SalesHistory.item_id, SalesHistory.region, SalesHistory.sale_time,
+            SalesHistory.id, SalesHistory.item_id, SalesHistory.region, SalesHistory.sale_time,
             SalesHistory.total_price, SalesHistory.amount, SalesHistory.additional_info,
         ).where(
             SalesHistory.item_id.in_(item_ids),
@@ -1447,21 +1563,44 @@ async def _resolve_observations(db, now: datetime) -> dict[str, int]:
         )
     )).all()
 
-    by_variant: dict[tuple[str, str, int, int], list[tuple[datetime, int, int]]] = {}
+    by_variant: dict[tuple[str, str, int, int], list[tuple[datetime, int, int, int]]] = {}
     for sale in sales:
         qlt, ptn = variant_key(sale.additional_info)
         by_variant.setdefault((sale.item_id, sale.region, qlt, ptn), []).append(
-            (sale.sale_time, sale.total_price, sale.amount)
+            (sale.sale_time, sale.id, sale.total_price, sale.amount)
         )
 
-    resolved: dict[str, list[int]] = {"sold": [], "expired": [], "withdrawn": []}
-    for row in rows:
-        outcome = classify_outcome(
-            row, by_variant.get((row.item_id, row.region, row.qlt, row.ptn), []),
-        )
-        resolved[outcome].append(row.id)
+    used_sale_ids: set[int] = set()
+    if sales:
+        sale_ids = {sale.id for sale in sales}
+        taken = (await db.execute(
+            select(LotObservation.matched_sale_id).where(
+                LotObservation.matched_sale_id.between(min(sale_ids), max(sale_ids))
+            )
+        )).scalars().all()
+        # Диапазон id захватывает и чужие сделки — оставляем только те, что
+        # реально в этой порции, чтобы счётчик в логе не врал.
+        used_sale_ids = set(taken) & sale_ids
 
-    for outcome, ids in resolved.items():
+    outcomes = resolve_batch(rows, by_variant, used_sale_ids)
+
+    sold = [(obs_id, sale_id) for obs_id, (out, sale_id) in outcomes.items() if out == "sold"]
+    if sold:
+        # Каждой строке своя сделка -> ORM bulk UPDATE по первичному ключу, а
+        # не один UPDATE ... IN (...): matched_sale_id у строк разный.
+        # synchronize_session=None: строки этой порции уже загружены в сессию,
+        # синхронизировать их незачем — дальше они не используются.
+        await db.execute(
+            update(LotObservation).execution_options(synchronize_session=None),
+            [
+                {"id": obs_id, "outcome": "sold", "resolved_at": now, "matched_sale_id": sale_id}
+                for obs_id, sale_id in sold
+            ],
+        )
+        stats["sold"] = len(sold)
+
+    for outcome in ("expired", "withdrawn"):
+        ids = [obs_id for obs_id, (out, _) in outcomes.items() if out == outcome]
         if not ids:
             continue
         await db.execute(
@@ -1475,8 +1614,8 @@ async def _resolve_observations(db, now: datetime) -> dict[str, int]:
     total = sum(stats.values())
     logger.info(
         "lot_obs resolve: закрыто=%s sold=%s (%.0f%%) expired=%s withdrawn=%s (%.0f%%) "
-        "сделок в окне=%s",
+        "сделок в окне=%s (из них уже израсходовано ранее=%s)",
         total, stats["sold"], 100 * stats["sold"] / total, stats["expired"],
-        stats["withdrawn"], 100 * stats["withdrawn"] / total, len(sales),
+        stats["withdrawn"], 100 * stats["withdrawn"] / total, len(sales), len(used_sale_ids),
     )
     return stats

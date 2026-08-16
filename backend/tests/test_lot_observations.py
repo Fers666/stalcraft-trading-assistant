@@ -23,6 +23,7 @@ from app.tasks.feed_collector import (
     dedupe_rows,
     observation_rows,
     observation_update_columns,
+    resolve_batch,
     resolve_cutoff,
     score_item_lots,
 )
@@ -152,6 +153,80 @@ def test_repeat_observation_does_not_duplicate_row():
     assert second[0]["last_seen_at"] == NOW + timedelta(minutes=5)
 
 
+# ─── Состояние стакана на момент первого наблюдения ──────────────────────────
+
+def _by_price(rows: list[dict]) -> dict[int, dict]:
+    return {row["buyout_per_unit"]: row for row in rows}
+
+
+def test_queue_rank_counts_lots_and_units_cheaper():
+    """Позиция в очереди по цене и объём, стоящий перед лотом."""
+    lots = [_lot(70_000), _lot(30_000, amount=2), _lot(50_000, amount=3)]
+    rows = _by_price(observation_rows("art1", "RU", lots, {(4, 15): _variant()}, NOW))
+
+    assert [rows[p]["queue_rank"] for p in (30_000, 50_000, 70_000)] == [1, 2, 3]
+    assert [rows[p]["cheaper_units"] for p in (30_000, 50_000, 70_000)] == [0, 2, 5]
+    assert {rows[p]["variant_live_lots"] for p in rows} == {3}
+
+
+def test_queue_is_counted_per_variant_not_per_item():
+    """
+    Очередь считается по (item_id, qlt, ptn). Агрегат по предмету смешал бы
+    разные по цене товары: дорогой лот редкого варианта выглядел бы аутсайдером
+    очереди, хотя в своём варианте он первый.
+    """
+    other_variant = {"qlt": 4, "ptn": 10}
+    lots = [
+        _lot(10_000, additional=other_variant),
+        _lot(20_000, additional=other_variant),
+        _lot(50_000),                                   # (4, 15) — единственный
+    ]
+    rows = _by_price(observation_rows("art1", "RU", lots, {(4, 15): _variant()}, NOW))
+
+    assert rows[50_000]["queue_rank"] == 1              # по предмету был бы 3-м
+    assert rows[50_000]["cheaper_units"] == 0
+    assert rows[50_000]["variant_live_lots"] == 1
+    assert rows[20_000]["queue_rank"] == 2              # своя очередь у (4, 10)
+
+
+def test_equal_prices_share_the_rank():
+    """Одинаковая цена — одинаковая позиция: порядок внутри группы произволен."""
+    rows = observation_rows(
+        "art1", "RU", [_lot(50_000, start="2026-08-16T10:00:00Z"),
+                       _lot(50_000, start="2026-08-16T11:00:00Z")],
+        {(4, 15): _variant()}, NOW,
+    )
+    assert [row["queue_rank"] for row in rows] == [1, 1]
+    assert [row["cheaper_units"] for row in rows] == [0, 0]
+
+
+def test_expiring_lot_is_out_of_queue():
+    """
+    Лот в последние 2 ч аукциона наблюдается, но очереди покупателю не создаёт:
+    у него все три поля NULL (не ноль — «не участвовал» и «первый» разные вещи)
+    и в знаменателе он не учитывается.
+    """
+    ends_soon = (NOW + timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    lots = [_lot(30_000, endTime=ends_soon), _lot(50_000)]
+    rows = _by_price(observation_rows("art1", "RU", lots, {(4, 15): _variant()}, NOW))
+
+    dying = rows[30_000]
+    assert (dying["queue_rank"], dying["cheaper_units"], dying["variant_live_lots"]) == (None,) * 3
+    assert rows[50_000]["queue_rank"] == 1
+    assert rows[50_000]["variant_live_lots"] == 1
+
+
+def test_queue_state_is_written_only_on_insert():
+    """
+    Состояние стакана — снимок условий, в которых лот ВЫСТАВЛЕН. Обновлять его
+    на каждом цикле значит записать последнюю позицию вместо начальной и
+    потерять предиктор.
+    """
+    assert not {
+        "queue_rank", "cheaper_units", "variant_live_lots",
+    } & observation_update_columns()
+
+
 # ─── Резолвер исходов ─────────────────────────────────────────────────────────
 
 def _obs(
@@ -160,11 +235,16 @@ def _obs(
     first_seen_at: datetime = NOW - timedelta(hours=10),
     last_seen_at: datetime = NOW - timedelta(hours=4),
     end_time: datetime | None = NOW + timedelta(hours=20),
+    id: int = 1,
 ):
     return SimpleNamespace(
+        id=id, item_id="art1", region="RU", qlt=4, ptn=15,
         buyout_price=buyout_price, amount=amount,
         first_seen_at=first_seen_at, last_seen_at=last_seen_at, end_time=end_time,
     )
+
+
+VARIANT = ("art1", "RU", 4, 15)
 
 
 def test_resolve_delay_is_at_least_two_hours():
@@ -184,26 +264,27 @@ def test_resolver_skips_fresh_rows():
 
 def test_outcome_sold_on_price_amount_and_variant_match():
     obs = _obs()
-    sales = [(NOW - timedelta(hours=5), 150_000, 3)]
-    assert classify_outcome(obs, sales) == "sold"
+    sales = [(NOW - timedelta(hours=5), 77, 150_000, 3)]
+    assert classify_outcome(obs, sales) == ("sold", 77)
 
 
 def test_outcome_sold_within_delay_after_last_seen():
     """Продажа могла случиться уже после того, как лот пропал из скана."""
     obs = _obs()
     late = obs.last_seen_at + timedelta(hours=LOT_OBS_RESOLVE_DELAY_HOURS) - timedelta(minutes=1)
-    assert classify_outcome(obs, [(late, 150_000, 3)]) == "sold"
+    assert classify_outcome(obs, [(late, 77, 150_000, 3)]) == ("sold", 77)
 
 
 @pytest.mark.parametrize("sale", [
-    (NOW - timedelta(hours=5), 149_000, 3),                 # другая цена лота
-    (NOW - timedelta(hours=5), 150_000, 2),                 # другое количество
-    (NOW - timedelta(hours=30), 150_000, 3),                # раньше, чем лот появился
-    (NOW + timedelta(hours=1), 150_000, 3),                 # позже окна наблюдения
+    (NOW - timedelta(hours=5), 77, 149_000, 3),             # другая цена лота
+    (NOW - timedelta(hours=5), 77, 150_000, 2),             # другое количество
+    (NOW - timedelta(hours=30), 77, 150_000, 3),            # раньше, чем лот появился
+    (NOW + timedelta(hours=1), 77, 150_000, 3),             # позже окна наблюдения
 ])
 def test_outcome_not_sold_on_mismatched_sale(sale):
     """Чужая сделка не закрывает лот: иначе доля sold завышена на ровном месте."""
-    assert classify_outcome(_obs(), [sale]) != "sold"
+    outcome, sale_id = classify_outcome(_obs(), [sale])
+    assert outcome != "sold" and sale_id is None
 
 
 def test_outcome_expired_when_lot_lived_to_the_end():
@@ -212,27 +293,94 @@ def test_outcome_expired_when_lot_lived_to_the_end():
     а не цензурированное.
     """
     obs = _obs(end_time=NOW - timedelta(hours=4, minutes=5))
-    assert classify_outcome(obs, []) == "expired"
+    assert classify_outcome(obs, []) == ("expired", None)
 
 
 def test_outcome_expired_within_sweep_tolerance():
     """Последний обход мог пройти чуть раньше end_time — это всё ещё expired."""
     tolerance = timedelta(minutes=LOT_OBS_EXPIRE_TOLERANCE_MINUTES)
     obs = _obs(end_time=NOW - timedelta(hours=4) + tolerance - timedelta(minutes=1))
-    assert classify_outcome(obs, []) == "expired"
+    assert classify_outcome(obs, []) == ("expired", None)
 
 
 def test_outcome_withdrawn_when_lot_vanished_before_end():
     """Пропал задолго до end_time без подходящей сделки — цензурированное."""
-    assert classify_outcome(_obs(), []) == "withdrawn"
+    assert classify_outcome(_obs(), []) == ("withdrawn", None)
 
 
 def test_outcome_withdrawn_without_end_time():
     """Без end_time «дожил до конца» не доказать — цензурируем, а не гадаем."""
-    assert classify_outcome(_obs(end_time=None), []) == "withdrawn"
+    assert classify_outcome(_obs(end_time=None), []) == ("withdrawn", None)
 
 
 def test_sold_wins_over_expired():
     """Порядок проверок из ТЗ §5: сделка сильнее истечения срока."""
     obs = _obs(end_time=NOW - timedelta(hours=4, minutes=5))
-    assert classify_outcome(obs, [(NOW - timedelta(hours=5), 150_000, 3)]) == "sold"
+    sales = [(NOW - timedelta(hours=5), 77, 150_000, 3)]
+    assert classify_outcome(obs, sales) == ("sold", 77)
+
+
+# ─── Расход сделок: одна сделка закрывает максимум одно наблюдение ────────────
+
+def test_used_sale_is_not_reused():
+    """Занятая сделка не годится второй раз — исход считается без неё."""
+    sales = [(NOW - timedelta(hours=5), 77, 150_000, 3)]
+    assert classify_outcome(_obs(), sales, used_sale_ids={77}) == ("withdrawn", None)
+
+
+def test_collision_one_sale_closes_exactly_one_observation():
+    """
+    Два неразличимых наблюдения (тот же вариант, цена лота и количество) и одна
+    подходящая сделка: sold ровно одно. Раньше sold получали ОБА, и доля продаж
+    была завышенной верхней границей (47.5% строк sold на проде сидели в таких
+    группах, худшая — 42 наблюдения на группу).
+    """
+    older = _obs(id=1, first_seen_at=NOW - timedelta(hours=10))
+    newer = _obs(id=2, first_seen_at=NOW - timedelta(hours=6))
+    sales = {VARIANT: [(NOW - timedelta(hours=5), 77, 150_000, 3)]}
+
+    outcomes = resolve_batch([older, newer], sales)
+
+    assert outcomes[1] == ("sold", 77)
+    assert outcomes[2][0] in ("expired", "withdrawn") and outcomes[2][1] is None
+    assert sum(1 for out, _ in outcomes.values() if out == "sold") == 1
+
+
+def test_match_is_deterministic_regardless_of_input_order():
+    """
+    Порядок строк из БД (план запроса) не должен влиять на исход: сделка всегда
+    достаётся самому старому наблюдению, и всегда самая ранняя подходящая.
+    """
+    older = _obs(id=1, first_seen_at=NOW - timedelta(hours=10))
+    newer = _obs(id=2, first_seen_at=NOW - timedelta(hours=6))
+    early = (NOW - timedelta(hours=5), 77, 150_000, 3)
+    late  = (NOW - timedelta(hours=3), 88, 150_000, 3)
+
+    straight = resolve_batch([older, newer], {VARIANT: [early, late]})
+    shuffled = resolve_batch([newer, older], {VARIANT: [late, early]})
+
+    assert straight == shuffled
+    assert straight[1] == ("sold", 77)     # старшему наблюдению — ранняя сделка
+    assert straight[2] == ("sold", 88)
+
+
+def test_resolve_batch_respects_sales_used_by_previous_runs():
+    """
+    Резолвер идёт порциями: сделка, израсходованная прошлым прогоном
+    (matched_sale_id), для нынешней порции занята.
+    """
+    outcomes = resolve_batch(
+        [_obs(id=5)],
+        {VARIANT: [(NOW - timedelta(hours=5), 77, 150_000, 3)]},
+        used_sale_ids={77},
+    )
+    assert outcomes[5] == ("withdrawn", None)
+
+
+def test_sale_of_another_variant_does_not_close_observation():
+    """Сделка другого варианта (qlt/ptn) — не про этот лот."""
+    outcomes = resolve_batch(
+        [_obs(id=5)],
+        {("art1", "RU", 4, 10): [(NOW - timedelta(hours=5), 77, 150_000, 3)]},
+    )
+    assert outcomes[5] == ("withdrawn", None)

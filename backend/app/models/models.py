@@ -527,6 +527,15 @@ class LotObservation(Base):
     # NULL = у варианта не было опоры (нет сделок / ниже пола по данным) —
     # такое наблюдение идёт только в безусловную кривую.
     ref_price_at_seen = Column(BigInteger, nullable=True)
+    # Состояние стакана ВАРИАНТА на момент первого наблюдения. Считается по
+    # (item_id, qlt, ptn), а не по предмету: качество и заточка — главный
+    # ценообразующий признак, агрегат по предмету смешивает разные товары.
+    # Задним числом не восстанавливается (нужен весь срез варианта), поэтому
+    # пишется сразу и только при вставке. NULL = лот на момент наблюдения был
+    # неликвиден (< 2 ч до конца аукциона) и в очереди не стоял.
+    queue_rank        = Column(Integer, nullable=True)   # 1 = самый дешёвый живой лот варианта
+    cheaper_units     = Column(Integer, nullable=True)   # Σ amount живых лотов строго дешевле
+    variant_live_lots = Column(Integer, nullable=True)   # всего живых лотов варианта (знаменатель)
     first_seen_at     = Column(DateTime(timezone=True), nullable=False)  # ставится только при вставке
     last_seen_at      = Column(DateTime(timezone=True), nullable=False)  # последний цикл, видевший лот
     # NULL пока лот жив; далее sold / expired / withdrawn. Три значения, а не
@@ -534,11 +543,27 @@ class LotObservation(Base):
     # цензурированное. Спутать их значит исказить кривую в фазе B.
     outcome           = Column(String(12), nullable=True)
     resolved_at       = Column(DateTime(timezone=True), nullable=True)
+    # Сделка, закрывшая наблюдение. Одна сделка закрывает МАКСИМУМ одно
+    # наблюдение (уникальный частичный индекс ниже): без этого одна продажа
+    # помечала sold все неразличимые лоты варианта (та же цена и количество) —
+    # замер на проде дал 47.5% строк sold в таких группах, то есть долю продаж
+    # как завышенную верхнюю границу. ON DELETE SET NULL: sales_history живёт
+    # 120 дней и чистится в том же delete_old_data РАНЬШЕ наблюдений — ссылка
+    # не должна блокировать уборку (outcome при этом остаётся sold).
+    matched_sale_id   = Column(
+        BigInteger, ForeignKey("sales_history.id", ondelete="SET NULL"), nullable=True,
+    )
 
     __table_args__ = (
         Index("uq_lot_obs_lot", "item_id", "region", "lot_key", unique=True),
         Index("ix_lot_obs_pending", "outcome", "last_seen_at"),   # выборка резолвера
         Index("ix_lot_obs_variant", "item_id", "region", "qlt", "ptn"),  # фаза B
+        # Частичный: NULL-ы друг другу не конфликтуют, но без предиката индекс
+        # распух бы на всех живых и незакрытых строках.
+        Index(
+            "uq_lot_obs_matched_sale", "matched_sale_id", unique=True,
+            postgresql_where=text("matched_sale_id IS NOT NULL"),
+        ),
     )
 
 
