@@ -152,7 +152,14 @@ OAuth2 Client Credentials flow для Stalcraft API.
 - `COMMISSION = 0.05` — комиссия аукциона
 - `GLITCH_RATIO = 0.05` — глитч-цена, отбрасывается в `compute_reference`
 - `REF_HALF_LIFE_HOURS = 48.0` — период полураспада веса сделки в `weighted_reference`
-- `MIN_REF_SAMPLES = 3` — меньше → `confidence="low"` (ref всё равно считается)
+- `MIN_REF_SAMPLES = 3` — минимум сделок за 24ч для **метки тренда**; за уверенность
+  опоры больше **не** отвечает (с 2026-08-16 её задаёт эффективный вес)
+- `MIN_REF_WEIGHT = 5.0` — пол по данным: эффективный вес ниже → `below_floor=True`
+  и `confidence="low"`; торгового сигнала нет (лента и watchlist)
+- `REF_CONF_HIGH_WEIGHT = 10.0` — эффективный вес для `confidence="high"`;
+  между `MIN_REF_WEIGHT` и этим порогом — `"medium"`
+- `TRIM_RATIO = 3.0` — цена вне `[med / 3, med × 3]` (med — **взвешенная** медиана)
+  считается выбросом и в опору не входит
 - `TREND_SOFT_RATIO = 0.95` — `median_24h / median_7d` ниже → `trend="falling"`
 - `TREND_DROP_RATIO = 0.75` — тот же порог по медиане **асков**, фоллбек-метка тренда
 - `STALE_SECONDS = 90` — снэпшот старше → сигналу не доверяем
@@ -165,8 +172,14 @@ OAuth2 Client Credentials flow для Stalcraft API.
 - `weighted_median(pairs)` / `weighted_reference(samples, now, half_life_hours)` —
   медиана продаж за 7д, взвешенная по возрасту сделки (`вес = 0.5 ** (age_h / 48)`).
   Плоская медиана 7д на трендовом рынке отражает цену ~3.5-дневной давности и на
-  падающем рынке обещает прибыль, которой уже нет. Возвращает `{ref, samples, confidence}`.
-- `compute_reference(*, weighted_hist, median_hist, sample_count, median_24h, sample_count_24h, median_now, current_min)`
+  падающем рынке обещает прибыль, которой уже нет. Перед расчётом отбрасываются выбросы
+  (`_trim_outliers`: цены вне `[med / TRIM_RATIO, med × TRIM_RATIO]` вокруг взвешенной
+  медианы), поэтому `samples`/`weight` описывают то, на чём опора реально построена.
+  Возвращает `{ref, samples, weight, confidence}`, где `weight = Σ 0.5 ** (age_h / 48)` —
+  **эффективное** число сделок (три сделки трёхдневной давности ≈ 1, а не 3).
+  Отсечка по кратности, а не по MAD: MAD зависит от плотности цен и на круглых
+  ценах схлопывается (живой `wgwz` — полоса 0.4 % от цены, срезалось 19 сделок из 39).
+- `compute_reference(*, weighted_hist, median_hist, sample_count, median_24h, sample_count_24h, median_now, current_min, weight)`
   — **единая** опорная цена `ref` для карточки, сигналов, часовой статистики и Радара
   (keyword-only: сигнатура менялась, позиционные вызовы должны падать явно).
   Приоритет: `weighted_hist` → `median_hist` (плоская медиана 7д) → `current_min`
@@ -178,7 +191,20 @@ OAuth2 Client Credentials flow для Stalcraft API.
   `median_now` (медиана асков) с порогом `TREND_DROP_RATIO`, без публикации процента.
   Глитч-цены отбрасываются здесь же.
   Возвращает `{ref, source: "weighted_history"|"history"|"current_fallback", trend,
-  trend_pct, confidence, samples, median_7d}`. Если результат не `None` — `ref` всегда `int > 0`.
+  trend_pct, weight, confidence, below_floor, samples, samples_24h, median_7d}`.
+  Если результат не `None` — `ref` всегда `int > 0`.
+  `confidence` — три уровня по **эффективному весу** (`weight`), а не по сырому count:
+  `high` ≥ `REF_CONF_HIGH_WEIGHT`, `medium` ≥ `MIN_REF_WEIGHT`, иначе `low`.
+  `below_floor = weight < MIN_REF_WEIGHT` — **признак, а не поведение**: число
+  возвращается всегда, решение «не давать сигнал» принимает вызывающий. Гейт применяют
+  лента (`variant_stats.compute_variant`) и watchlist (`profitable_lots`); карточка
+  предмета и Радар — **нет** (показывают оценку с пометкой уверенности). У источников
+  `history` / `current_fallback` эффективного веса нет по определению, поэтому они
+  всегда ниже пола — сигналов там, где истории продаж нет вовсе, больше не будет.
+  Усадки к родительскому уровню (`shrunk_history`) здесь **нет и не должно быть**:
+  `qlt`/`ptn` — главный ценообразующий признак, соседнее качество это другой товар
+  (у Магмы 145 тыс. против 9.5 млн). Замер: усадка спасала 3665 вариантов из 3665,
+  66.3 % полученных опор лежали вне всего диапазона реальных сделок за 30 дней.
 - `matching_lot_prices(raw_lots, master, quality_filter, enchant_filter, now)` — цены
   за штуку ликвидных лотов снэпшота под фильтром качества/заточки; общая основа для
   «текущего минимума» (`monitoring.py`) и «медианы текущих цен» (`profitable_lots._filtered_median_now`).
@@ -545,7 +571,10 @@ FEED_ITEM_PARK_TTL        = 900   # на сколько припаркованн
    `weighted_reference` → `compute_reference` (без `median_now`/`current_min`: живых лотов
    здесь нет) → волатильность (при ≥ 5 сделках) → `classify_risk` → `make_sell_options` →
    `_calculate_batch_stats` → `_avg_sell_time_from_buyouts`. `ref_info is None` → вариант
-   пишется с `ref_price = NULL` и в скоринге пропускается.
+   пишется с `ref_price = NULL` и в скоринге пропускается. Так же трактуется опора **ниже
+   пола по данным** (`ref_info["below_floor"]`, эффективный вес < `MIN_REF_WEIGHT = 5`):
+   `ref_price` и `sell_options` пишутся `NULL`, а `ref_source`/`ref_confidence`/`ref_samples`
+   сохраняются — иначе «мало данных» не отличить от «сделок не было вовсе».
 4. Апсерт по `(item_id, region, qlt, ptn)` чанками; numeric-поля — через `market_stats._clamp_pct`.
 
 Сопутствующий рефактор в `market_stats.py`: извлечение пар «часы на рынке → цена» вынесено из

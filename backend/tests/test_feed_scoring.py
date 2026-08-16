@@ -80,15 +80,29 @@ def _sale(hours_ago: float, price: int, amount: int = 1, additional=None):
 
 
 def test_compute_variant_builds_reference_from_sales():
-    sales = [_sale(h, 100_000) for h in (1, 5, 20, 40, 100)]
+    # 10 сделок за неделю — эффективный вес 6.2, выше пола MIN_REF_WEIGHT
+    hours = (1, 5, 10, 20, 30, 40, 50, 60, 80, 100)
+    sales = [_sale(h, 100_000) for h in hours]
     variant = compute_variant(sales, NOW)
 
     assert variant["ref_price"] == 100_000
     assert variant["ref_source"] == "weighted_history"
-    assert variant["sales_volume_7d"] == 5
-    assert variant["sales_per_day"] == round(5 / 7, 2)
+    assert variant["sales_volume_7d"] == len(hours)
+    assert variant["sales_per_day"] == round(len(hours) / 7, 2)
     assert variant["sell_options"] is not None
     assert variant["risk"] == "low"
+
+
+def test_compute_variant_below_floor_gives_no_signal():
+    """
+    Три сделки за неделю (эффективный вес ~1.6) — торгового сигнала нет:
+    ни опоры, ни цен продажи. 65% обещанной прибыли ленты стояло ровно на таких
+    вариантах (docs/tasks/profit-algo-review.md §1.3).
+    """
+    variant = compute_variant([_sale(h, 100_000) for h in (10, 50, 100)], NOW)
+
+    assert variant["ref_price"] is None
+    assert variant["sell_options"] is None
 
 
 def test_compute_variant_without_sales_in_window_has_no_reference():

@@ -176,6 +176,14 @@ async def compute_signals_for_entry(
     )
 
     if entry.quality_filter is None and entry.enchant_filter is None:
+        # Эффективное число сделок за опорой считаем по живым строкам, а не
+        # берём stats.reference_weight: строки за 30д уже загружены выше
+        # (лишнего запроса нет), они свежее часового среза, и — главное — сразу
+        # после миграции колонка ещё NULL, а этой ветке below_floor закрывает
+        # сигнал: watchlist остался бы без сигналов до первого пересчёта.
+        wr_all = weighted_reference(
+            [(r.sale_time, r.price_per_unit) for r in sales_30d if r.sale_time >= cutoff_7d], now,
+        )
         ref_info = compute_reference(
             weighted_hist=float(stats.reference_price) if stats and stats.reference_price else None,
             median_hist=float(stats.median_price_7d) if stats and stats.median_price_7d else None,
@@ -184,6 +192,7 @@ async def compute_signals_for_entry(
             sample_count_24h=(stats.sales_volume_24h or 0) if stats else 0,
             median_now=float(snap.median_price_per_unit) if snap.median_price_per_unit else None,
             current_min=current_min,
+            weight=wr_all["weight"] if wr_all else 0.0,
         )
         vol_for_opts = volume_7d
     else:
@@ -221,6 +230,7 @@ async def compute_signals_for_entry(
                 sample_count_24h=len(prices_24h),
                 median_now=_filtered_median_now(snap.raw_lots, master, entry, is_art, now),
                 current_min=current_min,
+                weight=wr["weight"] if wr else 0.0,
             )
         else:
             ref_info = compute_reference(
@@ -231,7 +241,9 @@ async def compute_signals_for_entry(
             vol = volume_7d
         vol_for_opts = vol if prices else None
 
-    if ref_info is None:
+    # Опора ниже пола по данным (меньше MIN_REF_WEIGHT эффективных сделок и
+    # усадить не к чему) — сигнала нет: прибыль по такой опоре фиктивна.
+    if ref_info is None or ref_info["below_floor"]:
         return None
 
     ref        = ref_info["ref"]

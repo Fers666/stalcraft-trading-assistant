@@ -393,9 +393,12 @@ async def calculate_market_stats(
     # Только настоящая взвешенная медиана продаж. Фоллбеки (плоская медиана 7д,
     # минимум активных лотов) не сохраняем: потребители читают колонку как
     # weighted_hist, и записанный сюда аск выдавал бы себя за цену сделок.
-    existing.reference_price     = (
-        ref_info["ref"] if ref_info and ref_info["source"] == "weighted_history" else None
-    )
+    ref_from_sales = ref_info is not None and ref_info["source"] == "weighted_history"
+    existing.reference_price     = ref_info["ref"] if ref_from_sales else None
+    # Вес пишется только вместе с ценой: сам по себе он не значит ничего, а
+    # рассинхрон (вес от прошлого пересчёта при пустой цене) читался бы как
+    # уверенность в фоллбек-опоре.
+    existing.reference_weight    = ref_info["weight"] if ref_from_sales else None
     existing.sell_options        = sell_options
     existing.demand_signals      = demand_signals
     existing.calculated_at       = now
@@ -636,6 +639,7 @@ async def _calculate_sell_options(
         median_24h=float(s24["median"]) if s24.get("median") else None,
         sample_count_24h=s24.get("count", 0) or 0,
         current_min=float(current_min_liquid) if current_min_liquid else None,
+        weight=wr["weight"] if wr else 0.0,
     )
     if ref_info is None:
         return [], None

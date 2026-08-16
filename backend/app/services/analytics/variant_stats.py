@@ -90,8 +90,11 @@ def compute_variant(sales_30d: list, now: datetime) -> dict:
 
     sales_30d — строки с полями sale_time / price_per_unit / amount /
     additional_info (Row из SELECT либо ORM-сущность).
+
     ref_price = None означает «опоры нет» — такой вариант в скоринге ленты
-    пропускается целиком.
+    пропускается целиком. Так же трактуется опора ниже пола по данным
+    (below_floor): показывать прибыль, за которой стоит меньше
+    MIN_REF_WEIGHT эффективных сделок, лента не должна.
     """
     cutoff_7d  = now - timedelta(days=7)
     cutoff_24h = now - timedelta(hours=24)
@@ -114,7 +117,12 @@ def compute_variant(sales_30d: list, now: datetime) -> dict:
         sample_count=len(prices_7d),
         median_24h=median_24h,
         sample_count_24h=len(prices_24h),
+        weight=wr["weight"] if wr else 0.0,
     )
+    # Опора ниже пола по данным — не сигнал: цену и цены продажи не публикуем,
+    # но source/confidence/samples сохраняем, иначе не отличить «мало данных»
+    # от «сделок не было вовсе».
+    below_floor = ref_info is not None and ref_info["below_floor"]
 
     volatility = _volatility(prices_7d)
 
@@ -129,11 +137,11 @@ def compute_variant(sales_30d: list, now: datetime) -> dict:
 
     sell_options = (
         make_sell_options(ref_info["ref"], len(prices_7d), pairs_for_options)
-        if ref_info is not None else None
+        if ref_info is not None and not below_floor else None
     )
 
     return {
-        "ref_price":        ref_info["ref"] if ref_info else None,
+        "ref_price":        ref_info["ref"] if ref_info and not below_floor else None,
         "ref_source":       ref_info["source"] if ref_info else None,
         "ref_confidence":   ref_info["confidence"] if ref_info else None,
         "ref_samples":      ref_info["samples"] if ref_info else None,

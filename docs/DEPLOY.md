@@ -36,6 +36,27 @@ docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
 
 > **При переписанной git-истории** (например, после `git-filter-repo`) обычный `git pull` не сработает (история разошлась) — нужен `git fetch && git reset --hard origin/main`.
 
+### Миграция `0039` (`market_statistics.reference_weight`) — строго ДО запуска образа
+
+Ожидает применения на проде (состояние на 2026-08-16). Порядок обязателен:
+
+```bash
+cd /home/evgen/app && git pull
+docker compose -f docker-compose.prod.yml build --no-cache backend frontend worker scheduler
+# 1) СНАЧАЛА миграция — на ещё работающем старом контейнере
+docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
+# 2) и только потом новый образ
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Причина: модель `MarketStatistics` объявляет колонку `reference_weight`, поэтому без неё
+падает **любой** ORM-SELECT статистики — карточка предмета (`GET /api/v1/monitoring/item/{id}`
+→ 500, `UndefinedColumnError`), watchlist-задачи и `calculate_market_stats`. На стенде
+воспроизведено: 94 ошибки за 10 минут. Ручки ленты (`/feed/lots`, `/feed/variant`) эту
+таблицу не читают и переживут. Бэкфилла миграция не требует: часовой `calculate_market_stats`
+заполнит колонку сам, до этого `reference_weight = NULL` → карточка показывает уверенность
+«low» (заниженную, не завышенную). Контекст — `docs/tasks/ref-quality-floor.md` §7.5.
+
 ## Web Push / RabbitMQ (первый деплой фичи, 2026-07-20)
 
 Фича добавляет два новых сервиса (`rabbitmq`, `push_service`) и требует VAPID-ключи.

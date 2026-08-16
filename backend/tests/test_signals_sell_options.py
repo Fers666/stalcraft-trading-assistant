@@ -61,9 +61,15 @@ def _sale(now: datetime, hours_ago: float, price: int = REF_PRICE, with_lot_star
 
 
 def _sales(now: datetime, count: int = 10, with_lot_start: bool = True):
-    """Продажи за последнюю неделю, равномерно по часам."""
+    """
+    Продажи за последнюю неделю, равномерно по часам.
+
+    Шаг 6 часов: на десяти сделках это даёт эффективный вес 6.4 — выше пола
+    MIN_REF_WEIGHT, иначе опора считается недостаточной и сигнала нет
+    (это проверяется отдельно, test_no_signal_when_reference_is_below_floor).
+    """
     return [
-        _sale(now, hours_ago=6 + i * 12, with_lot_start=with_lot_start)
+        _sale(now, hours_ago=6 + i * 6, with_lot_start=with_lot_start)
         for i in range(count)
     ]
 
@@ -167,6 +173,15 @@ async def test_sell_options_fall_back_to_volume_without_coverage():
     result = await _compute(sales, _entry(quality_filter=4, enchant_filter=15), _stats())
 
     assert _fast(result["sell_options"])["confidence"] == "low"
+
+
+# ─── Пол по данным ────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_no_signal_when_reference_is_below_floor():
+    """Две сделки за неделю — сигнала «Избранного» быть не должно."""
+    now = datetime.now(timezone.utc)
+    assert await _compute(_sales(now, count=2), _entry(), _stats()) is None
 
 
 # ─── Согласованность с Лентой ─────────────────────────────────────────────────

@@ -299,7 +299,12 @@ export default function MobileLotStatCard({
                   )}
                   {stats.reference_confidence === 'low' && stats.reference_samples != null && (
                     <Typography sx={{ fontSize: fs.f11, color: tokens.warning, mb: 1 }}>
-                      Мало сделок ({fmtN(stats.reference_samples)}) — оценка приблизительная
+                      Сделки редкие или несвежие ({fmtN(stats.reference_samples)} в выборке) — оценка приблизительная
+                    </Typography>
+                  )}
+                  {stats.reference_confidence === 'medium' && stats.reference_samples != null && (
+                    <Typography sx={{ fontSize: fs.f11, color: tokens.goldSoft, mb: 1 }}>
+                      Свежих сделок немного ({fmtN(stats.reference_samples)} в выборке) — оценка рабочая, запас небольшой
                     </Typography>
                   )}
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: '1px', background: tokens.border, border: `1px solid ${tokens.border}` }}>

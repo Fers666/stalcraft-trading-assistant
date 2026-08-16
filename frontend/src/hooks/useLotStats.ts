@@ -70,7 +70,7 @@ export interface MarketStats {
   /** Опорная цена sell_options: взвешенная по свежести медиана продаж 7д. */
   reference_price: number | null
   reference_source: string | null
-  reference_confidence: 'high' | 'low' | null
+  reference_confidence: 'high' | 'medium' | 'low' | null
   reference_samples: number | null
   trend: 'falling' | 'stable' | 'rising' | 'unknown' | null
   trend_pct: number | null
@@ -118,7 +118,7 @@ interface SignalsData {
   volatility_7d: number | null
   ref: number | null
   ref_source: string | null
-  ref_confidence: 'high' | 'low' | null
+  ref_confidence: 'high' | 'medium' | 'low' | null
   ref_samples: number | null
   trend: 'falling' | 'stable' | 'rising' | 'unknown' | null
   trend_pct: number | null
@@ -211,7 +211,7 @@ function feedToSignals(data: any): SignalsData | null {
     volatility_7d:  first?.volatility_7d ?? null,
     ref:            first?.ref_price ?? null,
     ref_source:     null,
-    ref_confidence: (first?.stats_confidence as 'high' | 'low' | undefined) ?? null,
+    ref_confidence: (first?.stats_confidence as 'high' | 'medium' | 'low' | undefined) ?? null,
     ref_samples:    first?.stats_samples ?? null,
     trend:          (first?.trend_24h as SignalsData['trend']) ?? null,
     trend_pct:      first?.trend_24h_pct ?? null,

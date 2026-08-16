@@ -231,6 +231,12 @@ class MarketStatistics(Base):
     # (pricing.weighted_reference). НЕ равна median_price_7d — та остаётся
     # описательной статистикой для отображения.
     reference_price     = Column(BigInteger)
+    # Эффективное число сделок за reference_price: сумма весов 0.5 ** (age/48)
+    # (pricing.weighted_reference). НЕ равно sales_volume_7d — три сделки
+    # трёхдневной давности дают вес ~1. По нему считается уверенность опоры и
+    # пол по данным, живьём его не пересчитать: история за 7д на каждый
+    # поллинг карточки (30с) слишком дорога.
+    reference_weight    = Column(Numeric(10, 2))
     sell_options        = Column(JSONB)
     demand_signals      = Column(JSONB)             # {"recent_bulk_share_24h", "baseline_bulk_share_29d", "bulk_spike"}
     calculated_at       = Column(DateTime(timezone=True), server_default=func.now())
@@ -500,7 +506,7 @@ class ArtifactVariantStats(Base):
     ptn                 = Column(SmallInteger, nullable=False)
     ref_price           = Column(BigInteger)                 # compute_reference()["ref"]
     ref_source          = Column(String(20))                 # weighted_history / history / current_fallback
-    ref_confidence      = Column(String(10))                 # high / low
+    ref_confidence      = Column(String(10))                 # high / medium / low (по эффективному числу сделок)
     ref_samples         = Column(Integer)
     median_24h          = Column(Numeric(14, 2))
     median_7d           = Column(Numeric(14, 2))

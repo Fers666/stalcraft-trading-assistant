@@ -284,6 +284,7 @@ UNIQUE по `(user_id, item_id, region)` — одна запись на пред
 | `weekend_bonus_percent` | numeric(5,2) | Разница средней цены в выходные vs будни (%) |
 | `avg_sell_time_hours` | numeric(8,2) | Среднее время продажи в часах (из snapshot-history matching) |
 | `reference_price` | bigint | **Опорная цена `sell_options`** (миграция 0037): взвешенная по свежести медиана продаж за 7д, `pricing.weighted_reference`. **НЕ равна `median_price_7d`** — та остаётся описательной статистикой для отображения |
+| `reference_weight` | numeric(10,2) | **Эффективное число сделок за опорой** (миграция 0039, nullable): `Σ 0.5 ** (age_h / 48)` по тем же сделкам, что дали `reference_price`. Из `reference_price`/`sales_volume_7d` не выводится, поэтому хранится рядом. Карточка предмета без фильтров читает опору отсюда (живой пересчёт на каждый поллинг в 30 с потребовал бы всю историю за 7д) и по нему считает `confidence`/`below_floor`. Бэкфилла нет — часовой `calculate_market_stats` заполнит; до этого `NULL` → `confidence="low"` (честнее заниженной уверенности, чем завышенная по сырому count) |
 | `sell_options` | jsonb | **3 варианта цены с прогнозом времени** (см. ниже), считаются от `reference_price` |
 | `batch_stats` | jsonb | Статистика по пачкам (резерв) |
 | `demand_signals` | jsonb | Информационный сигнал спроса (см. ниже) |
@@ -531,14 +532,14 @@ P&L/медиан никогда не реализовывалась).
 | `trend_7d_pct` | numeric(8,2) | да | |
 | `sales_per_day` | numeric(10,2) | да | Денормализованный снимок `sales_volume_7d / 7` варианта (чтобы сортировать без join) |
 | `supply_coverage_days` | numeric(10,2) | да | Σ amount **всех** живых лотов варианта / `sales_per_day`; `NULL` при отсутствии продаж |
-| `stats_confidence` | varchar(10) | да | `ref_confidence` варианта (high / low) |
+| `stats_confidence` | varchar(10) | да | `ref_confidence` варианта (high / medium / low — по эффективному весу опоры) |
 | `stats_samples` | integer | да | `ref_samples` варианта |
 | `first_seen_at` | timestamptz | нет | Проставляется только при вставке — момент первого появления лота в ленте |
 | `seen_at` | timestamptz | нет | Момент последнего цикла, где лот подтверждён; `max(seen_at)` = `snapshot_at` ответов API |
 
 **Индексы:** `uq_feed_lots_lot (item_id, region, lot_key)` UNIQUE, `ix_feed_lots_profit_total (profit_total DESC)`, `ix_feed_lots_profit_pct (profit_pct DESC)`, `ix_feed_lots_margin_adj (margin_adj_pct DESC)`, `ix_feed_lots_item (item_id)`, `ix_feed_lots_variant (qlt, ptn)`, `ix_feed_lots_end_time (end_time)`, `ix_feed_lots_seen_at (seen_at)`.
 
-> Индекса по `buyout_price` **нет намеренно**: витрина лимитированных тарифов использует его только в `percentile_cont` по всей выборке и в `BETWEEN` — на таблице в сотни–тысячи строк индекс выигрыша не даёт (Ревизия 2 ТЗ отменила запланированную миграцию `0039`).
+> Индекса по `buyout_price` **нет намеренно**: витрина лимитированных тарифов использует его только в `percentile_cont` по всей выборке и в `BETWEEN` — на таблице в сотни–тысячи строк индекс выигрыша не даёт (Ревизия 2 ТЗ ленты отменила запланированный тогда индекс; номер `0039` позже занят миграцией `reference_weight`, к индексу отношения не имеющей).
 >
 > `supply_coverage_days` живёт здесь, а не в `artifact_variant_stats`: задача статистики не видит живых лотов (читает только `sales_history`), а сбор лотов видит их целиком — так у каждой таблицы остаётся **один писатель**.
 
@@ -554,10 +555,10 @@ P&L/медиан никогда не реализовывалась).
 | `item_id` | varchar(50) FK→`master_items.item_id` | нет | |
 | `region` | varchar(10) | нет | |
 | `qlt` / `ptn` | smallint | нет | Вариант: `additional_info.qlt` 0–5, `ptn` 0–15 |
-| `ref_price` | bigint | да | `pricing.compute_reference()["ref"]` — взвешенная по свежести медиана **сделок** 7 д. `NULL` = вариант в ленту не попадает |
+| `ref_price` | bigint | да | `pricing.compute_reference()["ref"]` — взвешенная по свежести медиана **сделок** 7 д. `NULL` = вариант в ленту не попадает: сделок за 30 д нет вовсе **либо** опора ниже пола по данным (`below_floor`, эффективный вес < `MIN_REF_WEIGHT = 5`) |
 | `ref_source` | varchar(20) | да | weighted_history / history / current_fallback |
-| `ref_confidence` | varchar(10) | да | high / low |
-| `ref_samples` | integer | да | |
+| `ref_confidence` | varchar(10) | да | high / medium / low — по **эффективному** весу опоры (`Σ 0.5 ** (age_h / 48)`), а не по сырому числу сделок |
+| `ref_samples` | integer | да | Сырое число сделок за 7 д, оставшихся после отсечки выбросов |
 | `median_24h` / `median_7d` / `median_30d` | numeric(14,2) | да | Описательные медианы сделок |
 | `sales_volume_24h` / `_7d` / `_30d` | integer | да | Число сделок в окне |
 | `sales_per_day` | numeric(10,2) | да | `sales_volume_7d / 7` |
@@ -572,6 +573,14 @@ P&L/медиан никогда не реализовывалась).
 | `calculated_at` | timestamptz | нет | server_default `now()` |
 
 **Индексы:** `uq_artifact_variant (item_id, region, qlt, ptn)` UNIQUE, `ix_avs_item (item_id, region)`.
+
+> **Вариант ниже пола по данным** (с 2026-08-16, `docs/tasks/ref-quality-floor.md`): строка
+> пишется с `ref_price = NULL` и `sell_options = NULL`, но `ref_source`/`ref_confidence`/
+> `ref_samples` и все описательные медианы **сохраняются** — иначе «мало данных» не отличить
+> от «сделок не было вовсе». Строк в `feed_lots` у такого варианта нет, поэтому его карточка
+> (`GET /feed/variant`) достижима только переходом «Все лоты предмета» и показывает
+> «недостаточно данных» вместо цены — принято сознательно (§7.4 ТЗ): цене, за которой стоит
+> меньше 5 эффективных сделок, верить нельзя.
 
 ---
 
@@ -632,7 +641,8 @@ P&L/медиан никогда не реализовывалась).
 | `0035_push_subscriptions.py` | Новая таблица `push_subscriptions` (web push, ПК/Android/iOS): `user_id` FK→users CASCADE+index, `endpoint` UNIQUE, `p256dh`/`auth`/`user_agent`, `created_at`/`last_used_at` |
 | `0036_master_items_on_auction.py` | Поля `master_items.on_auction` (bool nullable), `auction_checked_at` (timestamptz), `history_total`/`lots_total` (int) + индекс `ix_master_on_auction` — реальная торгуемость по Stalcraft API вместо эвристики `bind_state` (задача `audit_auction_status`) |
 | `0037_market_stats_reference_price.py` | Поля `market_statistics.median_price_24h` (numeric) и `reference_price` (bigint) — опорная цена `sell_options` как взвешенная по свежести медиана продаж 7д вместо плоской `median_price_7d`. Без бэкфилла: часовой `calculate_market_stats` заполнит, до этого потребители падают на `median_price_7d` |
-| `0038_artifact_feed.py` | «Лента артефактов»: новые таблицы `feed_lots` (8 индексов, включая дописанную позже колонку `profit_per_hour_total`) и `artifact_variant_stats` (2 индекса); `sales_history.user_id` → nullable (глобальная история артефактов пишется с `user_id=NULL`). Три колонки `user_settings` (`feed_notify_push`/`feed_notify_telegram`/`feed_min_profit_percent`) из миграции **убраны 2026-08-04** вместе с уведомлениями ленты. `downgrade()` перед возвратом `NOT NULL` удаляет строки `sales_history` с `user_id IS NULL` — применять **нельзя**, это уничтожает глобальную историю продаж. **На прод не применялась** (состояние на 2026-08-04) |
+| `0038_artifact_feed.py` | «Лента артефактов»: новые таблицы `feed_lots` (8 индексов, включая дописанную позже колонку `profit_per_hour_total`) и `artifact_variant_stats` (2 индекса); `sales_history.user_id` → nullable (глобальная история артефактов пишется с `user_id=NULL`). Три колонки `user_settings` (`feed_notify_push`/`feed_notify_telegram`/`feed_min_profit_percent`) из миграции **убраны 2026-08-04** вместе с уведомлениями ленты. `downgrade()` перед возвратом `NOT NULL` удаляет строки `sales_history` с `user_id IS NULL` — применять **нельзя**, это уничтожает глобальную историю продаж. **На проде применена** (`alembic current` = `0038`, проверено прямым запросом 2026-08-16) |
+| `0039_market_stats_reference_weight.py` | Поле `market_statistics.reference_weight` (numeric(10,2), nullable) — эффективное число сделок за опорой (пол по данным, `docs/tasks/ref-quality-floor.md`). Бэкфилла нет: часовой `calculate_market_stats` заполнит, до этого `NULL` → `confidence="low"`. ⚠ **Применять строго ДО запуска нового образа:** модель `MarketStatistics` объявляет колонку, поэтому без неё падает **любой** ORM-SELECT статистики — карточка предмета (500, `UndefinedColumnError`), watchlist-задачи и `calculate_market_stats` (на стенде — 94 ошибки за 10 минут). Ручки ленты (`/feed/lots`, `/feed/variant`) эту таблицу не читают и переживают. **На прод не применялась** (состояние на 2026-08-16) |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 

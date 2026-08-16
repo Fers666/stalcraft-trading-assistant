@@ -212,6 +212,13 @@ async def get_item_stats(
             sample_count_24h=stats.sales_volume_24h or 0,
             median_now=float(latest_snap.median_price_per_unit) if latest_snap and latest_snap.median_price_per_unit else None,
             current_min=float(current_min) if current_min else None,
+            # Эффективное число сделок за опорой считает та же часовая задача,
+            # что и саму опору (живьём это вся история за 7д на каждый поллинг).
+            # NULL — строка ещё не пересчитана после появления колонки: вес 0
+            # даёт confidence="low", то есть честное «данных мало» вместо
+            # завышенной уверенности по сырому count. Гейт below_floor карточка
+            # не применяет, поэтому опора остаётся видна.
+            weight=float(stats.reference_weight or 0),
         )
 
         fresh_sell_options = (
@@ -340,6 +347,7 @@ async def get_item_stats(
         median_24h=float(filtered_median_24h) if filtered_median_24h else None,
         sample_count_24h=len(prices_24h),
         current_min=float(filtered_current_min) if filtered_current_min else None,
+        weight=wr["weight"] if wr else 0.0,
     )
     if ref_info:
         filtered_opts = _make_sell_options(ref_info["ref"], filtered_volume)

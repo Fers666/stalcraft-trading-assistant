@@ -15,6 +15,8 @@ from app.services.analytics.pricing import (
     COMMISSION,
     GLITCH_RATIO,
     MIN_REF_SAMPLES,
+    MIN_REF_WEIGHT,
+    REF_CONF_HIGH_WEIGHT,
     compute_reference,
     evaluate_lot_profit,
     make_sell_options,
@@ -93,6 +95,117 @@ def test_weighted_reference_future_sale_time_is_clamped():
     """Рассинхрон часов не должен давать вес > 1."""
     samples = [(NOW + timedelta(hours=5), 6_000_000)]
     assert weighted_reference(samples, NOW)["ref"] == 6_000_000
+
+
+# ─── weight: эффективное число сделок ─────────────────────────────────────────
+
+def _fresh(prices: list[int]) -> list[tuple[datetime, int]]:
+    """Сделки нулевого возраста: вес каждой ровно 1.0."""
+    return [(NOW, p) for p in prices]
+
+
+def test_weighted_reference_weight_equals_samples_when_all_sales_are_fresh():
+    res = weighted_reference(_fresh([6_000_000] * 4), NOW)
+    assert res["samples"] == 4
+    assert res["weight"] == pytest.approx(4.0)
+
+
+def test_weighted_reference_weight_is_below_samples_on_stale_sales():
+    """Три сделки трёхдневной давности — это не три сделки, а ~1 эффективная."""
+    samples = [(NOW - timedelta(hours=72), 6_000_000)] * 3
+    res = weighted_reference(samples, NOW)
+    assert res["samples"] == 3
+    assert res["weight"] < res["samples"]
+    assert res["weight"] == pytest.approx(3 * 0.5 ** 1.5, abs=0.01)
+
+
+# ─── trim выбросов по кратности ───────────────────────────────────────────────
+#
+# Выброс — цена вне [med / TRIM_RATIO, med * TRIM_RATIO], med — взвешенная
+# медиана. Критерий свободен от масштаба и от плотности цен: MAD, стоявший тут
+# раньше, схлопывался на круглых ценах (см. test_trim_keeps_fresh_dip_*).
+
+def test_trim_drops_tenfold_outlier():
+    prices = [100] * 11 + [1000]
+    res = weighted_reference(_fresh(prices), NOW)
+
+    assert res["samples"] == 11            # samples считается ПОСЛЕ trim
+    assert res["weight"] == pytest.approx(11.0)
+    assert res["ref"] == 100
+
+
+def test_trim_keeps_price_twice_the_median():
+    """×2 — обычный разброс рынка, а не выброс: TRIM_RATIO = 3."""
+    res = weighted_reference(_fresh([100] * 11 + [200]), NOW)
+    assert res["samples"] == 12
+
+
+def test_trim_drops_outlier_on_a_short_sample_of_round_prices():
+    """
+    «7 по 100 + одна 1000»: MAD на такой выборке равен нулю, и старый фильтр
+    выброс пропускал — предохранитель mad > 0 закрывал только вырожденный
+    случай, а не этот.
+    """
+    res = weighted_reference(_fresh([100] * 7 + [1000]), NOW)
+
+    assert res["samples"] == 7
+    assert res["ref"] == 100
+
+
+def test_trim_does_not_touch_two_sales():
+    """Отсечка по кратности безопасна на любой выборке: a и 5a → медиана 3a,
+    границы a…9a, ничего не срезается. Предохранитель по размеру не нужен."""
+    res = weighted_reference(_fresh([100, 500]), NOW)
+    assert res["samples"] == 2
+
+
+def test_trim_does_not_fire_when_all_prices_are_equal():
+    res = weighted_reference(_fresh([100_000] * 10), NOW)
+    assert res["samples"] == 10
+    assert res["ref"] == 100_000
+
+
+def _wgwz_sales(round_age_hours: float) -> list[tuple[datetime, int]]:
+    """
+    Живой случай `wgwz` (qlt 3, ptn 0), на котором MAD-фильтр развалился:
+    39 сделок, 18 из них по ровно 999 999 → MAD = 1 111, полоса ±3 888
+    (0.4 % от цены), и срезалось 19 сделок вместе со всем свежим проливом.
+
+    round_age_hours — возраст кластера круглых цен. Им регулируется, что
+    перевешивает: свежий пролив или круглая цена.
+    """
+    samples: list[tuple[datetime, int]] = []
+    for i in range(18):                                    # ровно 999 999
+        samples.append((NOW - timedelta(hours=round_age_hours + i * 4), 999_999))
+    for i in range(8):                                     # тот же уровень ±1111
+        samples.append((
+            NOW - timedelta(hours=round_age_hours + i * 4),
+            999_999 + (1_111 if i % 2 else -1_111),
+        ))
+    for i in range(13):                                    # свежий пролив
+        samples.append((NOW - timedelta(hours=1 + i), 900_000 - (i % 2)))
+    return samples
+
+
+def test_reference_follows_fresh_dip_among_round_prices():
+    """Пролив перевешивает: он остаётся в выборке целиком, и опора идёт за ним,
+    а не за круглой ценой позавчерашних суток."""
+    res = weighted_reference(_wgwz_sales(round_age_hours=30), NOW)
+
+    assert res["samples"] == 39
+    assert 899_999 <= res["ref"] <= 900_000
+
+
+def test_trim_does_not_eat_the_sample_when_round_prices_dominate():
+    """
+    Круглая цена перевешивает пролив: MAD схлопывался до 1 111 и срезал все 13
+    свежих сделок — вариант терял треть выборки и проваливался под пол по
+    данным исключительно из-за фильтра выбросов.
+    """
+    res = weighted_reference(_wgwz_sales(round_age_hours=1), NOW)
+
+    assert res["samples"] == 39
+    assert res["weight"] > MIN_REF_WEIGHT
 
 
 # ─── compute_reference ────────────────────────────────────────────────────────
@@ -209,6 +322,36 @@ def test_compute_reference_ref_is_never_none_when_result_is_not():
         assert res is not None and isinstance(res["ref"], int) and res["ref"] > 0
 
 
+# ─── Пол по данным ───────────────────────────────────────────────────────────
+
+def test_compute_reference_below_floor_on_thin_sample():
+    """Опору возвращаем числом (карточка вправе показать «мало сделок»),
+    но помечаем: торгового сигнала по ней быть не должно."""
+    res = compute_reference(weighted_hist=100, weight=MIN_REF_WEIGHT - 0.1)
+
+    assert res["below_floor"] is True
+    assert res["ref"] == 100
+
+
+def test_compute_reference_above_floor_is_not_flagged():
+    res = compute_reference(weighted_hist=100, weight=MIN_REF_WEIGHT)
+    assert res["below_floor"] is False
+    assert res["source"] == "weighted_history"
+
+
+@pytest.mark.parametrize("weight,expected", [
+    (MIN_REF_WEIGHT - 0.1,       "low"),
+    (MIN_REF_WEIGHT,             "medium"),
+    (REF_CONF_HIGH_WEIGHT - 0.1, "medium"),
+    (REF_CONF_HIGH_WEIGHT,       "high"),
+])
+def test_compute_reference_confidence_levels(weight, expected):
+    """Уверенность — по эффективному числу сделок, а не по сырому count."""
+    res = compute_reference(weighted_hist=6_500_000, sample_count=95, weight=weight)
+    assert res["confidence"] == expected
+    assert res["weight"] == pytest.approx(round(weight, 2))
+
+
 # ─── evaluate_lot_profit ──────────────────────────────────────────────────────
 
 def test_evaluate_lot_profit_breakeven():
@@ -263,6 +406,7 @@ def test_yula_falling_market():
         weighted_hist=wr["ref"],
         median_hist=median_7d,
         sample_count=wr["samples"],
+        weight=wr["weight"],
         median_24h=median_24h,
         sample_count_24h=len([p for t, p in samples if t >= NOW - timedelta(hours=24)]),
     )

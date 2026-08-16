@@ -462,7 +462,12 @@ export default function LotStatCard({
                 )}
                 {stats.reference_confidence === 'low' && stats.reference_samples != null && (
                   <Typography sx={{ fontSize: fs.f11, color: tokens.warning, mb: 1 }}>
-                    Мало сделок ({fmtN(stats.reference_samples)}) — оценка приблизительная
+                    Сделки редкие или несвежие ({fmtN(stats.reference_samples)} в выборке) — оценка приблизительная
+                  </Typography>
+                )}
+                {stats.reference_confidence === 'medium' && stats.reference_samples != null && (
+                  <Typography sx={{ fontSize: fs.f11, color: tokens.goldSoft, mb: 1 }}>
+                    Свежих сделок немного ({fmtN(stats.reference_samples)} в выборке) — оценка рабочая, запас небольшой
                   </Typography>
                 )}
                 {/* .sellgrid — 3 равные колонки, 1px-щели через border-контейнер (прототип favorites.html).

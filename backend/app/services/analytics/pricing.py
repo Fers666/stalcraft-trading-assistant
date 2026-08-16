@@ -31,8 +31,15 @@ STALE_SECONDS    = 90     # снэпшот старше этого -> сигна
 # Плоская медиана за 7 дней на трендовом рынке отражает цену ~3.5-дневной
 # давности: на падающем рынке она обещает прибыль, которой уже нет.
 REF_HALF_LIFE_HOURS = 48.0  # период полураспада веса сделки
-MIN_REF_SAMPLES     = 3     # меньше -> confidence="low" (но ref всё равно считаем)
+MIN_REF_SAMPLES     = 3     # меньше -> метка тренда не публикуется (см. compute_reference)
 TREND_SOFT_RATIO    = 0.95  # median_24h / median_7d ниже этого -> тренд "falling"
+
+# Пол по данным: за опорой должно стоять достаточное ЭФФЕКТИВНОЕ число сделок
+# (сумма весов 0.5 ** (age/48), а не сырой count). Три сделки трёхдневной
+# давности — это ~1 эффективная сделка, а не 3.
+MIN_REF_WEIGHT       = 5.0   # ниже — below_floor, торгового сигнала нет
+REF_CONF_HIGH_WEIGHT = 10.0  # эффективных сделок для confidence="high"
+TRIM_RATIO           = 3.0   # цена вне [med / K, med * K] -> выброс
 
 HIGH_VOLATILITY  = 30.0
 MED_VOLATILITY   = 15.0
@@ -200,6 +207,33 @@ def weighted_median(pairs: list[tuple[float, float]]) -> Optional[float]:
     return usable[-1][0]
 
 
+def _trim_outliers(pairs: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """
+    Убирает цены вне диапазона [med / TRIM_RATIO, med * TRIM_RATIO],
+    где med — ВЗВЕШЕННАЯ медиана.
+
+    Отсечка по кратности, а не по MAD: MAD зависит от плотности цен и на
+    круглых ценах схлопывается. Живой `wgwz` (qlt 3, ptn 0) — 18 сделок из 39
+    по ровно 999 999 → MAD = 1 111, полоса ±3 888, то есть 0.4 % от цены, и
+    фильтр съедал 19 сделок вместе со всем свежим проливом на 899 999-900 000.
+    Кратность свободна от масштаба и от плотности: 3× — ровно та величина, на
+    которой измерены реальные выбросы (docs/tasks/profit-algo-review.md §1.7:
+    0.38 % сделок выше 3× медианы, 0.60 % ниже трети).
+
+    Предохранители по размеру выборки не нужны: на двух сделках `a` и `5a`
+    медиана 3a, границы a…9a — не срезается ничего.
+
+    Центр — взвешенная медиана: с плоской фильтр душит тренд. На «Юле»
+    (5 дней рынок стоял на 6.8-7.0 млн, последние 2 дня просел до 6.0-6.6)
+    плоский центр 6.85 млн отправляет всю просадку в нижнюю треть диапазона.
+    """
+    med = weighted_median(pairs)
+    if med is None:
+        return pairs
+
+    return [(v, w) for v, w in pairs if med / TRIM_RATIO <= v <= med * TRIM_RATIO]
+
+
 def weighted_reference(
     samples: list[tuple[datetime, float]],
     now: datetime,
@@ -215,8 +249,12 @@ def weighted_reference(
     мягко: 2-3 случайные свежие сделки не уводят ориентир целиком, потому что
     в расчёте участвует всё окно — просто с меньшим весом.
 
-    Возвращает {"ref": float, "samples": int, "confidence": "high"|"low"}
-    или None если продаж нет.
+    Перед расчётом отбрасываются выбросы по кратности медиане (см.
+    _trim_outliers), поэтому samples/weight описывают то, на чём опора
+    реально построена.
+
+    Возвращает {"ref": float, "samples": int, "weight": float,
+    "confidence": "high"|"low"} или None если продаж нет.
     """
     pairs: list[tuple[float, float]] = []
     for sale_time, price in samples:
@@ -225,6 +263,8 @@ def weighted_reference(
         age_hours = max(0.0, (now - sale_time).total_seconds() / 3600)
         pairs.append((float(price), 0.5 ** (age_hours / half_life_hours)))
 
+    pairs = _trim_outliers(pairs)
+
     ref = weighted_median(pairs)
     if ref is None:
         return None
@@ -232,6 +272,7 @@ def weighted_reference(
     return {
         "ref": ref,
         "samples": len(pairs),
+        "weight": sum(w for _, w in pairs),
         "confidence": "high" if len(pairs) >= MIN_REF_SAMPLES else "low",
     }
 
@@ -245,6 +286,7 @@ def compute_reference(
     sample_count_24h: int = 0,
     median_now:    Optional[float] = None,
     current_min:   Optional[float] = None,
+    weight:        float = 0.0,
 ) -> Optional[dict]:
     """
     Единая опорная цена (ref) для sell_options — один источник формулы
@@ -261,9 +303,22 @@ def compute_reference(
                     сделок за 24ч нет или их слишком мало. Систематически выше цен
                     реальных продаж, поэтому ref не двигает.
     current_min   — минимум среди лотов: фоллбек, если истории продаж нет вовсе.
+    weight        — эффективное число сделок за опорой (weighted_reference["weight"]).
+                    Им, а не сырым count, определяются confidence и below_floor.
 
-    Возвращает dict с ref/source/trend/trend_pct/confidence/samples/samples_24h/median_7d
-    или None, если ориентира нет вообще. Если результат не None — ref всегда int > 0.
+    Возвращает dict с ref/source/trend/trend_pct/confidence/weight/below_floor/
+    samples/samples_24h/median_7d или None, если ориентира нет вообще.
+    Если результат не None — ref всегда int > 0.
+
+    Усадки к родительскому уровню здесь нет и не должно быть: qlt/ptn —
+    главный ценообразующий признак, поэтому соседнее качество это другой товар
+    (у Магмы 145 тыс. против 9.5 млн), а не уточнение тонкой выборки. Замер на
+    стенде: усадка спасала 3665 вариантов из 3665, и 66.3 % полученных опор
+    лежали вне всего диапазона реальных сделок варианта за 30 дней.
+
+    below_floor — признак, а не поведение: число возвращается всегда (карточка
+    предмета вправе показать приблизительную оценку с подписью «мало сделок»),
+    а решение «не давать торговый сигнал» принимает вызывающий.
 
     Тренд — только метка: опорную цену двигает взвешивание по свежести,
     а не пороговый guard (он срабатывал лишь при обвале и пропускал
@@ -309,7 +364,13 @@ def compute_reference(
         "source":     source,
         "trend":      trend,
         "trend_pct":  trend_pct,
-        "confidence": "high" if sample_count >= MIN_REF_SAMPLES else "low",
+        "weight":     round(weight, 2),
+        "confidence": (
+            "high"   if weight >= REF_CONF_HIGH_WEIGHT
+            else "medium" if weight >= MIN_REF_WEIGHT
+            else "low"
+        ),
+        "below_floor": weight < MIN_REF_WEIGHT,
         "samples":    sample_count,
         "samples_24h": sample_count_24h,
         "median_7d":  int(median_hist) if median_hist else None,
