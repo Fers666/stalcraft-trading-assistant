@@ -342,11 +342,12 @@ export default function MobileLotStatCard({
                             )}
                             <Box component="dt" sx={dtSx}>срок</Box>
                             <Box component="dd" sx={ddSx}>{opt.estimated_hours_display}</Box>
-                            {/* Вероятность исполнения тира; пока бэкенд не пересчитал
+                            {/* Ценовая позиция тира (доля сделок по этой цене и выше),
+                                не исполнение лота; пока бэкенд не пересчитал
                                 статистику — поля нет и строки нет (см. LotStatCard). */}
                             {opt.fill_probability != null && (
                               <>
-                                <Box component="dt" sx={dtSx}>шанс продажи</Box>
+                                <Box component="dt" sx={dtSx}>сделок дороже</Box>
                                 <Box component="dd" sx={ddSx}>~{opt.fill_probability} %</Box>
                               </>
                             )}

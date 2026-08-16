@@ -518,13 +518,15 @@ export default function LotStatCard({
                           <Box component="dt" sx={dtSx}>срок</Box>
                           <Box component="dd" className="mono" sx={ddSx}>{opt.estimated_hours_display}</Box>
 
-                          {/* Вероятность исполнения тира. Поля нет, пока бэкенд не пересчитал
-                              статистику новой формулой, — тогда строки просто нет (число
+                          {/* Ценовая позиция тира: квантиль цены в потоке состоявшихся
+                              сделок, а НЕ исполнение конкретного лота (кривая дожития —
+                              фаза B). Поля нет, пока бэкенд не пересчитал статистику
+                              новой формулой, — тогда строки просто нет (число
                               «по умолчанию» соврало бы про свойство цены). */}
                           {opt.fill_probability != null && (
                             <>
-                              <Tooltip title={`По этой цене уходит примерно ${opt.fill_probability} % сделок — не гарантия, а свойство цены`}>
-                                <Box component="dt" sx={{ ...dtSx, cursor: 'help' }}>шанс продажи</Box>
+                              <Tooltip title={`Из прошлых сделок этого варианта ${opt.fill_probability} % прошли по этой цене или выше — чем больше доля, тем конкурентнее цена. Это позиция цены в потоке сделок, а не срок и не гарантия.`}>
+                                <Box component="dt" sx={{ ...dtSx, cursor: 'help' }}>сделок дороже</Box>
                               </Tooltip>
                               <Box component="dd" className="mono" sx={ddSx}>~{opt.fill_probability} %</Box>
                             </>
