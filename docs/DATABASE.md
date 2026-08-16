@@ -299,6 +299,7 @@ UNIQUE по `(user_id, item_id, region)` — одна запись на пред
     "price_per_unit": 3464990,
     "estimated_hours": 3.0,
     "estimated_hours_display": "~3 ч",
+    "fill_probability": 75,
     "confidence": "low|medium|high",
     "data_points": 5
   },
@@ -308,6 +309,15 @@ UNIQUE по `(user_id, item_id, region)` — одна запись на пред
 ```
 `confidence` по coverage: `coverage = matched_count / total_sales_30d × 100%`  
 `high` ≥30% AND ≥10 точек, `medium` 10–30% AND ≥3 точки, `low` <10%.
+
+`fill_probability` (75 / 50 / 25 для fast / normal / premium) — доля сделок варианта,
+проходящих по цене тира или выше; добавлено 2026-08-16 вместе с калибровкой множителей
+(`docs/BUSINESS_LOGIC.md` §4). Миграции нет — оба поля-носителя (`market_statistics.sell_options`
+и `artifact_variant_stats.sell_options`) JSONB. **Поле опционально:** у строк, записанных до
+калибровки, его нет — до ближайшего пересчёта (`calculate_market_stats` — час,
+`calculate_artifact_variant_stats` — 10 мин). Потребители обязаны переживать его отсутствие;
+фронт при `null` просто не рисует строку «шанс продажи» (число «по умолчанию» соврало бы
+про свойство цены).
 
 **Формат `demand_signals`** (`null`, если данных меньше `MIN_SALES_FOR_STATS` в одном из окон):
 ```json

@@ -25,6 +25,7 @@ from app.models.models import (
 )
 from app.services.analytics.pricing import (
     make_sell_options, format_hours, COMMISSION, compute_reference, weighted_reference,
+    tier_prices, FILL_PROBABILITY,
 )
 
 logger = logging.getLogger(__name__)
@@ -645,9 +646,13 @@ async def _calculate_sell_options(
         return [], None
     ref = ref_info["ref"]
 
-    fast_price    = int(ref * 0.97)  # -3%: твой лот дешевле всех → купят первым
-    normal_price  = int(ref * 1.00)  #  ±0%: по опорной цене
-    premium_price = int(ref * 1.05)  # +5%: выше рынка → ждёшь когда чужие раскупят
+    # Множители — из pricing (tier_prices): здесь та же тройка цен, что и в
+    # make_sell_options, различается только прогноз времени. Копию констант
+    # держать нельзя — расходится с основным путём.
+    prices = tier_prices(ref)
+    fast_price, normal_price, premium_price = (
+        prices["fast"], prices["normal"], prices["premium"],
+    )
 
     # ── 4. Прогноз времени ────────────────────────────────────────────────────
     # Уверенность определяется покрытием: какой % продаж за 30д имеет lot_start
@@ -671,6 +676,7 @@ async def _calculate_sell_options(
                 "net_price_per_unit": int(price * (1 - COMMISSION)),
                 "estimated_hours":  hours,
                 "estimated_hours_display": format_hours(hours),
+                "fill_probability": FILL_PROBABILITY[label],
                 "confidence":       confidence,
                 "data_points":      len(time_price_pairs),
             }

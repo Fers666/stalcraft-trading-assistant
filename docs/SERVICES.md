@@ -160,6 +160,13 @@ OAuth2 Client Credentials flow для Stalcraft API.
   между `MIN_REF_WEIGHT` и этим порогом — `"medium"`
 - `TRIM_RATIO = 3.0` — цена вне `[med / 3, med × 3]` (med — **взвешенная** медиана)
   считается выбросом и в опору не входит
+- `FAST_RATIO = 0.94` / `NORMAL_RATIO = 1.00` / `PREMIUM_RATIO = 1.06` — ценовые тиры,
+  множители к `ref`. Откалиброваны по факту исполнения (с 2026-08-16, было `0.97/1.00/1.05`):
+  квантили цен реальных сделок варианта в сутки после среза, медиана **по вариантам**
+  (не по сделкам — оборот перевешивают несколько ликвидных вариантов), 6 срезов за 3 недели
+  → `q25 = 0.937`, `q50 = 0.997`, `q75 = 1.058`. Разбор — `docs/tasks/quantile-sell-tiers.md`
+- `FILL_PROBABILITY = {fast: 75, normal: 50, premium: 25}` — доля сделок варианта,
+  проходящих по цене тира или выше (в процентах); уходит в `sell_options` как есть
 - `TREND_SOFT_RATIO = 0.95` — `median_24h / median_7d` ниже → `trend="falling"`
 - `TREND_DROP_RATIO = 0.75` — тот же порог по медиане **асков**, фоллбек-метка тренда
 - `STALE_SECONDS = 90` — снэпшот старше → сигналу не доверяем
@@ -208,9 +215,15 @@ OAuth2 Client Credentials flow для Stalcraft API.
 - `matching_lot_prices(raw_lots, master, quality_filter, enchant_filter, now)` — цены
   за штуку ликвидных лотов снэпшота под фильтром качества/заточки; общая основа для
   «текущего минимума» (`monitoring.py`) и «медианы текущих цен» (`profitable_lots._filtered_median_now`).
+- `tier_prices(ref)` → `{fast, normal, premium}` — **единственное место применения**
+  множителей. Заведена, чтобы `market_stats._calculate_sell_options` (ветка
+  `confidence="high"` со своим прогнозом времени) не держал вторую копию констант:
+  копии обязаны совпадать, а независимые расходились. Копии в `market_stats.py` больше
+  нет — модуль импортирует `tier_prices` и `FILL_PROBABILITY` из `pricing`
 - `make_sell_options(ref, volume_7d, time_price_pairs=None)` — 3 ценовые точки
-  fast/normal/premium (`ref × 0.97/1.00/1.05`) с прогнозом времени (см. ниже,
-  логика идентична `market_stats._calculate_sell_options`)
+  fast/normal/premium (через `tier_prices`) с прогнозом времени (см. ниже,
+  логика идентична `market_stats._calculate_sell_options`) и полем
+  `fill_probability` (75/50/25) в каждом элементе
 - `batch_bucket_for_amount(amount)` — бакет размера пачки (`x1`, `x2_5`, ... `x51_plus`)
 - `_build_sales_filter(quality_filter, enchant_filter)` — строит доп. условия фильтрации `SalesHistory` по `qlt`/`ptn` из `additional_info` (перенесена сюда 2026-06-28 из `app/api/v1/endpoints/monitoring.py`, чтобы сервисный слой `market_radar.py` не импортировал из слоя api/endpoints); используется в `monitoring.py` (history-эндпоинты) и в `market_radar.py` (медиана 7д для бакетов с заданным quality/enchant).
 - `evaluate_lot_profit(buyout_per_unit, amount, sell_options, risk, min_margin_pct, batch_stats)`:
@@ -249,10 +262,14 @@ OAuth2 Client Credentials flow для Stalcraft API.
 
 **Алгоритм sell_options** (`pricing.make_sell_options`):
 
-Три ценовые точки (все относительно `ref`):
-- **Быстро** (`fast`): `ref × 0.97` — ниже рынка
-- **Нормально** (`normal`): `ref × 1.00` — по рынку
-- **Выгодно** (`premium`): `ref × 1.05` — выше рынка
+Три ценовые точки (все относительно `ref`, множители — `pricing.tier_prices`):
+- **Быстро** (`fast`): `ref × 0.94`, `fill_probability = 75` — ниже рынка
+- **Нормально** (`normal`): `ref × 1.00`, `fill_probability = 50` — по рынку
+- **Выгодно** (`premium`): `ref × 1.06`, `fill_probability = 25` — выше рынка
+
+`fill_probability` — доля сделок варианта, проходящих по цене тира или выше (замер и
+оговорки — `docs/BUSINESS_LOGIC.md` §4). Ветка этого модуля свои множители больше не
+держит: `tier_prices` + `FILL_PROBABILITY` импортируются из `pricing`.
 
 `net_price_per_unit = price × 0.95` — цена после комиссии аукциона 5% (показывается рядом с ценой выставления).
 

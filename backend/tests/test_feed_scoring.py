@@ -341,10 +341,10 @@ def test_visibility_threshold_by_risk():
     threshold = 30.0
     visible = {}
     for risk in ("low", "medium", "high"):
-        # 65 000 за штуку при опоре 100 000 -> ~41.8% прибыли: выше 30%,
-        # но ниже 30 × 1.6 = 48%, которые требует high.
+        # 63 000 за штуку при опоре 100 000 (цена выхода 94 000 × 0.95 = 89 300)
+        # -> ~41.7% прибыли: выше 30%, но ниже 30 × 1.6 = 48%, которые требует high.
         rows = score_item_lots(
-            "art1", "RU", [_lot(65_000)], {(4, 15): _variant(risk=risk)}, NOW,
+            "art1", "RU", [_lot(63_000)], {(4, 15): _variant(risk=risk)}, NOW,
         )
         visible[risk] = bool(rows) and rows[0]["margin_adj_pct"] >= threshold
 

@@ -342,6 +342,14 @@ export default function MobileLotStatCard({
                             )}
                             <Box component="dt" sx={dtSx}>срок</Box>
                             <Box component="dd" sx={ddSx}>{opt.estimated_hours_display}</Box>
+                            {/* Вероятность исполнения тира; пока бэкенд не пересчитал
+                                статистику — поля нет и строки нет (см. LotStatCard). */}
+                            {opt.fill_probability != null && (
+                              <>
+                                <Box component="dt" sx={dtSx}>шанс продажи</Box>
+                                <Box component="dd" sx={ddSx}>~{opt.fill_probability} %</Box>
+                              </>
+                            )}
                           </Box>
                           {opt.data_points != null && (
                             <Box className="mono" sx={{ mt: '7px', pt: '7px', borderTop: `1px solid ${tokens.border}`, fontSize: fs.f105, color: tokens.text2 }}>

@@ -36,6 +36,11 @@ REF_PRICE = 100_000
 TIME_PRICE_PAIRS = [(0.75, REF_PRICE)] * 5
 SELL_OPTIONS = make_sell_options(REF_PRICE, 70, TIME_PRICE_PAIRS)
 
+# Поштучный лот для тестов паритета: должен оставаться прибыльным, иначе в
+# ленту не попадёт и сравнивать будет нечего. 85 тыс. против цены выхода
+# 94 000 × 0.95 = 89 300 (тир «Быстро» после калибровки, было 0.97).
+SINGLE_LOT_PRICE = 85_000
+
 # Пачки 6-10 шт исторически уходят ДОРОЖЕ поштучных: evaluate_lot_profit
 # поднимает ожидаемую цену продажи, карточка без этой поправки уходила в минус.
 BATCH_STATS = {
@@ -222,11 +227,11 @@ def test_card_profit_matches_feed_row_for_batch_lot():
 def test_single_unit_lot_needs_no_batch_correction():
     """У лота из одной штуки поправки нет: множитель обязан быть ровно 1."""
     card, _ = _card()
-    row = _feed_row(90_000, amount=1)
+    row = _feed_row(SINGLE_LOT_PRICE, amount=1)
     fast_price = next(o for o in card.sell_options if o["label"] == "fast")["price_per_unit"]
 
     assert row["sell_price_used"] == fast_price
-    assert round(fast_price * (1 - COMMISSION) - 90_000) == pytest.approx(
+    assert round(fast_price * (1 - COMMISSION) - SINGLE_LOT_PRICE) == pytest.approx(
         row["profit_per_unit"], abs=1,
     )
 
@@ -234,4 +239,4 @@ def test_single_unit_lot_needs_no_batch_correction():
 def test_reference_price_of_card_and_row_is_the_same():
     """Опорная цена строки ленты — та же, что показывает карточка."""
     card, _ = _card()
-    assert _feed_row(90_000, amount=1)["ref_price"] == card.reference_price
+    assert _feed_row(SINGLE_LOT_PRICE, amount=1)["ref_price"] == card.reference_price

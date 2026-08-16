@@ -43,6 +43,13 @@ export interface SellOption {
   net_price_per_unit: number
   estimated_hours: number
   estimated_hours_display: string
+  /**
+   * Доля сделок варианта, прошедших по цене тира или выше, % (75 / 50 / 25).
+   * Тир — не «скидка N %», а цена с измеренной вероятностью исполнения.
+   * undefined/null — статистику ещё не пересчитали новой формулой: строку в UI
+   * просто не показываем, выдумывать число нельзя.
+   */
+  fill_probability?: number | null
   confidence: 'low' | 'medium' | 'high'
   data_points: number
 }

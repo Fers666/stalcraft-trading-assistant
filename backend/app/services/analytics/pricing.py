@@ -41,6 +41,22 @@ MIN_REF_WEIGHT       = 5.0   # ниже — below_floor, торгового си
 REF_CONF_HIGH_WEIGHT = 10.0  # эффективных сделок для confidence="high"
 TRIM_RATIO           = 3.0   # цена вне [med / K, med * K] -> выброс
 
+# Ценовые тиры — множители к ref, откалиброванные по факту исполнения.
+# Замер (docs/tasks/quantile-sell-tiers.md §2): для каждого варианта берётся
+# взвешенная медиана сделок за 7д до среза, затем квантили цен реальных сделок
+# этого же варианта в следующие сутки; медиана по вариантам, 6 срезов за 3 недели.
+# Усреднение по ВАРИАНТАМ, а не по сделкам: оборот сосредоточен в нескольких
+# ликвидных вариантах, а тир применяется к варианту независимо от его оборота.
+# Отсюда q25 = 0.937 (а не 0.889, как в первой редакции разбора), q50 = 0.997,
+# q75 = 1.058. Разброс между срезами ±2 %, тренда нет.
+FAST_RATIO    = 0.94   # ~75 % сделок варианта проходят по этой цене или выше
+NORMAL_RATIO  = 1.00   # ~50 %
+PREMIUM_RATIO = 1.06   # ~25 %
+
+# Доля сделок варианта, проходящих по цене тира или выше, в процентах.
+# Это и есть смысл тира: не «скидка N %», а обещание с измеренной вероятностью.
+FILL_PROBABILITY: dict[str, int] = {"fast": 75, "normal": 50, "premium": 25}
+
 HIGH_VOLATILITY  = 30.0
 MED_VOLATILITY   = 15.0
 
@@ -377,22 +393,39 @@ def compute_reference(
     }
 
 
+def tier_prices(ref: int) -> dict[str, int]:
+    """
+    Цены трёх тиров от опорной цены — единственное место применения множителей.
+
+    Существует, чтобы market_stats (ветка confidence="high" со своим прогнозом
+    времени) не держал вторую копию констант: копии обязаны совпадать, а
+    независимые они расходились.
+    """
+    return {
+        "fast":    int(ref * FAST_RATIO),
+        "normal":  int(ref * NORMAL_RATIO),
+        "premium": int(ref * PREMIUM_RATIO),
+    }
+
+
 def make_sell_options(
     ref: int,
     volume_7d: Optional[int],
     time_price_pairs: Optional[list[tuple[float, int]]] = None,
 ) -> list[dict]:
     """
-    3 ценовые точки (fast/normal/premium) от ref с прогнозом времени продажи.
+    3 ценовые точки (fast/normal/premium) от ref с прогнозом времени продажи
+    и вероятностью исполнения (fill_probability, см. FILL_PROBABILITY).
 
     time_price_pairs — реальные пары (часы_на_рынке, цена) из sales_history
     с восстановленным lot_start. При >= MIN_BATCH_SAMPLES точек даёт
     confidence="medium" (интерполяция по среднему времени), иначе
     confidence="low" (оценка по объёму продаж за 7д).
     """
-    fast_price    = int(ref * 0.97)
-    normal_price  = int(ref * 1.00)
-    premium_price = int(ref * 1.05)
+    prices = tier_prices(ref)
+    fast_price, normal_price, premium_price = (
+        prices["fast"], prices["normal"], prices["premium"],
+    )
 
     pairs = time_price_pairs or []
     if len(pairs) >= MIN_BATCH_SAMPLES:
@@ -422,6 +455,7 @@ def make_sell_options(
             "net_price_per_unit": int(price * (1 - COMMISSION)),
             "estimated_hours": hours,
             "estimated_hours_display": format_hours(hours),
+            "fill_probability": FILL_PROBABILITY[label],
             "confidence": confidence,
             "data_points": data_points,
         }
