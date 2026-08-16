@@ -490,6 +490,58 @@ class FeedLot(Base):
     )
 
 
+class LotObservation(Base):
+    """
+    Наблюдение за жизнью лота: одна строка = один лот, от появления до исхода.
+
+    Сырьё для кривой дожития (P1-4, фаза B): «с какой вероятностью и за какое
+    время продастся лот, выставленный по цене X относительно опоры». В отличие
+    от feed_lots строки НЕ удаляются при исчезновении лота из скана — само
+    исчезновение и есть событие, ради которого таблица заведена. Закрывает
+    строку резолвер resolve_lot_observations, ретеншен — delete_old_data.
+
+    Источник — ТОЛЬКО полный свип ленты (feed_collector.collect_artifact_lots):
+    там идёт полная пагинация /lots, поэтому пропажа лота — настоящая пропажа.
+    Снэпшоты watchlist (collected_data.raw_lots) источником быть НЕ МОГУТ: они
+    обрезаны до 200 самых дешёвых лотов, и «вытеснен более дешёвым» там
+    неотличимо от «продан» (docs/tasks/lot-observations.md §2).
+
+    Наблюдаются только артефакты — кривая будет описывать артефактный рынок.
+    """
+    __tablename__ = "lot_observations"
+
+    id                = Column(BigInteger, primary_key=True)
+    item_id           = Column(String(50), ForeignKey("master_items.item_id"), nullable=False)
+    region            = Column(String(10), nullable=False)
+    qlt               = Column(SmallInteger, nullable=False)
+    ptn               = Column(SmallInteger, nullable=False)
+    # Идентичность лота — та же, что у feed_lots (feed_collector.lot_identity_key)
+    lot_key           = Column(String(128), nullable=False)
+    start_time        = Column(DateTime(timezone=True), nullable=True)   # выставление, из лота
+    end_time          = Column(DateTime(timezone=True), nullable=True)   # плановое истечение (48 ч)
+    amount            = Column(Integer, nullable=False)
+    buyout_price      = Column(BigInteger, nullable=False)               # цена всего лота
+    buyout_per_unit   = Column(BigInteger, nullable=False)
+    # Опора варианта на момент ПЕРВОГО наблюдения. Задним числом не
+    # восстанавливается: artifact_variant_stats перезаписывается каждый час.
+    # NULL = у варианта не было опоры (нет сделок / ниже пола по данным) —
+    # такое наблюдение идёт только в безусловную кривую.
+    ref_price_at_seen = Column(BigInteger, nullable=True)
+    first_seen_at     = Column(DateTime(timezone=True), nullable=False)  # ставится только при вставке
+    last_seen_at      = Column(DateTime(timezone=True), nullable=False)  # последний цикл, видевший лот
+    # NULL пока лот жив; далее sold / expired / withdrawn. Три значения, а не
+    # флаг: expired — полное наблюдение «не продался», withdrawn —
+    # цензурированное. Спутать их значит исказить кривую в фазе B.
+    outcome           = Column(String(12), nullable=True)
+    resolved_at       = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("uq_lot_obs_lot", "item_id", "region", "lot_key", unique=True),
+        Index("ix_lot_obs_pending", "outcome", "last_seen_at"),   # выборка резолвера
+        Index("ix_lot_obs_variant", "item_id", "region", "qlt", "ptn"),  # фаза B
+    )
+
+
 class ArtifactVariantStats(Base):
     """
     Статистика варианта «предмет x качество x заточка» по реальным сделкам.

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,10 @@ def delete_old_data():
 
     async def _run():
         from app.db.session import get_celery_db_session as get_db_session
-        from app.models.models import SalesHistory, CollectedData, PurchaseRecommendation
+        from app.models.models import (
+            SalesHistory, CollectedData, PurchaseRecommendation, LotObservation,
+        )
+        from app.tasks.feed_collector import LOT_OBS_RETENTION_DAYS
         from sqlalchemy import delete
 
         now = datetime.now(timezone.utc)
@@ -36,7 +39,6 @@ def delete_old_data():
                 delete(SalesHistory).where(SalesHistory.will_be_deleted_at <= now)
             )
             # Удаляем старые снэпшоты (старше 120 дней)
-            from datetime import timedelta
             cutoff = now - timedelta(days=120)
             r2 = await db.execute(
                 delete(CollectedData).where(CollectedData.collect_time < cutoff)
@@ -45,12 +47,21 @@ def delete_old_data():
             r3 = await db.execute(
                 delete(PurchaseRecommendation).where(PurchaseRecommendation.expires_at <= now)
             )
+            # Закрытые наблюдения за лотами (P1-4): 30 дней — окно, на котором
+            # строится кривая дожития. Открытые (outcome IS NULL) не трогаем:
+            # их закрывает resolve_lot_observations, а не время.
+            r4 = await db.execute(
+                delete(LotObservation).where(
+                    LotObservation.resolved_at < now - timedelta(days=LOT_OBS_RETENTION_DAYS)
+                )
+            )
             await db.commit()
 
             logger.info(
                 f"Cleanup: removed {r1.rowcount} sales_history, "
                 f"{r2.rowcount} collected_data, "
-                f"{r3.rowcount} expired recommendations"
+                f"{r3.rowcount} expired recommendations, "
+                f"{r4.rowcount} lot_observations"
             )
 
     run_async(_run())

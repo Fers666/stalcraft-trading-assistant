@@ -8,7 +8,9 @@ services/analytics/pricing (все формулы), api_cache (общий кэш
   collect_artifact_lots    — полная пагинация /lots по всем артефактам,
                              скоринг и запись выгодных лотов в feed_lots;
   collect_artifact_history — часовая дельта /history по всем артефактам
-                             в sales_history с user_id = NULL.
+                             в sales_history с user_id = NULL;
+  resolve_lot_observations — закрывает наблюдения за исчезнувшими лотами
+                             (sold / expired / withdrawn), к API не ходит.
 
 Почему нужна ПОЛНАЯ пагинация: /lots не сортирует по цене (сортировка в
 collectors._collect_lots_for_item происходит уже ПОСЛЕ получения), поэтому
@@ -115,6 +117,25 @@ SALES_RETENTION_DAYS    = 120       # will_be_deleted_at = sale_time + этог�
 # всплеск, который упирался в лимит. С 2 с обход растягивается на ~4 минуты
 # (~52 ед/мин), при том же часовом объёме. Часовой дельте спешить некуда.
 HISTORY_ITEM_DELAY      = 2.0
+
+# ─── Наблюдения за лотами (docs/tasks/lot-observations.md, P1-4 фаза A) ──────
+# Сырьё для кривой дожития: пишутся ВСЕ просканированные лоты, а не только
+# выгодные. Выборка обязана быть несмещённой — по одним лишь строкам feed_lots
+# кривая описывала бы исключительно дешёвые лоты и завышала вероятность продажи.
+# Бюджет API не затрагивается: данные уже в руках сборщика.
+LOT_OBS_UPSERT_CHUNK = 500          # как UPSERT_CHUNK в variant_stats.py
+# Резолвер: не раньше 2 часов после последнего наблюдения. collect_artifact_history
+# идёт раз в час (:15), поэтому продажа попадает в sales_history с задержкой до
+# часа; резолвить раньше — массово метить проданные лоты как withdrawn.
+LOT_OBS_RESOLVE_DELAY_HOURS = 2
+LOT_OBS_RESOLVE_BATCH       = 5000  # строк за один прогон резолвера
+# Допуск «дожил до конца аукциона»: последний раз лот видели за один обход до
+# end_time. Полный круг ~5 мин, холодные предметы — раз в FEED_COLD_EVERY_N_CYCLES
+# циклов, т.е. до ~25 мин; 30 мин покрывает и их. При 48-часовой жизни лота это
+# 1% срока: цена ошибки заметно ниже, чем у систематической путаницы
+# expired (полное наблюдение) с withdrawn (цензурированное).
+LOT_OBS_EXPIRE_TOLERANCE_MINUTES = 30
+LOT_OBS_RETENTION_DAYS = 30         # удаление resolved-строк в delete_old_data
 
 FEED_SCAN_LAST_PREFIX = "feed:scan:last:"
 FEED_SCAN_LAST_TTL    = 24 * 3600
@@ -435,6 +456,154 @@ def score_item_lots(
     return rows
 
 
+def observation_rows(
+    item_id: str,
+    region: str,
+    lots: list[dict],
+    variants: dict[tuple[int, int], object],
+    seen_at: datetime,
+) -> list[dict]:
+    """
+    Строки lot_observations по срезу предмета — для ВСЕХ лотов, а не выгодных.
+
+    Отличие от score_item_lots принципиальное и намеренное: там отбор по
+    прибыльности (это и есть назначение feed_lots), здесь — вся популяция
+    рынка. Кривая дожития, построенная только по прибыльным (то есть дешёвым)
+    лотам, систематически завысит вероятность продажи.
+
+    Не фильтруем и по ликвидности (_is_liquid): лот в последние 2 часа
+    аукциона — как раз тот случай, ради которого различаются expired и
+    withdrawn.
+
+    ref_price_at_seen берётся из уже загруженных variants и пишется СРАЗУ:
+    artifact_variant_stats перезаписывается каждый час, и через неделю опору
+    на момент наблюдения не восстановить. Отсутствие опоры (нет сделок либо
+    ниже пола по данным, P0-2) — это NULL, а не повод пропустить лот.
+
+    Пропускаются только лоты, по которым нечего наблюдать: без buyoutPrice
+    (продаются лишь ставками, сделку с ними не сматчить), без amount и без
+    startTime (нет ключа идентичности — см. lot_identity_key).
+    """
+    from app.services.analytics.pricing import _lot_quality_enchant
+
+    rows: list[dict] = []
+    for lot in lots:
+        buyout  = lot.get("buyoutPrice", 0) or 0
+        amount  = lot.get("amount", 1) or 0
+        lot_key = lot_identity_key(lot)
+        start   = _parse_lot_time(lot.get("startTime"))
+        if buyout <= 0 or amount <= 0 or not lot_key or start is None:
+            continue
+
+        # master не нужен: у артефактов qlt/ptn берутся из lot["additional"]
+        qlt, ptn = _lot_quality_enchant(lot, None, True)
+        variant  = variants.get((qlt, ptn))
+        ref      = getattr(variant, "ref_price", None)
+
+        rows.append({
+            "item_id":           item_id,
+            "region":            region,
+            "qlt":               qlt,
+            "ptn":               ptn,
+            "lot_key":           lot_key,
+            "start_time":        start,
+            "end_time":          _parse_lot_time(lot.get("endTime")),
+            "amount":            amount,
+            "buyout_price":      buyout,
+            "buyout_per_unit":   buyout // amount,
+            "ref_price_at_seen": int(ref) if ref else None,
+            "first_seen_at":     seen_at,
+            "last_seen_at":      seen_at,
+        })
+
+    return rows
+
+
+def observation_update_columns() -> set[str]:
+    """
+    Колонки, обновляемые апсертом наблюдения при повторной встрече лота.
+
+    Обновляется по сути только last_seen_at. Не обновляются: ключ
+    идентичности, first_seen_at (иначе теряется момент появления — основа
+    времени дожития), ref_price_at_seen (опора нужна НА МОМЕНТ ПЕРВОГО
+    наблюдения, иначе через сутки в строке окажется свежая опора и связь
+    «цена vs вероятность продажи» рассыплется) и поля исхода, которые ставит
+    резолвер.
+
+    Уже закрытую строку апсерт не переоткрывает: если предмет надолго выпал из
+    обхода (парковка после отказов) и резолвер успел закрыть его живые лоты,
+    вернувшийся лот обновит last_seen_at при сохранённом исходе. Такие строки
+    видны в фазе B по last_seen_at > resolved_at и отбраковываются там.
+    """
+    from app.models.models import LotObservation
+
+    frozen = {
+        "id", "item_id", "region", "lot_key", "qlt", "ptn",
+        "start_time", "end_time", "amount", "buyout_price", "buyout_per_unit",
+        "ref_price_at_seen", "first_seen_at", "outcome", "resolved_at",
+    }
+    return {col.name for col in LotObservation.__table__.columns} - frozen
+
+
+def sale_matches(obs, sale_time: datetime, total_price: int, amount: int) -> bool:
+    """
+    Та же сделка, что наблюдаемый лот: цена всего лота, количество и окно времени.
+
+    Матч тот же, что у collectors.find_lot_info (восстановление lot_start), но с
+    другой стороны: там от сделки ищут лот в снэпшоте, здесь от лота — сделку.
+    Верхняя граница окна — last_seen_at + RESOLVE_DELAY: между последним
+    наблюдением и продажей лежит интервал обхода, а сама продажа могла
+    случиться уже после того, как лот пропал из скана.
+    """
+    return (
+        total_price == obs.buyout_price
+        and amount == obs.amount
+        and obs.first_seen_at <= sale_time
+        <= obs.last_seen_at + timedelta(hours=LOT_OBS_RESOLVE_DELAY_HOURS)
+    )
+
+
+def resolve_cutoff(now: datetime) -> datetime:
+    """
+    Граница выборки резолвера: строки с last_seen_at ПОЗЖЕ неё не трогаем.
+
+    Отставание не техническая осторожность, а свойство данных: продажи
+    артефактов приезжают часовой дельтой (collect_artifact_history, :15), и
+    сразу после исчезновения лота его сделки в sales_history ещё нет.
+    """
+    return now - timedelta(hours=LOT_OBS_RESOLVE_DELAY_HOURS)
+
+
+def classify_outcome(obs, sales: list[tuple[datetime, int, int]]) -> str:
+    """
+    Исход наблюдения: sold / expired / withdrawn. Порядок проверок из ТЗ §5.
+
+    obs — строка lot_observations (нужны buyout_price, amount, first_seen_at,
+    last_seen_at, end_time), sales — сделки ТОГО ЖЕ предмета и варианта,
+    кортежи (sale_time, total_price, amount).
+
+    expired — лот дожил до конца аукциона и не был куплен: для survival-анализа
+    это ПОЛНОЕ наблюдение «не продался». withdrawn — пропал раньше end_time:
+    ЦЕНЗУРИРОВАННОЕ наблюдение (продавец снял либо матч не нашёл сделку).
+    Смешать их — значит систематически исказить кривую, поэтому исходов три,
+    а не флаг «продан / не продан».
+
+    Ограничение: одна сделка может закрыть два неразличимых наблюдения (тот же
+    предмет, вариант, цена и количество). Расходовать сделки нельзя: резолвер
+    не помнит, что сматчил в прошлом прогоне. Доля таких совпадений мала, а
+    учитывать её — задача фазы B.
+    """
+    for sale_time, total_price, amount in sales:
+        if sale_matches(obs, sale_time, total_price, amount):
+            return "sold"
+
+    tolerance = timedelta(minutes=LOT_OBS_EXPIRE_TOLERANCE_MINUTES)
+    if obs.end_time is not None and obs.end_time <= obs.last_seen_at + tolerance:
+        return "expired"
+
+    return "withdrawn"
+
+
 def _parse_lot_time(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -590,24 +759,74 @@ async def delete_stale_rows(db, item_id: str, region: str, cycle_started_at: dat
     return result.rowcount or 0
 
 
+async def upsert_lot_observations(db, rows: list[dict]) -> tuple[int, int]:
+    """
+    Апсерт строк lot_observations по (item_id, region, lot_key).
+
+    Возвращает (вставлено, обновлено) — объём таблицы ТЗ требует измерить, а не
+    угадать (docs/tasks/lot-observations.md §6). Различить вставку и обновление
+    в одном INSERT ... ON CONFLICT позволяет системная колонка xmax: у строки,
+    вставленной этим же оператором, она нулевая.
+
+    Батчами по LOT_OBS_UPSERT_CHUNK: за полный круг это до 2000 лотов на
+    предмет, один гигантский INSERT незачем. Предварительное схлопывание по
+    ключу — то же и по той же причине, что в upsert_feed_rows: повтор ключа
+    внутри батча роняет весь оператор.
+    """
+    from sqlalchemy import literal_column
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+    from app.models.models import LotObservation
+
+    if not rows:
+        return 0, 0
+
+    values = dedupe_rows(rows)
+    updatable = observation_update_columns()
+
+    inserted = updated = 0
+    for start in range(0, len(values), LOT_OBS_UPSERT_CHUNK):
+        chunk = values[start:start + LOT_OBS_UPSERT_CHUNK]
+        stmt = pg_insert(LotObservation).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["item_id", "region", "lot_key"],
+            set_={name: stmt.excluded[name] for name in updatable},
+        ).returning(literal_column("(xmax = 0)").label("is_insert"))
+
+        for row in (await db.execute(stmt)).all():
+            if row.is_insert:
+                inserted += 1
+            else:
+                updated += 1
+
+    return inserted, updated
+
+
 @dataclass
 class ItemScanResult:
-    """Итог обработки одного предмета: сколько строк отскорено и убрано."""
+    """Итог обработки одного предмета: сколько строк отскорено, убрано, наблюдено."""
     rows_scored: int
     rows_deleted: int
+    obs_inserted: int = 0
+    obs_updated: int = 0
 
 
 async def scan_item(
     db, item_id: str, region: str, lots: list[dict], cycle_started_at: datetime,
 ) -> ItemScanResult:
-    """Обработка одного предмета: скоринг -> апсерт -> уборка -> commit."""
+    """Обработка одного предмета: скоринг -> апсерт -> наблюдения -> уборка -> commit."""
     variants = await _load_variants(db, item_id, region)
     rows = score_item_lots(item_id, region, lots, variants, cycle_started_at)
     await upsert_feed_rows(db, rows)
+    obs_inserted, obs_updated = await upsert_lot_observations(
+        db, observation_rows(item_id, region, lots, variants, cycle_started_at),
+    )
     deleted = await delete_stale_rows(db, item_id, region, cycle_started_at)
     await db.commit()
 
-    return ItemScanResult(rows_scored=len(rows), rows_deleted=deleted)
+    return ItemScanResult(
+        rows_scored=len(rows), rows_deleted=deleted,
+        obs_inserted=obs_inserted, obs_updated=obs_updated,
+    )
 
 
 async def note_item_failure(redis_client, item_id: str, cycle_started_at: datetime) -> int:
@@ -819,6 +1038,7 @@ def collect_artifact_lots(self):
 
                     units = pages = done = guard_trips = item_errors = 0
                     rows_upserted = rows_deleted = 0
+                    obs_inserted = obs_updated = 0
                     scanned_now: set[str] = set()
 
                     for idx, plan in enumerate(selected):
@@ -893,6 +1113,8 @@ def collect_artifact_lots(self):
 
                         rows_upserted += scan.rows_scored
                         rows_deleted += scan.rows_deleted
+                        obs_inserted += scan.obs_inserted
+                        obs_updated += scan.obs_updated
 
                         await redis_client.setex(
                             FEED_SCAN_LAST_PREFIX + plan.item_id, FEED_SCAN_LAST_TTL,
@@ -909,11 +1131,12 @@ def collect_artifact_lots(self):
                     logger.info(
                         "feed cycle #%s: items_planned=%s items_done=%s items_failed=%s pages=%s "
                         "units=%s budget=%s%s elapsed=%.1fs deferred=%s guard_trips=%s "
-                        "rows_upserted=%s rows_deleted=%s (оценка расхода при планировании: %s ед)",
+                        "rows_upserted=%s rows_deleted=%s obs_inserted=%s obs_updated=%s "
+                        "(оценка расхода при планировании: %s ед)",
                         cycle, len(selected), done, item_errors, pages, units, budget,
                         " (окно истории)" if in_history_window(cycle_started_at) else "",
                         time.monotonic() - started, deferred, guard_trips,
-                        rows_upserted, rows_deleted, estimated,
+                        rows_upserted, rows_deleted, obs_inserted, obs_updated, estimated,
                     )
 
                     await _finish_sweep_if_complete(
@@ -938,9 +1161,13 @@ async def _finish_sweep_if_complete(
     Логирует длительность круга (метрика калибровки) и убирает осиротевшие
     строки feed_lots — предметов, выпавших из набора (сняты с торгов, удалены
     из каталога).
+
+    Здесь же снимается объём lot_observations: ТЗ требует измерить прирост, а
+    не угадать его (docs/tasks/lot-observations.md §6). Раз в круг (~5 мин)
+    один COUNT по таблице до ~200 тыс. строк — цена, которую можно платить.
     """
-    from sqlalchemy import delete
-    from app.models.models import FeedLot
+    from sqlalchemy import delete, func, select
+    from app.models.models import FeedLot, LotObservation
 
     raw = await redis_client.get(FEED_SWEEP_KEY)
     sweep_cycle, sweep_started = None, None
@@ -977,6 +1204,18 @@ async def _finish_sweep_if_complete(
     await db.commit()
     if result.rowcount:
         logger.info("feed sweep: убрано осиротевших строк feed_lots: %s", result.rowcount)
+
+    volume = (await db.execute(
+        select(
+            func.count(),
+            func.count().filter(LotObservation.outcome.is_(None)),
+            func.count().filter(LotObservation.ref_price_at_seen.is_not(None)),
+        ).select_from(LotObservation)
+    )).one()
+    logger.info(
+        "feed sweep: lot_observations всего=%s открытых=%s с опорой=%s",
+        volume[0], volume[1], volume[2],
+    )
 
     await redis_client.set(FEED_SWEEP_KEY, f"{cycle + 1}:{now.timestamp()}")
 
@@ -1142,3 +1381,102 @@ async def _collect_history_for_artifact(db, item_id: str, region: str) -> tuple[
         await asyncio.sleep(FEED_REQUEST_DELAY)
 
     return requests, inserted
+
+
+# ─── Резолвер исходов наблюдений (P1-4 фаза A, §5 ТЗ) ────────────────────────
+
+@celery_app.task(
+    name="app.tasks.feed_collector.resolve_lot_observations", bind=True, max_retries=0,
+)
+def resolve_lot_observations(self):
+    """
+    Закрывает наблюдения за исчезнувшими лотами: sold / expired / withdrawn.
+
+    Раз в 15 минут, к Stalcraft API не обращается — читает только
+    lot_observations и sales_history. Строка берётся не раньше чем через
+    LOT_OBS_RESOLVE_DELAY_HOURS после последнего наблюдения: история артефактов
+    приходит раз в час, и на свежих строках продажи в sales_history ещё нет —
+    резолвер пометил бы их withdrawn.
+    """
+
+    async def _run():
+        from app.db.session import get_celery_db_session as get_db_session
+
+        async with get_db_session() as db:
+            return await _resolve_observations(db, datetime.now(timezone.utc))
+
+    return run_async(_run())
+
+
+async def _resolve_observations(db, now: datetime) -> dict[str, int]:
+    """
+    Одна порция резолва. Возвращает распределение исходов (метрика §6 ТЗ).
+
+    Сделки грузятся ОДНИМ запросом на всю порцию и раскладываются по варианту:
+    построчный поиск дал бы до LOT_OBS_RESOLVE_BATCH запросов за прогон.
+    """
+    from sqlalchemy import select, update
+    from app.models.models import LotObservation, SalesHistory
+    from app.services.analytics.variant_stats import variant_key
+
+    cutoff = resolve_cutoff(now)
+    rows = (await db.execute(
+        select(LotObservation)
+        .where(LotObservation.outcome.is_(None), LotObservation.last_seen_at < cutoff)
+        .order_by(LotObservation.last_seen_at)
+        .limit(LOT_OBS_RESOLVE_BATCH)
+    )).scalars().all()
+
+    stats = {"sold": 0, "expired": 0, "withdrawn": 0}
+    if not rows:
+        logger.info("lot_obs resolve: закрывать нечего")
+        return stats
+
+    item_ids = {row.item_id for row in rows}
+    regions  = {row.region for row in rows}
+    sales = (await db.execute(
+        select(
+            SalesHistory.item_id, SalesHistory.region, SalesHistory.sale_time,
+            SalesHistory.total_price, SalesHistory.amount, SalesHistory.additional_info,
+        ).where(
+            SalesHistory.item_id.in_(item_ids),
+            SalesHistory.region.in_(regions),
+            SalesHistory.sale_time >= min(row.first_seen_at for row in rows),
+            SalesHistory.sale_time <= max(row.last_seen_at for row in rows)
+            + timedelta(hours=LOT_OBS_RESOLVE_DELAY_HOURS),
+        )
+    )).all()
+
+    by_variant: dict[tuple[str, str, int, int], list[tuple[datetime, int, int]]] = {}
+    for sale in sales:
+        qlt, ptn = variant_key(sale.additional_info)
+        by_variant.setdefault((sale.item_id, sale.region, qlt, ptn), []).append(
+            (sale.sale_time, sale.total_price, sale.amount)
+        )
+
+    resolved: dict[str, list[int]] = {"sold": [], "expired": [], "withdrawn": []}
+    for row in rows:
+        outcome = classify_outcome(
+            row, by_variant.get((row.item_id, row.region, row.qlt, row.ptn), []),
+        )
+        resolved[outcome].append(row.id)
+
+    for outcome, ids in resolved.items():
+        if not ids:
+            continue
+        await db.execute(
+            update(LotObservation)
+            .where(LotObservation.id.in_(ids))
+            .values(outcome=outcome, resolved_at=now)
+        )
+        stats[outcome] = len(ids)
+    await db.commit()
+
+    total = sum(stats.values())
+    logger.info(
+        "lot_obs resolve: закрыто=%s sold=%s (%.0f%%) expired=%s withdrawn=%s (%.0f%%) "
+        "сделок в окне=%s",
+        total, stats["sold"], 100 * stats["sold"] / total, stats["expired"],
+        stats["withdrawn"], 100 * stats["withdrawn"] / total, len(sales),
+    )
+    return stats

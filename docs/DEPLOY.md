@@ -36,18 +36,32 @@ docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
 
 > **При переписанной git-истории** (например, после `git-filter-repo`) обычный `git pull` не сработает (история разошлась) — нужен `git fetch && git reset --hard origin/main`.
 
-### Миграция `0039` (`market_statistics.reference_weight`) — строго ДО запуска образа
+### Миграция, меняющая модель — строго ДО запуска образа
 
-Ожидает применения на проде (состояние на 2026-08-16). Порядок обязателен:
+**Применено на проде 2026-08-16** (`0039`, `market_statistics.reference_weight`). Ниже — общий порядок для любой такой миграции:
 
 ```bash
 cd /home/evgen/app && git pull
 docker compose -f docker-compose.prod.yml build --no-cache backend frontend worker scheduler
-# 1) СНАЧАЛА миграция — на ещё работающем старом контейнере
-docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
-# 2) и только потом новый образ
+# 1) СНАЧАЛА миграция — одноразовым контейнером из НОВОГО образа
+docker compose -f docker-compose.prod.yml run --rm --no-deps backend alembic upgrade head
+# 2) и только потом подмена работающих контейнеров
 docker compose -f docker-compose.prod.yml up -d
 ```
+
+> ⚠ **Не используй `exec backend alembic upgrade head` на этом шаге.** В прод-образе код
+> **запечён**, а не смонтирован: у работающего старого контейнера файла новой миграции
+> просто нет, для него `head` — это предыдущая ревизия. Команда отработает вхолостую,
+> напечатает только две строки про `Context impl` / `transactional DDL` — **без строки
+> `Running upgrade`** — и молча оставит схему старой. На деплое 2026-08-16 это уже
+> случилось: `alembic_version` остался `0038`, и только `run --rm` из нового образа
+> применил `0039`. Отсутствие `Running upgrade N -> M` в выводе — признак того, что
+> миграция НЕ применилась; всегда проверяй схему явно:
+> `docker compose -f docker-compose.prod.yml exec -T postgres psql -qU stalcraft -d stalcraft -c "select version_num from alembic_version;"`
+
+`run --rm --no-deps` создаёт временный контейнер из свежесобранного образа и удаляет его
+после выхода; работающие сервисы при этом не трогаются, поэтому окна с новым кодом на
+старой схеме не возникает.
 
 Причина: модель `MarketStatistics` объявляет колонку `reference_weight`, поэтому без неё
 падает **любой** ORM-SELECT статистики — карточка предмета (`GET /api/v1/monitoring/item/{id}`

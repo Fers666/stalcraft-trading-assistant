@@ -115,6 +115,16 @@ celery_app.conf.update(
             "task": "app.tasks.feed_collector.calculate_artifact_variant_stats",
             "schedule": crontab(minute="14,24,34,44,54"),
         },
+        # Исходы наблюдений за лотами (docs/tasks/lot-observations.md §5) —
+        # раз в 15 мин, к Stalcraft API не обращается. Минуты :13,:28,:43,:58
+        # свободны от слотов calculate_market_stats_batch (:12–:57 шагом 5),
+        # calculate_artifact_variant_stats (:14,:24,:34,:44,:54) и
+        # collect_artifact_history (:15) — чтобы не складывать нагрузку на БД
+        # (docs/tasks/cpu-spikes-recurring-2026-07-06.md).
+        "resolve-lot-observations": {
+            "task": "app.tasks.feed_collector.resolve_lot_observations",
+            "schedule": crontab(minute="13,28,43,58"),
+        },
         # Telegram-уведомления — обрабатываются telegram_bot сервисом (polling),
         # scan_and_notify отключён во избежание дублирования.
         # Трекинг радиационных выбросов — каждые 2 минуты, 1 токен/запрос.
