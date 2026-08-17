@@ -69,12 +69,27 @@ def pos_bucket(queue_rank: Optional[int], variant_live_lots: Optional[int]) -> O
 
     Книга из <= 3 лотов — отдельная страта, а не доля: 1 из 2 и 1 из 200 это
     разные рынки, и делить одно на другое здесь нечего.
+
+    Верх книги разбит дробно (2 / 5 / 10 %), потому что там и происходит всё
+    интересное. Прежние четыре полосы схлопывали внутри одного «top10» разброс
+    в 24 п.п. — от 89.8 % у самых дешёвых до 65.8 % на границе, — и из-за этого
+    сценарий «продать дороже» в двух третях строк ленты показывал НУЛЕВУЮ цену
+    ожидания: +12.8 % к цене не перепрыгивали такую широкую границу.
+
+    Границы круглые, а не подогнанные под квантили одного среза: квантили,
+    снятые с неполных суток, уехали бы. Устойчивость проверена посуточно —
+    порядок страт воспроизвёлся день в день без единого пересечения (уровни при
+    этом плавают на 3-9 п.п., но это лечится объёмом данных, а не границами).
     """
     if not queue_rank or not variant_live_lots or variant_live_lots <= 0:
         return None
     if variant_live_lots <= 3:
         return "thin"
     relpos = queue_rank / variant_live_lots
+    if relpos <= 0.02:
+        return "top2"
+    if relpos <= 0.05:
+        return "top5"
     if relpos <= 0.10:
         return "top10"
     if relpos <= 0.25:
@@ -175,6 +190,8 @@ class SurvivalTable:
 # границам, а читается по другим. Проверяется тестом test_sql_buckets_match.
 _POS_CASE = """
     CASE WHEN variant_live_lots <= 3 THEN 'thin'
+         WHEN queue_rank::numeric / variant_live_lots <= 0.02 THEN 'top2'
+         WHEN queue_rank::numeric / variant_live_lots <= 0.05 THEN 'top5'
          WHEN queue_rank::numeric / variant_live_lots <= 0.10 THEN 'top10'
          WHEN queue_rank::numeric / variant_live_lots <= 0.25 THEN 'top25'
          WHEN queue_rank::numeric / variant_live_lots <= 0.50 THEN 'mid'

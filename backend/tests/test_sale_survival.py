@@ -26,8 +26,12 @@ from app.services.analytics.pricing import make_sell_options, tier_prices
 @pytest.mark.parametrize("rank, book, expected", [
     (1, 2, "thin"),          # книга <= 3 — отдельная страта, а не доля
     (1, 3, "thin"),
-    (1, 100, "top10"),       # 0.01
-    (10, 100, "top10"),      # ровно 0.10 — граница включающая
+    (1, 100, "top2"),        # 0.01
+    (2, 100, "top2"),        # ровно 0.02 — граница включающая
+    (3, 100, "top5"),
+    (5, 100, "top5"),
+    (6, 100, "top10"),
+    (10, 100, "top10"),
     (11, 100, "top25"),
     (25, 100, "top25"),
     (26, 100, "mid"),
@@ -124,13 +128,13 @@ def test_sql_buckets_match_python():
     расхождение, которое никак иначе не проявится, кроме кривых чисел в UI.
     """
     pos_numbers = re.findall(r"<= (0\.\d+)", _POS_CASE)
-    assert pos_numbers == ["0.10", "0.25", "0.50"]
+    assert pos_numbers == ["0.02", "0.05", "0.10", "0.25", "0.50"]
     assert "variant_live_lots <= 3" in _POS_CASE
 
     ratio_numbers = re.findall(r"< (\d\.\d+)", _RATIO_CASE)
     assert ratio_numbers == ["0.90", "0.94", "0.98", "1.03", "1.10", "1.30"]
 
-    for bucket in ("thin", "top10", "top25", "mid", "bottom"):
+    for bucket in ("thin", "top2", "top5", "top10", "top25", "mid", "bottom"):
         assert f"'{bucket}'" in _POS_CASE
     for bucket in ("lt90", "r90_94", "r94_98", "r98_103", "r103_110", "r110_130", "ge130"):
         assert f"'{bucket}'" in _RATIO_CASE
@@ -392,8 +396,9 @@ def test_feed_uses_planned_sell_price_not_lot_price():
 
     assert rank_bought == 1                      # купленный лот — самый дешёвый
     assert rank_planned > rank_bought            # плановая цена продажи — выше
-    assert pos_bucket(rank_bought, book) == "top10"
-    assert pos_bucket(rank_planned, book) != "top10"
+    # Страты разные: именно это и означает, что вопрос «за сколько уйдёт
+    # купленное» не подменяется вопросом «за сколько уйдёт этот лот».
+    assert pos_bucket(rank_bought, book) != pos_bucket(rank_planned, book)
 
 
 # ─── Отображение измеренного срока ───────────────────────────────────────────
@@ -501,3 +506,18 @@ def test_still_live_lot_lowers_the_probability():
     row = _stratum_row(FEATURE_POS, agg, None)
     assert row["p_sold_lo"] == 50.0
     assert row["pct_sold_ever"] == 50.0
+
+
+def test_top_of_the_book_is_split_finely():
+    """
+    Верх книги обязан различаться дробно: до разбиения весь диапазон 0-10 %
+    лежал в одной страте, где реальный разброс вероятности продажи составлял
+    24 п.п. (89.8 % у самых дешёвых против 65.8 % на границе). Из-за этого
+    +12.8 % к цене не перепрыгивали границу, и сценарий «продать дороже»
+    показывал нулевую цену ожидания в двух третях строк ленты.
+    """
+    assert pos_bucket(1, 1000) == "top2"       # 0.001
+    assert pos_bucket(30, 1000) == "top5"      # 0.03
+    assert pos_bucket(80, 1000) == "top10"     # 0.08
+    # Три разные страты внутри прежнего единственного top10
+    assert len({pos_bucket(1, 1000), pos_bucket(30, 1000), pos_bucket(80, 1000)}) == 3
