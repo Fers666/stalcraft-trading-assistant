@@ -84,7 +84,7 @@ def _volatility(prices: list[int]) -> float | None:
     return round(statistics.stdev(prices) / mean * 100, 2)
 
 
-def compute_variant(sales_30d: list, now: datetime) -> dict:
+def compute_variant(sales_30d: list, now: datetime, survival=None) -> dict:
     """
     Метрики одного варианта по его продажам за 30 дней.
 
@@ -136,7 +136,7 @@ def compute_variant(sales_30d: list, now: datetime) -> dict:
     )
 
     sell_options = (
-        make_sell_options(ref_info["ref"], len(prices_7d), pairs_for_options)
+        make_sell_options(ref_info["ref"], len(prices_7d), pairs_for_options, survival)
         if ref_info is not None and not below_floor else None
     )
 
@@ -201,12 +201,17 @@ async def calculate_artifact_variant_stats(
         qlt, ptn = variant_key(row.additional_info)
         groups.setdefault((row.item_id, qlt, ptn), []).append(row)
 
+    # Таблица дожития читается ОДИН раз на весь пересчёт: она общая для всех
+    # вариантов (страты по признакам, а не по варианту) и меняется раз в сутки.
+    from app.services.analytics.survival import load_survival
+    survival = await load_survival(db, now)
+
     values: list[dict] = []
     for (item_id, qlt, ptn), sales in groups.items():
         values.append({
             "item_id": item_id, "region": region, "qlt": qlt, "ptn": ptn,
             "calculated_at": now,
-            **compute_variant(sales, now),
+            **compute_variant(sales, now, survival),
         })
 
     # Батчами: у 103 артефактов набирается несколько тысяч вариантов, каждый с

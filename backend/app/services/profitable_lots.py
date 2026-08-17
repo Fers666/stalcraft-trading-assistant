@@ -98,6 +98,7 @@ async def compute_signals_for_entry(
     db, entry, master, stats, snap,
     min_profit_margin_pct: float = 0.0,
     exclude_less_than_amount: int = 1,
+    survival=None,
 ) -> Optional[dict]:
     """
     Вычисляет выгодные лоты для одной watchlist-записи.
@@ -252,7 +253,7 @@ async def compute_signals_for_entry(
     risk       = classify_risk(msg_volatility)
 
     sell_options = (
-        make_sell_options(ref, vol_for_opts, pairs_for_options)
+        make_sell_options(ref, vol_for_opts, pairs_for_options, survival)
         if vol_for_opts is not None else None
     )
     batch_stats  = stats.batch_stats if stats else None

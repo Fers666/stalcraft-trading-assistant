@@ -39,7 +39,12 @@ const SELL_OPTION_TOOLTIPS: Record<string, string> = {
 const sellOptionNameColor = (label: string) =>
   ({ fast: tokens.text1, normal: tokens.goldAccent, premium: tokens.goldHighlight }[label] ?? tokens.text0)
 
-const CONF_LABELS: Record<string, string> = { low: 'низкая', medium: 'средняя', high: 'высокая' }
+const CONF_LABELS: Record<string, string> = {
+  low: 'низкая', medium: 'средняя', high: 'высокая',
+  // measured — срок взят из кривой дожития (медиана по наблюдениям за лотами,
+  // включая непроданные), а не из эвристики по объёму продаж
+  measured: 'по наблюдениям',
+}
 
 const SORT_DEFAULT_DIR: Record<string, 'asc' | 'desc'> = { price: 'asc', fast: 'desc', normal: 'desc', premium: 'desc' }
 
@@ -515,8 +520,37 @@ export default function LotStatCard({
                             </>
                           )}
 
-                          <Box component="dt" sx={dtSx}>срок</Box>
+                          <Tooltip title={opt.time_source === 'measured'
+                            ? 'Медиана срока среди лотов, которые продались по такой цене. Половина уходит быстрее, половина дольше.'
+                            : 'Оценка по истории продаж предмета.'}>
+                            <Box component="dt" sx={{ ...dtSx, cursor: 'help' }}>срок</Box>
+                          </Tooltip>
                           <Box component="dd" className="mono" sx={ddSx}>{opt.estimated_hours_display}</Box>
+
+                          {/* Вероятность продажи — единственная строка, которая
+                              считает и НЕпроданные лоты. До фазы B система их не
+                              видела вовсе и печатала срок так, будто продажа
+                              гарантирована. Нижняя граница: снятый лот считается
+                              непроданным. */}
+                          {opt.p_sold_6h != null && (
+                            <>
+                              <Tooltip title={`Из лотов, выставленных по такой цене, ${opt.p_sold_6h} % продались за 6 часов${opt.p_sold_24h != null ? `, ${opt.p_sold_24h} % — за сутки` : ''}. Оценка осторожная: снятый продавцом лот считается непроданным.`}>
+                                <Box component="dt" sx={{ ...dtSx, cursor: 'help' }}>продастся за 6 ч</Box>
+                              </Tooltip>
+                              <Box component="dd" className="mono" sx={ddSx}>{opt.p_sold_6h} %</Box>
+                            </>
+                          )}
+
+                          {opt.pct_sold_ever != null && opt.pct_sold_ever < 95 && (
+                            <>
+                              <Tooltip title={`${(100 - opt.pct_sold_ever).toFixed(0)} % таких лотов не продаются вовсе — истекают или снимаются продавцом. Срок выше относится только к тем, которые продались.`}>
+                                <Box component="dt" sx={{ ...dtSx, cursor: 'help' }}>не продаётся</Box>
+                              </Tooltip>
+                              <Box component="dd" className="mono" sx={{ ...ddSx, color: tokens.text2 }}>
+                                {(100 - opt.pct_sold_ever).toFixed(0)} %
+                              </Box>
+                            </>
+                          )}
 
                           {/* Ценовая позиция тира: квантиль цены в потоке состоявшихся
                               сделок, а НЕ исполнение конкретного лота (кривая дожития —
@@ -534,7 +568,7 @@ export default function LotStatCard({
                         </Box>
                         {opt.data_points != null && (
                           <Box className="mono" sx={{ mt: 1, pt: '7px', borderTop: `1px solid ${tokens.border}`, fontSize: fs.f105, color: tokens.text2, fontVariantNumeric: 'tabular-nums' }}>
-                            уверенность: {CONF_LABELS[opt.confidence] ?? opt.confidence} · {fmtN(opt.data_points)} сделок
+                            уверенность: {CONF_LABELS[opt.confidence] ?? opt.confidence} · {fmtN(opt.data_points)} {opt.time_source === 'measured' ? 'лотов' : 'сделок'}
                           </Box>
                         )}
                       </Box>

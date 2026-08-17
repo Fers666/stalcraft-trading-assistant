@@ -60,6 +60,13 @@ def test_ratios_are_ordered_and_match_probabilities():
 
 # ─── market_stats не расходится с pricing ────────────────────────────────────
 
+class _EmptyResult:
+    """Пустой результат: итерируется, но ничего не отдаёт."""
+
+    def __iter__(self):
+        return iter(())
+
+
 class _QueueDB:
     """Сессия, отдающая заранее заданные результаты по порядку execute."""
 
@@ -67,6 +74,12 @@ class _QueueDB:
         self._results = list(results)
 
     async def execute(self, statement):
+        # Кривая дожития (sale_survival) — необязательное обогащение: сессия
+        # отдаёт пустой набор, и это рабочее состояние (первый пересчёт идёт
+        # через сутки после деплоя). Из очереди результат при этом НЕ берётся,
+        # иначе добавление запроса сдвигало бы все остальные ответы.
+        if "sale_survival" in str(statement):
+            return _EmptyResult()
         result = self._results.pop(0)
         return SimpleNamespace(
             scalar_one_or_none=lambda: result,

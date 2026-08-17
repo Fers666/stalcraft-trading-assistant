@@ -32,7 +32,9 @@ const RISK_LEVEL: Record<RiskKey, RiskLevel> = { low: 'lo', medium: 'md', high: 
 const SELL_NAME_COLOR: Record<string, string> = {
   fast: tokens.text1, normal: tokens.goldAccent, premium: tokens.goldHighlight,
 }
-const CONF_LABELS: Record<string, string> = { low: 'низкая', medium: 'средняя', high: 'высокая' }
+const CONF_LABELS: Record<string, string> = {
+  low: 'низкая', medium: 'средняя', high: 'высокая', measured: 'по наблюдениям',
+}
 
 // секция-«ячейка» (прототип .cell)
 const cellSx = { background: tokens.bg1, border: `1px solid ${tokens.border}`, borderRadius: '2px', overflow: 'hidden' } as const
@@ -342,6 +344,23 @@ export default function MobileLotStatCard({
                             )}
                             <Box component="dt" sx={dtSx}>срок</Box>
                             <Box component="dd" sx={ddSx}>{opt.estimated_hours_display}</Box>
+                            {/* Кривая дожития (фаза B): единственная строка, которая
+                                считает и непроданные лоты. Тултипов на мобильном нет —
+                                подписи обязаны быть самодостаточными. */}
+                            {opt.p_sold_6h != null && (
+                              <>
+                                <Box component="dt" sx={dtSx}>продастся за 6 ч</Box>
+                                <Box component="dd" sx={ddSx}>{opt.p_sold_6h} %</Box>
+                              </>
+                            )}
+                            {opt.pct_sold_ever != null && opt.pct_sold_ever < 95 && (
+                              <>
+                                <Box component="dt" sx={dtSx}>не продаётся</Box>
+                                <Box component="dd" sx={{ ...ddSx, color: tokens.text2 }}>
+                                  {(100 - opt.pct_sold_ever).toFixed(0)} %
+                                </Box>
+                              </>
+                            )}
                             {/* Ценовая позиция тира (доля сделок по этой цене и выше),
                                 не исполнение лота; пока бэкенд не пересчитал
                                 статистику — поля нет и строки нет (см. LotStatCard). */}
@@ -354,7 +373,7 @@ export default function MobileLotStatCard({
                           </Box>
                           {opt.data_points != null && (
                             <Box className="mono" sx={{ mt: '7px', pt: '7px', borderTop: `1px solid ${tokens.border}`, fontSize: fs.f105, color: tokens.text2 }}>
-                              уверенность: {CONF_LABELS[opt.confidence] ?? opt.confidence} · {fmtN(opt.data_points)} сделок
+                              уверенность: {CONF_LABELS[opt.confidence] ?? opt.confidence} · {fmtN(opt.data_points)} {opt.time_source === 'measured' ? 'лотов' : 'сделок'}
                             </Box>
                           )}
                         </Box>

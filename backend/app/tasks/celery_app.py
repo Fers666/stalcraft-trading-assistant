@@ -125,6 +125,14 @@ celery_app.conf.update(
             "task": "app.tasks.feed_collector.resolve_lot_observations",
             "schedule": crontab(minute="13,28,43,58"),
         },
+        # Кривая дожития (docs/tasks/sale-survival-curve.md, P1-4 фаза B) —
+        # раз в сутки: окно выборки 14 дней, и за час оно не меняется настолько,
+        # чтобы это было видно в стратах по 200+ наблюдений. 04:07 — низкая
+        # активность рынка, и минута не совпадает ни с одним другим слотом.
+        "recalc-sale-survival": {
+            "task": "app.tasks.analyzers.recalc_sale_survival",
+            "schedule": crontab(hour="4", minute="7"),
+        },
         # Telegram-уведомления — обрабатываются telegram_bot сервисом (polling),
         # scan_and_notify отключён во избежание дублирования.
         # Трекинг радиационных выбросов — каждые 2 минуты, 1 токен/запрос.

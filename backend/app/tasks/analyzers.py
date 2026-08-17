@@ -321,3 +321,36 @@ def evaluate_signal_outcomes(self):
         run_async(_run())
     except Exception as exc:
         raise self.retry(exc=exc, countdown=300)
+
+
+@celery_app.task(name="app.tasks.analyzers.recalc_sale_survival", bind=True, max_retries=0)
+def recalc_sale_survival(self):
+    """
+    Пересчёт кривой дожития sale_survival (P1-4 фаза B).
+
+    Раз в сутки, к Stalcraft API не обращается — читает только
+    lot_observations. Заменяет двенадцать никогда не измерявшихся чисел в
+    make_sell_options (множители 0.4/1.0/2.5 и лестницу 2/8/24...72/168/336
+    часов) измеренными по наблюдениям, включая непроданные лоты.
+
+    max_retries=0: задача идемпотентна и дешева, следующий прогон через сутки
+    всё равно перестроит таблицу целиком. Ретраить нечего.
+    """
+
+    async def _run():
+        from app.db.session import get_celery_db_session
+        from app.services.analytics.survival import recalculate_survival, reset_cache
+
+        async with get_celery_db_session() as db:
+            result = await recalculate_survival(db)
+        # Кэш в этом процессе указывает на прежнюю таблицу — сбрасываем, иначе
+        # воркер продолжит отдавать вчерашние вероятности до истечения TTL.
+        reset_cache()
+        return result
+
+    result = run_async(_run())
+    logger.info(
+        "recalc_sale_survival: %s строк (pos=%s, ratio=%s), страт отброшено по объёму: %s",
+        result["rows"], result["pos"], result["ratio"], result["skipped_thin_strata"],
+    )
+    return result

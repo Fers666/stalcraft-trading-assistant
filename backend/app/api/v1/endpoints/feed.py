@@ -197,6 +197,12 @@ class FeedLotOut(BaseModel):
     # появления поля, валидируется как None, а не падает.
     profit_per_hour_total: float | None = None
     est_sell_hours: float | None = None
+    # Кривая дожития (P1-4 фаза B): P(продан <= 6 ч) по позиции плановой цены
+    # продажи в стакане и доля страты, продавшаяся когда-либо. Второе поле
+    # важнее первого: до фазы B система вообще не знала, что часть лотов не
+    # продаётся никогда, и печатала срок так, будто продажа гарантирована.
+    p_sold_6h: float | None = None
+    pct_sold_ever: float | None = None
     risk: str
     risk_mult: float
     volatility_7d: float | None = None
@@ -299,6 +305,8 @@ def _to_out(lot: FeedLot, master: MasterItem | None) -> FeedLotOut:
             float(lot.profit_per_hour_total) if lot.profit_per_hour_total is not None else None
         ),
         est_sell_hours=float(lot.est_sell_hours) if lot.est_sell_hours is not None else None,
+        p_sold_6h=float(lot.p_sold_6h) if lot.p_sold_6h is not None else None,
+        pct_sold_ever=float(lot.pct_sold_ever) if lot.pct_sold_ever is not None else None,
         risk=lot.risk,
         risk_mult=float(lot.risk_mult),
         volatility_7d=float(lot.volatility_7d) if lot.volatility_7d is not None else None,

@@ -15,11 +15,14 @@
 
 import statistics
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import or_
 
 from app.models.models import SalesHistory
+
+if TYPE_CHECKING:                       # только аннотация: pricing остаётся
+    from app.services.analytics.survival import SurvivalTable   # без доступа к БД
 
 
 COMMISSION       = 0.05   # комиссия аукциона при продаже
@@ -408,14 +411,107 @@ def tier_prices(ref: int) -> dict[str, int]:
     }
 
 
+def base_option(
+    label: str, label_ru: str, price: int, hours: float,
+    confidence: str, data_points: int,
+) -> dict:
+    """
+    Одна ценовая точка без данных о дожитии — общая форма для обоих путей
+    сборки (make_sell_options и market_stats._calculate_sell_options).
+
+    Существует по той же причине, что и tier_prices: у market_stats своя
+    ветка confidence="high" со своим прогнозом времени, и раньше она держала
+    вторую копию словаря. Копии обязаны совпадать по набору полей, а
+    независимые они расходились.
+
+    fill_probability здесь означает «доля состоявшихся сделок, прошедших по
+    этой цене или выше». Величина верная и полезная — это позиция цены в
+    потоке сделок. Она НЕ про то, продастся ли лот вообще: сделок, которых не
+    было, в ней нет. На тот вопрос отвечает p_sold_* (см. apply_survival).
+    """
+    return {
+        "label": label, "label_ru": label_ru,
+        "price_per_unit": price,
+        "net_price_per_unit": int(price * (1 - COMMISSION)),
+        "estimated_hours": hours,
+        "estimated_hours_display": format_hours(hours),
+        "fill_probability": FILL_PROBABILITY[label],
+        "confidence": confidence,
+        "data_points": data_points,
+        "time_source": "heuristic",
+        "p_sold_6h": None,
+        "p_sold_24h": None,
+        "pct_sold_ever": None,
+    }
+
+
+def apply_survival(
+    option: dict,
+    ref: int,
+    survival: Optional["SurvivalTable"],
+    override_hours: bool,
+) -> dict:
+    """
+    Дописывает в ценовую точку измеренную вероятность продажи (P1-4 фаза B).
+
+    override_hours=False — для ветки market_stats confidence="high": там срок
+    интерполирован по реальным парам (часы, цена) ЭТОГО предмета, а таблица
+    дожития глобальна (страты по признакам, не по варианту). Предметная оценка
+    срока информативнее, и терять её из-за глобальной незачем. Вероятность
+    продажи при этом добавляется в любом случае: предметная оценка видит
+    только состоявшиеся сделки и о непроданных лотах сказать не может ничего.
+    """
+    if survival is None:
+        return option
+
+    from app.services.analytics.survival import FEATURE_RATIO, ratio_bucket
+
+    bucket = ratio_bucket(option["price_per_unit"], ref)
+    summary = survival.summary(FEATURE_RATIO, bucket)
+    if summary is None:
+        return option
+
+    # Публикуем нижнюю границу: снятый лот считается непроданным. Верхняя
+    # (withdrawn выкинут из знаменателя) даёт 92-99% во всех стратах и различия
+    # между ними стирает — решение она не поддерживает.
+    h6  = survival.get(FEATURE_RATIO, bucket, 6)
+    h24 = survival.get(FEATURE_RATIO, bucket, 24)
+    option["p_sold_6h"]     = h6.p_sold_lo if h6 else None
+    option["p_sold_24h"]    = h24.p_sold_lo if h24 else None
+    option["pct_sold_ever"] = summary.pct_sold_ever
+
+    if override_hours and summary.median_hours is not None:
+        option["estimated_hours"] = summary.median_hours
+        option["estimated_hours_display"] = format_hours(summary.median_hours)
+        option["time_source"] = "measured"
+        option["data_points"] = summary.n_at_risk
+        option["confidence"] = "measured"
+    elif not override_hours:
+        option["time_source"] = "item_pairs"
+    return option
+
+
 def make_sell_options(
     ref: int,
     volume_7d: Optional[int],
     time_price_pairs: Optional[list[tuple[float, int]]] = None,
+    survival: Optional["SurvivalTable"] = None,
 ) -> list[dict]:
     """
     3 ценовые точки (fast/normal/premium) от ref с прогнозом времени продажи
     и вероятностью исполнения (fill_probability, см. FILL_PROBABILITY).
+
+    survival — таблица дожития (P1-4 фаза B). Когда она есть, срок продажи и
+    вероятность берутся ИЗМЕРЕННЫМИ: каждый тир попадает в свой бакет по
+    отношению к опоре, и оттуда читаются медиана срока среди проданных и
+    P(продан <= H). Когда её нет (первые сутки после деплоя, страта не набрала
+    MIN_STRATUM_N) — работает прежняя эвристика, ниже.
+
+    Прежняя эвристика, ради полноты картины: множители 0.4 / 1.0 / 2.5 к
+    среднему времени либо лестница 2/8/24 ... 72/168/336 часов по
+    sales_per_day. Ни одно из этих двенадцати чисел не измерялось; замер дал
+    медианы 0.79 / 0.99 / 1.01 ч против обещанных лестницей 24 / 72 / 168 для
+    той же ликвидности (docs/tasks/sale-survival-curve.md §2.4).
 
     time_price_pairs — реальные пары (часы_на_рынке, цена) из sales_history
     с восстановленным lot_start. При >= MIN_BATCH_SAMPLES точек даёт
@@ -449,16 +545,10 @@ def make_sell_options(
         data_points = volume_7d or 0
 
     def opt(label, label_ru, price, hours):
-        return {
-            "label": label, "label_ru": label_ru,
-            "price_per_unit": price,
-            "net_price_per_unit": int(price * (1 - COMMISSION)),
-            "estimated_hours": hours,
-            "estimated_hours_display": format_hours(hours),
-            "fill_probability": FILL_PROBABILITY[label],
-            "confidence": confidence,
-            "data_points": data_points,
-        }
+        return apply_survival(
+            base_option(label, label_ru, price, hours, confidence, data_points),
+            ref, survival, override_hours=True,
+        )
 
     return [
         opt("fast",    "Быстро",    fast_price,    fast_hours),

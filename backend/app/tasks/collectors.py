@@ -521,6 +521,10 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
     try:
         if owns_client:
             r = aioredis.from_url(settings.redis_url, decode_responses=True)
+        # Кривая дожития — одна на все записи watchlist этого предмета
+        # (страты по признакам, а не по пользователю), читается один раз.
+        from app.services.analytics.survival import load_survival
+        survival = await load_survival(db)
         for entry in entries:
             try:
                 margin_pct, exclude_less_than = user_settings_map.get(entry.user_id, (0.0, 1))
@@ -528,6 +532,7 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
                     db, entry, master, stats, snap,
                     min_profit_margin_pct=margin_pct,
                     exclude_less_than_amount=exclude_less_than,
+                    survival=survival,
                 )
                 if result is not None:
                     key = signals_key(

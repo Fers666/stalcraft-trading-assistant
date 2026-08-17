@@ -275,6 +275,17 @@ export default function MobileFeedPage() {
           ...(pph !== null
             ? [{ label: 'Прибыль в час', value: `${fmtCompact(Math.round(pph))}/ч`, tone: 'pos' as const }]
             : []),
+          // Кривая дожития (фаза B): на мобильном места больше, поэтому строка
+          // показывается всегда, когда измерена, — но окрашивается в
+          // предупреждение только там, где исход реже, чем не наступает.
+          ...(lot.p_sold_6h !== null
+            ? [{
+                label: 'Продастся за 6 ч',
+                value: `${lot.p_sold_6h} %${lot.pct_sold_ever !== null && lot.pct_sold_ever < 95
+                  ? ` · не продаётся ${(100 - lot.pct_sold_ever).toFixed(0)} %` : ''}`,
+                ...(lot.p_sold_6h < 50 ? { tone: 'neg' as const } : {}),
+              }]
+            : []),
           {
             label: 'Ликвидность',
             value: `${d1(lot.sales_per_day)} сд/дн${

@@ -465,6 +465,12 @@ class FeedLot(Base):
     # инвертировала выдачу.
     profit_per_hour_total = Column(Numeric(14, 2))
     est_sell_hours       = Column(Numeric(8, 2))
+    # Кривая дожития (P1-4 фаза B, sale_survival). Считаются по позиции
+    # ПЛАНОВОЙ цены продажи в живом стакане варианта — самому сильному из
+    # измеренных признаков. NULL, пока таблица дожития не заполнена или страта
+    # не набрала MIN_STRATUM_N: отсутствие честнее выдуманного числа.
+    p_sold_6h            = Column(Numeric(5, 2))   # P(продан <= 6 ч), нижняя граница
+    pct_sold_ever        = Column(Numeric(5, 2))   # доля страты, продавшаяся когда-либо
     risk                 = Column(String(10), nullable=False)    # low/medium/high
     risk_mult            = Column(Numeric(3, 2), nullable=False)  # pricing.RISK_MARGIN_MULT
     volatility_7d        = Column(Numeric(6, 2))
@@ -579,6 +585,59 @@ class LotObservation(Base):
             "uq_lot_obs_matched_sale", "source", "matched_sale_id", unique=True,
             postgresql_where=text("matched_sale_id IS NOT NULL"),
         ),
+    )
+
+
+class SaleSurvival(Base):
+    """
+    Кривая дожития: «с какой вероятностью лот продастся за H часов».
+
+    Одна строка = страта x горизонт. Пересчитывается раз в сутки целиком из
+    lot_observations (P1-4 фаза B, docs/tasks/sale-survival-curve.md).
+
+    Заменяет два набора выдуманных чисел: множители времени 0.4/1.0/2.5 и
+    лестницу 2/8/24...72/168/336 в make_sell_options. Ни одно из тех 12 чисел
+    не измерялось; здесь каждое взято из наблюдений за реальными лотами,
+    включая непроданные — их не видит ни один другой источник в системе.
+
+    ТОЛЬКО source='live'. Восстановленные из снапшотов наблюдения измеряют
+    позицию в книге корректно (corr=0.992 с живым на общих лотах), но их
+    ПОПУЛЯЦИЯ смещена: снапшот watchlist обрезан 200 дешёвыми лотами предмета,
+    поэтому глубокие стаканы в нём не представлены (p90 книги 31 против 409),
+    и он пропускает самые быстрые лоты (те, кого видел только живой сборщик,
+    продаются в 80.1% против 56.9% у общих). На одних и тех же предметах это
+    даёт заниженную на 8-16 п.п. вероятность продажи. Пул источников запрещён.
+    """
+    __tablename__ = "sale_survival"
+
+    id            = Column(Integer, primary_key=True)
+    # pos — нормированная позиция в книге варианта (queue_rank/variant_live_lots),
+    # ratio — цена лота к опоре варианта. Замер: pos сильнее (корреляция с
+    # «продан <= 6 ч» -0.330 против -0.138), но признаки почти независимы
+    # (взаимная корреляция 0.299), поэтому нужны оба.
+    feature       = Column(String(8), nullable=False)
+    bucket        = Column(String(16), nullable=False)
+    horizon_h     = Column(SmallInteger, nullable=False)
+    # Доживших АДМИНИСТРАТИВНО до горизонта: длительность аукциона переменная
+    # (48 ч у 47% лотов, 12 ч у 39%, 24 ч у 11%, 6 ч у 3%), и лот с 12-часовым
+    # аукционом не может быть «не проданным за 24 ч» — он туда не дожил.
+    n_at_risk     = Column(Integer, nullable=False)
+    n_sold        = Column(Integer, nullable=False)
+    # Две границы, потому что withdrawn — почти наверняка ИНФОРМАТИВНОЕ
+    # цензурирование: продавец снимает лот, который не продаётся. lo считает
+    # снятый лот непроданным (консервативно), hi выкидывает его из знаменателя.
+    # В UI идёт только lo: hi даёт 92-99% во всех стратах и различия стирает.
+    p_sold_lo     = Column(Numeric(5, 2), nullable=False)
+    p_sold_hi     = Column(Numeric(5, 2), nullable=False)
+    pct_withdrawn = Column(Numeric(5, 2), nullable=False)
+    # Не зависят от горизонта и дублируются по строкам страты намеренно:
+    # сводка читается одним запросом, а таблица не превышает ~60 строк.
+    pct_sold_ever = Column(Numeric(5, 2))
+    median_hours  = Column(Numeric(6, 2))   # медиана срока СРЕДИ ПРОДАННЫХ
+    computed_at   = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index("uq_sale_survival", "feature", "bucket", "horizon_h", unique=True),
     )
 
 

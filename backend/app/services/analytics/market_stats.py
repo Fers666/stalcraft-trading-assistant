@@ -24,8 +24,8 @@ from app.models.models import (
     CollectedData, SalesHistory, MarketStatistics, UserWatchlist,
 )
 from app.services.analytics.pricing import (
-    make_sell_options, format_hours, COMMISSION, compute_reference, weighted_reference,
-    tier_prices, FILL_PROBABILITY,
+    make_sell_options, compute_reference, weighted_reference,
+    tier_prices, base_option, apply_survival,
 )
 
 logger = logging.getLogger(__name__)
@@ -328,6 +328,13 @@ async def calculate_market_stats(
     batch_stats = _calculate_batch_stats(sales_30d)
 
     # ── 5. Прогноз времени продажи (sell_options) ─────────────────────────────
+    # Кривая дожития (P1-4 фаза B) читается здесь, а не внутри
+    # _calculate_sell_options: зависимость от БД должна быть видна на уровне
+    # вызывающего, иначе функция делает скрытый запрос и её поведение зависит
+    # от порядка вызовов. Загрузка кэширована в процессе на 10 минут.
+    from app.services.analytics.survival import load_survival
+    survival = await load_survival(db, now)
+
     sell_options, ref_info = await _calculate_sell_options(
         db=db,
         item_id=item_id,
@@ -337,6 +344,7 @@ async def calculate_market_stats(
         s7d=s7d,
         s24=s24,
         now=now,
+        survival=survival,
         cutoff_7d=cutoff_7d,
         cutoff_30d=cutoff_30d,
     )
@@ -590,6 +598,7 @@ async def _calculate_sell_options(
     now: datetime,
     cutoff_7d: datetime,
     cutoff_30d: datetime,
+    survival=None,
 ) -> tuple[list[dict], dict | None]:
     """
     Возвращает (3 варианта цены продажи с прогнозом времени, ref_info).
@@ -669,17 +678,15 @@ async def _calculate_sell_options(
         premium_hours = _estimate_hours(premium_price, time_price_pairs, "premium")
 
         def make_option(label, label_ru, price, hours):
-            return {
-                "label":            label,
-                "label_ru":         label_ru,
-                "price_per_unit":   price,
-                "net_price_per_unit": int(price * (1 - COMMISSION)),
-                "estimated_hours":  hours,
-                "estimated_hours_display": format_hours(hours),
-                "fill_probability": FILL_PROBABILITY[label],
-                "confidence":       confidence,
-                "data_points":      len(time_price_pairs),
-            }
+            # Форма словаря — из pricing.base_option: держать вторую копию
+            # набора полей нельзя, копии расходятся. Срок здесь остаётся
+            # предметным (интерполяция по реальным парам этого предмета), а
+            # вероятность продажи дописывается из глобальной кривой дожития —
+            # предметная оценка видит только состоявшиеся сделки.
+            return apply_survival(
+                base_option(label, label_ru, price, hours, confidence, len(time_price_pairs)),
+                ref, survival, override_hours=False,
+            )
 
         return [
             make_option("fast",    "Быстро",   fast_price,    fast_hours),
@@ -690,7 +697,7 @@ async def _calculate_sell_options(
     # medium (10-30% покрытия, ≥3 точки) — pricing.make_sell_options интерполирует
     # время по среднему из time_price_pairs; low — оценка по объёму продаж/день
     pairs_for_medium = time_price_pairs if (coverage >= 0.10 and matched_count >= 3) else None
-    return make_sell_options(ref, sales_volume_7d, pairs_for_medium), ref_info
+    return make_sell_options(ref, sales_volume_7d, pairs_for_medium, survival), ref_info
 
 
 def _estimate_hours(

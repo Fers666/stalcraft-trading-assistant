@@ -31,6 +31,7 @@ import logging
 import math
 import random
 import time
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -352,6 +353,7 @@ def score_item_lots(
     variants: dict[tuple[int, int], object],
     cycle_started_at: datetime,
     now: datetime | None = None,
+    survival=None,
 ) -> list[dict]:
     """
     Скоринг лотов предмета -> строки feed_lots (ТОЛЬКО выгодные).
@@ -371,6 +373,13 @@ def score_item_lots(
 
     now = now or cycle_started_at
     rows: list[dict] = []
+
+    # Лестница цен стакана — для страты по позиции ПЛАНОВОЙ цены продажи.
+    # В ленте берётся именно позиционная страта, а не ценовая: замер дал
+    # корреляцию с «продан <= 6 ч» -0.330 против -0.138 у цены к опоре
+    # (docs/tasks/sale-survival-curve.md §2.3). Ценовая остаётся в
+    # sell_options — там стакана нет.
+    ladders = variant_ladders(lots, now) if survival else {}
 
     # Предложение варианта — по ВСЕМ лотам среза (в т.ч. неликвидным по сроку:
     # они всё равно висят на рынке), поэтому считается отдельным проходом.
@@ -426,6 +435,26 @@ def score_item_lots(
         hours = (fast or {}).get("estimated_hours")
         profit_total = evaluated["profit"] * amount
 
+        # Срок продажи по позиции плановой цены в стакане (P1-4 фаза B).
+        # Считаем от sell_price_used — цены, по которой мы СОБИРАЕМСЯ продать,
+        # а не от цены покупки лота: вопрос «за сколько уйдёт то, что я куплю».
+        # Замеренный разброс огромен — 0.98 ч в верхних 10% книги против
+        # 9.79 ч в нижней половине, — и до фазы B он был системе не виден.
+        p_sold_6h = pct_sold_ever = None
+        if survival:
+            from app.services.analytics.survival import FEATURE_POS, pos_bucket
+            ladder = ladders.get((qlt, ptn))
+            if ladder:
+                rank, book = rank_for_price(ladder, evaluated["sell_price_used"])
+                bucket = pos_bucket(rank, book)
+                summary = survival.summary(FEATURE_POS, bucket)
+                h6 = survival.get(FEATURE_POS, bucket, 6)
+                if summary is not None:
+                    p_sold_6h = h6.p_sold_lo if h6 else None
+                    pct_sold_ever = summary.pct_sold_ever
+                    if summary.median_hours is not None:
+                        hours = summary.median_hours
+
         rows.append({
             "item_id":            item_id,
             "region":             region,
@@ -447,6 +476,8 @@ def score_item_lots(
             "profit_per_hour":    evaluated["profit_per_hour"],
             "profit_per_hour_total": round(profit_total / hours, 2) if hours else None,
             "est_sell_hours":     hours,
+            "p_sold_6h":          p_sold_6h,
+            "pct_sold_ever":      pct_sold_ever,
             "risk":               risk,
             "risk_mult":          risk_mult,
             "volatility_7d":      float(variant.volatility_7d) if variant.volatility_7d is not None else None,
@@ -462,6 +493,55 @@ def score_item_lots(
         })
 
     return rows
+
+
+def _live_by_variant(
+    lots: list[dict], now: datetime,
+) -> dict[tuple[int, int], list[tuple[int, int]]]:
+    """
+    Живые лоты среза по вариантам: (qlt, ptn) -> [(цена за единицу, количество)].
+
+    Общий примитив для variant_queues (позиция наблюдаемого лота) и
+    variant_ladders (позиция ПЛАНОВОЙ цены продажи). Правило «живой» —
+    ликвидный по _is_liquid, >= 2 ч до конца аукциона — обязано быть одним:
+    две копии этого фильтра означали бы, что позиция в стакане при записи
+    наблюдения и при прогнозе срока считается по разным книгам.
+    """
+    from app.services.analytics.pricing import _is_liquid, _lot_quality_enchant
+
+    live: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for lot in lots:
+        amount = lot.get("amount", 1) or 0
+        buyout = lot.get("buyoutPrice", 0) or 0
+        if buyout <= 0 or amount <= 0 or not _is_liquid(lot, now):
+            continue
+        # master не нужен: у артефактов qlt/ptn берутся из lot["additional"]
+        variant = _lot_quality_enchant(lot, None, True)
+        live.setdefault(variant, []).append((buyout // amount, amount))
+    return live
+
+
+def variant_ladders(lots: list[dict], now: datetime) -> dict[tuple[int, int], list[int]]:
+    """
+    Отсортированные цены живых лотов по вариантам — «лестница» стакана.
+
+    Нужна, чтобы ответить на вопрос прогноза: если я выставлю по цене P, каким
+    по счёту я встану. variant_queues отвечает на другой вопрос — где стоит
+    УЖЕ выставленный лот, — и её карта цен содержит только существующие цены.
+    """
+    return {
+        variant: sorted(price for price, _ in entries)
+        for variant, entries in _live_by_variant(lots, now).items()
+    }
+
+
+def rank_for_price(ladder: list[int], price: int) -> tuple[int, int]:
+    """
+    (ранг, размер книги) для произвольной цены. Ранг = 1 + число лотов строго
+    дешевле — то же определение, что в variant_queues, иначе страта при
+    прогнозе не совпала бы со стратой, по которой кривая построена.
+    """
+    return bisect_left(ladder, price) + 1, len(ladder)
 
 
 def variant_queues(
@@ -483,17 +563,7 @@ def variant_queues(
     Живой = ликвидный по общему критерию (_is_liquid, >= 2 ч до конца): лот в
     последние два часа аукциона очередь покупателю не создаёт.
     """
-    from app.services.analytics.pricing import _is_liquid, _lot_quality_enchant
-
-    live: dict[tuple[int, int], list[tuple[int, int]]] = {}
-    for lot in lots:
-        amount = lot.get("amount", 1) or 0
-        buyout = lot.get("buyoutPrice", 0) or 0
-        if buyout <= 0 or amount <= 0 or not _is_liquid(lot, now):
-            continue
-        # master не нужен: у артефактов qlt/ptn берутся из lot["additional"]
-        variant = _lot_quality_enchant(lot, None, True)
-        live.setdefault(variant, []).append((buyout // amount, amount))
+    live = _live_by_variant(lots, now)
 
     queues: dict[tuple[int, int], tuple[dict[int, tuple[int, int]], int]] = {}
     for variant, entries in live.items():
@@ -936,7 +1006,11 @@ async def scan_item(
 ) -> ItemScanResult:
     """Обработка одного предмета: скоринг -> апсерт -> наблюдения -> уборка -> commit."""
     variants = await _load_variants(db, item_id, region)
-    rows = score_item_lots(item_id, region, lots, variants, cycle_started_at)
+    from app.services.analytics.survival import load_survival
+    survival = await load_survival(db)
+    rows = score_item_lots(
+        item_id, region, lots, variants, cycle_started_at, survival=survival,
+    )
     await upsert_feed_rows(db, rows)
     obs_inserted, obs_updated = await upsert_lot_observations(
         db, observation_rows(item_id, region, lots, variants, cycle_started_at),

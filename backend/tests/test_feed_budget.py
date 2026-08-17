@@ -340,6 +340,18 @@ def test_sale_values_without_additional():
 
 # ─── Изоляция отказа предмета (M3) ────────────────────────────────────────────
 
+class _EmptyRows:
+    """Результат execute без строк: и .scalars().all(), и прямая итерация."""
+
+    rowcount = 0
+
+    def scalars(self):
+        return SimpleNamespace(all=lambda: [])
+
+    def __iter__(self):
+        return iter(())
+
+
 class FakeDB:
     """Сессия, падающая на commit: сценарий CardinalityViolationError."""
 
@@ -349,11 +361,10 @@ class FakeDB:
         self.committed = False
 
     async def execute(self, query):
-        return SimpleNamespace(
-            scalars=lambda: SimpleNamespace(all=lambda: []),
-            rowcount=0,
-            __iter__=lambda self_: iter([]),
-        )
+        # __iter__ обязан быть на КЛАССЕ: протокол итерации не смотрит на
+        # атрибут экземпляра, поэтому SimpleNamespace(__iter__=...) не работал.
+        # Итерируется, например, чтение sale_survival (кривая дожития).
+        return _EmptyRows()
 
     async def commit(self):
         if self.fail:

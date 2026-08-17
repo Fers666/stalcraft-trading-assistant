@@ -74,9 +74,9 @@ class MonitoringItemResponse(BaseModel):
         from_attributes = True
 
 
-def _make_sell_options(median: float, volume_7d: int) -> list[dict]:
+def _make_sell_options(median: float, volume_7d: int, survival=None) -> list[dict]:
     """Тонкая обёртка над pricing.make_sell_options (confidence=low, без time_price_pairs)."""
-    return make_sell_options(int(median), volume_7d)
+    return make_sell_options(int(median), volume_7d, None, survival)
 
 
 def _mask_stats_windows(response: "MonitoringItemResponse", allowed_windows: tuple[str, ...]) -> "MonitoringItemResponse":
@@ -123,6 +123,12 @@ async def get_item_stats(
 ):
     limits = get_tier_limits(current_user)
 
+    # Кривая дожития (P1-4 фаза B) — читается один раз на запрос и передаётся
+    # во все ветки сборки sell_options: карточка обязана показывать тот же срок
+    # продажи и ту же вероятность, что лента и Избранное.
+    from app.services.analytics.survival import load_survival
+    survival = await load_survival(db)
+
     # Глобальная статистика хранится с user_id=None — одна запись на пару (item_id, region)
     stats = (await db.execute(
         select(MarketStatistics).where(
@@ -149,7 +155,7 @@ async def get_item_stats(
         current_min = (
             latest_snap.best_liquid_price_per_unit or latest_snap.best_price_per_unit
         )
-        fresh_sell_options = _make_sell_options(float(current_min), 0) if current_min else None
+        fresh_sell_options = _make_sell_options(float(current_min), 0, survival) if current_min else None
 
         response = MonitoringItemResponse(
             item_id=item_id,
@@ -222,11 +228,11 @@ async def get_item_stats(
         )
 
         fresh_sell_options = (
-            _make_sell_options(ref_info["ref"], stats.sales_volume_7d or 0)
+            _make_sell_options(ref_info["ref"], stats.sales_volume_7d or 0, survival)
             if ref_info else stats.sell_options
         )
         sell_options_now = (
-            _make_sell_options(float(current_min), stats.sales_volume_7d or 0)
+            _make_sell_options(float(current_min), stats.sales_volume_7d or 0, survival)
             if current_min else None
         )
 
@@ -350,10 +356,10 @@ async def get_item_stats(
         weight=wr["weight"] if wr else 0.0,
     )
     if ref_info:
-        filtered_opts = _make_sell_options(ref_info["ref"], filtered_volume)
+        filtered_opts = _make_sell_options(ref_info["ref"], filtered_volume, survival)
 
     filtered_opts_now = (
-        _make_sell_options(float(filtered_current_min), filtered_volume)
+        _make_sell_options(float(filtered_current_min), filtered_volume, survival)
         if filtered_current_min else None
     )
 
