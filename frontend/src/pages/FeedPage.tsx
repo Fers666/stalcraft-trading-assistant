@@ -276,7 +276,7 @@ export default function FeedPage() {
     // число МЕНЯЕТ решение: «продастся за 6 ч» ниже половины означает, что
     // ₽/час рядом описывает исход, который наступает реже, чем не наступает.
     // Хорошие значения строку бы только зашумили — полная картина в карточке.
-    const slowSale = lot.p_sold_6h !== null && lot.p_sold_6h < 50
+    const slowSale = lot.p_sold_6h != null && lot.p_sold_6h < 50
     const name = lot.name_ru ?? lot.name_en ?? lot.item_id
     const aria =
       `Лот: ${name} ${QLT_NAMES[lot.qlt] ?? `кач. ${lot.qlt}`} +${lot.ptn}, ` +
@@ -327,7 +327,7 @@ export default function FeedPage() {
             sub={`+${d1(lot.profit_pct)} %${pph !== null ? ` · ${fmtCompact(Math.round(pph))}/ч` : ''}`}
           />
           {slowSale && (
-            <Tooltip title={`По плановой цене продажи за 6 часов уходит ${lot.p_sold_6h} % таких лотов${lot.pct_sold_ever !== null ? `, а ${(100 - lot.pct_sold_ever).toFixed(0)} % не продаются вовсе` : ''}. Прибыль в час считается по тем, что продались.`}>
+            <Tooltip title={`По плановой цене продажи за 6 часов уходит ${lot.p_sold_6h} % таких лотов${lot.pct_sold_ever != null ? `, а ${(100 - lot.pct_sold_ever).toFixed(0)} % не продаются вовсе` : ''}. Прибыль в час считается по тем, что продались.`}>
               <Box className="mono" sx={{ mt: '2px', fontSize: fs.f10, color: tokens.text2, cursor: 'help', whiteSpace: 'nowrap' }}>
                 за 6 ч уходит {lot.p_sold_6h} %
               </Box>

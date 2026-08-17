@@ -67,15 +67,46 @@ def test_ratio_bucket(price, ref, expected):
     assert ratio_bucket(price, ref) == expected
 
 
-def test_each_tier_lands_in_its_own_bucket():
+@pytest.mark.parametrize("ref", [
+    100_000,    # делится на 50 — усечение tier_prices незаметно
+    477_777,    # реальный ref с прода: int(ref*0.94) даёт 0.9399992
+    45_001, 33_333, 62_000, 999_999, 7,
+])
+def test_each_tier_lands_in_its_own_bucket(ref):
     """
     Три тира обязаны попасть в ТРИ разных бакета: иначе «Быстро» и «Выгодно»
     получили бы одну и ту же вероятность и один и тот же срок, а выбор между
     ними перестал бы что-либо значить.
+
+    Страта берётся по МНОЖИТЕЛЮ, а не по цене. Прежняя версия теста брала
+    только ref=100_000 и пропустила дефект: tier_prices усекает, и при ref,
+    не кратном 50, fast уезжал из r94_98 в r90_94 — на проде у 30% вариантов,
+    всегда в сторону более оптимистичных цифр.
     """
-    prices = tier_prices(100_000)
-    buckets = {label: ratio_bucket(p, 100_000) for label, p in prices.items()}
-    assert len(set(buckets.values())) == 3, buckets
+    from app.services.analytics.pricing import TIER_RATIOS
+    from app.services.analytics.survival import ratio_bucket_value
+
+    buckets = {
+        label: ratio_bucket_value(TIER_RATIOS[label]) for label in tier_prices(ref)
+    }
+    assert buckets == {
+        "fast": "r94_98", "normal": "r98_103", "premium": "r103_110",
+    }, (ref, buckets)
+
+
+@pytest.mark.parametrize("ref", [477_777, 45_001, 33_333, 100_000])
+def test_measured_option_bucket_survives_price_truncation(ref):
+    """Тот же дефект на уровне выдачи: fast обязан получить страту r94_98."""
+    rows = {}
+    for h in HORIZONS_H:
+        rows[(FEATURE_RATIO, "r94_98", h)] = Stratum(
+            n_at_risk=1560, p_sold_lo=83.72, p_sold_hi=93.09,
+            pct_withdrawn=8.0, pct_sold_ever=87.31, median_hours=0.80,
+        )
+    fast = next(o for o in make_sell_options(ref, 50, None, SurvivalTable(rows))
+                if o["label"] == "fast")
+    assert fast["p_sold_6h"] == 83.72
+    assert fast["estimated_hours"] == 0.80
 
 
 def test_ratio_bucket_without_reference():
@@ -363,3 +394,76 @@ def test_feed_uses_planned_sell_price_not_lot_price():
     assert rank_planned > rank_bought            # плановая цена продажи — выше
     assert pos_bucket(rank_bought, book) == "top10"
     assert pos_bucket(rank_planned, book) != "top10"
+
+
+# ─── Отображение измеренного срока ───────────────────────────────────────────
+
+def test_measured_hours_are_printed_not_collapsed():
+    """
+    format_hours схлопывал всё, что меньше двух часов, в «< 2 ч». После фазы B
+    туда попали ВСЕ измеренные медианы (0.46-1.99 ч), и строка «срок» стала
+    одинаковой у трёх тиров — результат работы перестал быть виден.
+    """
+    from app.services.analytics.pricing import format_hours
+
+    assert format_hours(0.46, precise=True) == "~28 мин"
+    assert format_hours(0.80, precise=True) == "~48 мин"
+    assert format_hours(1.03, precise=True) == "~1,0 ч"
+    assert format_hours(1.76, precise=True) == "~1,8 ч"
+    # Без флага поведение прежнее: эвристический срок не заслуживает десятых
+    assert format_hours(0.80) == "< 2 ч"
+    # Выше двух часов флаг ничего не меняет
+    assert format_hours(8.0, precise=True) == format_hours(8.0) == "~8 ч"
+
+
+def test_tiers_with_different_medians_show_different_durations():
+    """
+    Ровно тот симптом, который нашёл QA: три одинаковых «< 2 ч» в карточке.
+
+    Требовать ТРИ разные строки нельзя: измеренные медианы normal и premium —
+    1.00 и 1.03 ч, то есть отличаются на 1.8 минуты, и печатать их по-разному
+    значило бы показывать точность, которой в данных нет. Различаться обязаны
+    те, кто различается по существу: fast (0.80 ч) против остальных.
+    """
+    rows = {}
+    for bucket, med in (("r94_98", 0.80), ("r98_103", 1.00), ("r103_110", 1.03)):
+        for h in HORIZONS_H:
+            rows[(FEATURE_RATIO, bucket, h)] = Stratum(
+                n_at_risk=1560, p_sold_lo=83.0, p_sold_hi=90.0,
+                pct_withdrawn=8.0, pct_sold_ever=87.0, median_hours=med,
+            )
+    shown = {o["label"]: o["estimated_hours_display"]
+             for o in make_sell_options(477_777, 50, None, SurvivalTable(rows))}
+    assert shown["fast"] != shown["normal"], shown
+    assert shown["fast"] == "~48 мин"
+    # Ни одна строка не должна быть прежней заглушкой
+    assert "< 2 ч" not in shown.values(), shown
+
+
+# ─── Согласованность величин внутри страты ───────────────────────────────────
+
+def test_sold_ever_is_not_below_horizon_probability():
+    """
+    pct_sold_ever считался по всей страте, а p_sold_* — по дожившим до
+    горизонта. На проде это давало pct_sold_ever МЕНЬШЕ p_sold_24h во всех 59
+    стратах: «за сутки продалось больше, чем продалось вообще». Знаменатель
+    обязан быть общим.
+    """
+    agg = _Agg("top10", 24, n_at_risk=1000, n_sold=700, n_withdrawn=100,
+               n_total=1000, n_sold_ever=800, median_hours=0.74)
+    row = _stratum_row(FEATURE_POS, agg, None)
+    assert row["pct_sold_ever"] >= row["p_sold_lo"]
+    assert row["pct_sold_ever"] == 80.0
+
+
+def test_agg_sql_uses_one_denominator():
+    """
+    Текстовая сверка запроса: n_total и n_sold_ever обязаны нести тот же
+    фильтр planned_h, что и n_at_risk. Дефект жил именно в SQL, и никакой
+    тест на чистых функциях его бы не поймал.
+    """
+    from app.services.analytics.survival import _AGG_SQL
+
+    assert _AGG_SQL.count("planned_h >= h.horizon_h") == 5
+    body = _AGG_SQL[_AGG_SQL.index("AS n_at_risk"):]
+    assert "count(*) AS n_total" not in body

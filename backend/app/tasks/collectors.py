@@ -620,10 +620,15 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
 
     for entry in combo_entries:
         try:
+            # survival обязателен и здесь: signal_outcomes логирует ПРОГНОЗ,
+            # который был показан пользователю. Без таблицы сюда ложился срок
+            # из старой эвристики, и калибровка сравнивала бы факт с прогнозом,
+            # которого продукт не делал.
             baseline = await compute_signals_for_entry(
                 db, entry, master, stats, snap,
                 min_profit_margin_pct=0.0,
                 exclude_less_than_amount=1,
+                survival=await load_survival(db),
             )
             if baseline and baseline["lots"]:
                 await _log_signal_outcomes(

@@ -88,13 +88,26 @@ def ratio_bucket(price_per_unit: Optional[int], ref_price: Optional[int]) -> Opt
     """
     Страта по отношению цены к опоре варианта.
 
+    Для ТИРА бери ratio_bucket_value(множитель) напрямую: цена тира усечена
+    (int(ref * 0.94)), и при ref, не кратном 50, отношение выходит 0.9399992 —
+    тир падает в соседний бакет. Округлить цену недостаточно: отношение всё
+    равно пересчитывается из целого числа.
+    """
+    if not price_per_unit or not ref_price or ref_price <= 0:
+        return None
+    return ratio_bucket_value(price_per_unit / ref_price)
+
+
+def ratio_bucket_value(r: Optional[float]) -> Optional[str]:
+    """
+    Страта по готовому отношению цена/опора.
+
     Границы не круглые: они взяты по замеру §2.4 ТЗ так, чтобы разделить
     участки разной крутизны кривой и чтобы каждый тировый множитель
     (0.94 / 1.00 / 1.06) попал в свой бакет, а не делил его с соседом.
     """
-    if not price_per_unit or not ref_price or ref_price <= 0:
+    if r is None or r <= 0:
         return None
-    r = price_per_unit / ref_price
     if r < 0.90:
         return "lt90"
     if r < 0.94:
@@ -141,8 +154,10 @@ class SurvivalTable:
 
     def summary(self, feature: str, bucket: Optional[str]) -> Optional[Stratum]:
         """
-        Сводка страты (median_hours, pct_sold_ever) — они не зависят от
-        горизонта. Берём с первого доступного горизонта.
+        Сводка страты: median_hours не зависит от горизонта, pct_sold_ever
+        зависит (знаменатель — дожившие до горизонта, см. _stratum_row).
+        Берём с первого доступного, то есть с самого широкого — там популяция
+        ближе всего ко «всем лотам страты».
         """
         if not bucket:
             return None
@@ -217,8 +232,9 @@ SELECT inc.bucket,
                           AND outcome = 'sold' AND life_h <= h.horizon_h) AS n_sold,
        count(*) FILTER (WHERE planned_h >= h.horizon_h
                           AND outcome = 'withdrawn' AND life_h <= h.horizon_h) AS n_withdrawn,
-       count(*) AS n_total,
-       count(*) FILTER (WHERE outcome = 'sold') AS n_sold_ever,
+       count(*) FILTER (WHERE planned_h >= h.horizon_h) AS n_total,
+       count(*) FILTER (WHERE planned_h >= h.horizon_h
+                          AND outcome = 'sold') AS n_sold_ever,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY life_h)
            FILTER (WHERE outcome = 'sold') AS median_hours
 FROM inc CROSS JOIN h
@@ -247,6 +263,11 @@ def _stratum_row(feature: str, row, now: datetime) -> Optional[dict]:
         "p_sold_lo":     round(100.0 * n_sold / n_at_risk, 2),
         "p_sold_hi":     round(100.0 * n_sold / denom_hi, 2) if denom_hi > 0 else 100.0,
         "pct_withdrawn": round(100.0 * n_withdrawn / n_at_risk, 2),
+        # Знаменатель ТОТ ЖЕ, что у p_sold_* (дожившие административно до
+        # горизонта). Считать «продались когда-либо» по всей страте нельзя:
+        # 6- и 12-часовые аукционы продаются реже, и на общей популяции
+        # pct_sold_ever выходил МЕНЬШЕ p_sold_24h во всех 59 стратах — в UI
+        # «за сутки 89.93 %» соседствовало с «не продаётся 13 %».
         "pct_sold_ever": (
             round(100.0 * (row.n_sold_ever or 0) / row.n_total, 2) if row.n_total else None
         ),

@@ -60,6 +60,15 @@ PREMIUM_RATIO = 1.06   # ~25 %
 # Это и есть смысл тира: не «скидка N %», а обещание с измеренной вероятностью.
 FILL_PROBABILITY: dict[str, int] = {"fast": 75, "normal": 50, "premium": 25}
 
+# Множитель тира по его имени. Нужен, чтобы страта кривой дожития определялась
+# по МНОЖИТЕЛЮ, а не по цене: tier_prices усекает (int(ref * 0.94)), и при ref,
+# не кратном 50, отношение выходит 0.9399992 вместо 0.94 — тир уезжает в
+# соседний бакет. На проде так уезжали 30% вариантов, причём всегда в сторону
+# более оптимистичных цифр (+5.35 п.п. вероятности).
+TIER_RATIOS: dict[str, float] = {
+    "fast": FAST_RATIO, "normal": NORMAL_RATIO, "premium": PREMIUM_RATIO,
+}
+
 HIGH_VOLATILITY  = 30.0
 MED_VOLATILITY   = 15.0
 
@@ -189,7 +198,22 @@ def classify_risk(volatility_pct: Optional[float]) -> str:
     return "low"
 
 
-def format_hours(hours: float) -> str:
+def format_hours(hours: float, precise: bool = False) -> str:
+    """
+    precise=True — величина ИЗМЕРЕНА (медиана срока по наблюдениям, фаза B), и
+    её можно печатать как есть. Без флага всё, что меньше двух часов,
+    схлопывается в «< 2 ч»: прежние сроки берутся из эвристики, и десятичная
+    доля у выдуманного числа изобразила бы точность, которой нет.
+
+    Порог был откалиброван под лестницу 2...336 ч, где значения ниже двух часов
+    были краем. После фазы B туда попали ВСЕ измеренные медианы (0.46-1.99 ч),
+    и строка «срок» стала одинаковой у всех трёх тиров — то есть результат
+    работы перестал быть виден ровно там, ради чего делался.
+    """
+    if precise and hours < 1:
+        return f"~{round(hours * 60)} мин"
+    if precise and hours < 2:
+        return f"~{hours:.1f} ч".replace(".", ",")
     if hours < 2:
         return "< 2 ч"
     if hours < 24:
@@ -464,9 +488,18 @@ def apply_survival(
     if survival is None:
         return option
 
-    from app.services.analytics.survival import FEATURE_RATIO, ratio_bucket
+    from app.services.analytics.survival import (
+        FEATURE_RATIO, ratio_bucket, ratio_bucket_value,
+    )
 
-    bucket = ratio_bucket(option["price_per_unit"], ref)
+    # По множителю тира, а не по option["price_per_unit"]: цена усечена, см.
+    # TIER_RATIOS. Округлять цену бесполезно — отношение всё равно
+    # пересчитывается из целого. Для точек, не являющихся тиром, расчёт по цене.
+    tier_ratio = TIER_RATIOS.get(option["label"])
+    bucket = (
+        ratio_bucket_value(tier_ratio) if tier_ratio
+        else ratio_bucket(option["price_per_unit"], ref)
+    )
     summary = survival.summary(FEATURE_RATIO, bucket)
     if summary is None:
         return option
@@ -482,7 +515,7 @@ def apply_survival(
 
     if override_hours and summary.median_hours is not None:
         option["estimated_hours"] = summary.median_hours
-        option["estimated_hours_display"] = format_hours(summary.median_hours)
+        option["estimated_hours_display"] = format_hours(summary.median_hours, precise=True)
         option["time_source"] = "measured"
         option["data_points"] = summary.n_at_risk
         option["confidence"] = "measured"

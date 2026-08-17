@@ -278,10 +278,14 @@ export default function MobileFeedPage() {
           // Кривая дожития (фаза B): на мобильном места больше, поэтому строка
           // показывается всегда, когда измерена, — но окрашивается в
           // предупреждение только там, где исход реже, чем не наступает.
-          ...(lot.p_sold_6h !== null
+          // != null, а не !== null: строгое сравнение пропускает undefined, и
+          // строка отрисовывалась бы как «undefined %», если поле пропадёт из
+          // ответа. Через нынешний API недостижимо (FeedLotOut всегда шлёт
+          // null), но хрупкость дешевле убрать, чем помнить.
+          ...(lot.p_sold_6h != null
             ? [{
                 label: 'Продастся за 6 ч',
-                value: `${lot.p_sold_6h} %${lot.pct_sold_ever !== null && lot.pct_sold_ever < 95
+                value: `${lot.p_sold_6h} %${lot.pct_sold_ever != null && lot.pct_sold_ever < 95
                   ? ` · не продаётся ${(100 - lot.pct_sold_ever).toFixed(0)} %` : ''}`,
                 ...(lot.p_sold_6h < 50 ? { tone: 'neg' as const } : {}),
               }]
