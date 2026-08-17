@@ -553,15 +553,30 @@ class LotObservation(Base):
     matched_sale_id   = Column(
         BigInteger, ForeignKey("sales_history.id", ondelete="SET NULL"), nullable=True,
     )
+    # Происхождение наблюдения: live — записано сборщиком ленты в момент
+    # события; snapshot — восстановлено задним числом из collected_data
+    # (app/scripts/reconstruct_lot_history.py). У источников РАЗНЫЕ смещения:
+    # набор предметов, шаг обхода, левое усечение, доля цензурированных. Фаза B
+    # обязана уметь их разделять и взвешивать, иначе две выборки необратимо
+    # перемешаются (docs/tasks/history-lot-reconstruction.md §2.3).
+    source            = Column(String(12), nullable=False, server_default="live")
 
     __table_args__ = (
-        Index("uq_lot_obs_lot", "item_id", "region", "lot_key", unique=True),
+        # source в ключе идентичности: один и тот же лот в окне пересечения
+        # виден ОБОИМ источникам, и это две независимые записи о нём. Без
+        # source восстановление затирало бы last_seen_at живых строк, а
+        # сверка §5.2 (живой источник как эталон) стала бы невозможна.
+        Index("uq_lot_obs_lot", "source", "item_id", "region", "lot_key", unique=True),
         Index("ix_lot_obs_pending", "outcome", "last_seen_at"),   # выборка резолвера
         Index("ix_lot_obs_variant", "item_id", "region", "qlt", "ptn"),  # фаза B
         # Частичный: NULL-ы друг другу не конфликтуют, но без предиката индекс
-        # распух бы на всех живых и незакрытых строках.
+        # распух бы на всех живых и незакрытых строках. Уникальность внутри
+        # source, а не глобально: «одна сделка = максимум одно наблюдение» —
+        # правило учёта ВНУТРИ выборки. Глобальная уникальность означала бы,
+        # что восстановление отбирает сделку у живого наблюдения того же лота
+        # и портит эталон сверки.
         Index(
-            "uq_lot_obs_matched_sale", "matched_sale_id", unique=True,
+            "uq_lot_obs_matched_sale", "source", "matched_sale_id", unique=True,
             postgresql_where=text("matched_sale_id IS NOT NULL"),
         ),
     )

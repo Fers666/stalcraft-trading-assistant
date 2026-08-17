@@ -136,6 +136,14 @@ LOT_OBS_RESOLVE_BATCH       = 5000  # строк за один прогон ре
 # expired (полное наблюдение) с withdrawn (цензурированное).
 LOT_OBS_EXPIRE_TOLERANCE_MINUTES = 30
 LOT_OBS_RETENTION_DAYS = 30         # удаление resolved-строк в delete_old_data
+# Происхождение наблюдения (lot_observations.source). Живой сборщик пишет
+# только LIVE и работает только с LIVE: строки SNAPSHOT восстановлены задним
+# числом (app/scripts/reconstruct_lot_history.py), их исходы посчитаны там же,
+# а оставшийся NULL в outcome — намеренное цензурирование, а не «ещё не
+# закрыто». Резолверу их трогать нельзя, иначе цензурирование превратится в
+# withdrawn, а сделки уйдут исторической выборке в обход живой.
+LOT_OBS_SOURCE_LIVE     = "live"
+LOT_OBS_SOURCE_SNAPSHOT = "snapshot"
 
 FEED_SCAN_LAST_PREFIX = "feed:scan:last:"
 FEED_SCAN_LAST_TTL    = 24 * 3600
@@ -562,6 +570,7 @@ def observation_rows(
         place = ranks.get(buyout // amount) if _is_liquid(lot, seen_at) else None
 
         rows.append({
+            "source":            LOT_OBS_SOURCE_LIVE,
             "item_id":           item_id,
             "region":            region,
             "qlt":               qlt,
@@ -604,7 +613,7 @@ def observation_update_columns() -> set[str]:
     from app.models.models import LotObservation
 
     frozen = {
-        "id", "item_id", "region", "lot_key", "qlt", "ptn",
+        "id", "source", "item_id", "region", "lot_key", "qlt", "ptn",
         "start_time", "end_time", "amount", "buyout_price", "buyout_per_unit",
         "ref_price_at_seen", "queue_rank", "cheaper_units", "variant_live_lots",
         "first_seen_at", "outcome", "resolved_at", "matched_sale_id",
@@ -898,7 +907,9 @@ async def upsert_lot_observations(db, rows: list[dict]) -> tuple[int, int]:
         chunk = values[start:start + LOT_OBS_UPSERT_CHUNK]
         stmt = pg_insert(LotObservation).values(chunk)
         stmt = stmt.on_conflict_do_update(
-            index_elements=["item_id", "region", "lot_key"],
+            # source в ключе: восстановленные строки того же лота живут
+            # отдельной записью и апсертом ленты не затираются (§2.3 ТЗ).
+            index_elements=["source", "item_id", "region", "lot_key"],
             set_={name: stmt.excluded[name] for name in updatable},
         ).returning(literal_column("(xmax = 0)").label("is_insert"))
 
@@ -1538,7 +1549,15 @@ async def _resolve_observations(db, now: datetime) -> dict[str, int]:
     cutoff = resolve_cutoff(now)
     rows = (await db.execute(
         select(LotObservation)
-        .where(LotObservation.outcome.is_(None), LotObservation.last_seen_at < cutoff)
+        .where(
+            # Только живые наблюдения: у восстановленных из снапшотов исход уже
+            # проставлен скриптом, а оставшийся NULL — намеренное
+            # цензурирование (дыра в сборе либо конец окна). Резолвер записал бы
+            # их withdrawn и заодно израсходовал бы на них сделки.
+            LotObservation.source == LOT_OBS_SOURCE_LIVE,
+            LotObservation.outcome.is_(None),
+            LotObservation.last_seen_at < cutoff,
+        )
         .order_by(LotObservation.last_seen_at)
         .limit(LOT_OBS_RESOLVE_BATCH)
     )).scalars().all()
@@ -1575,7 +1594,12 @@ async def _resolve_observations(db, now: datetime) -> dict[str, int]:
         sale_ids = {sale.id for sale in sales}
         taken = (await db.execute(
             select(LotObservation.matched_sale_id).where(
-                LotObservation.matched_sale_id.between(min(sale_ids), max(sale_ids))
+                # Счёт сделок ведётся ВНУТРИ источника: восстановленные строки
+                # претендуют на те же сделки того же лота, но живую выборку
+                # обеднять не должны (индекс uq_lot_obs_matched_sale — по паре
+                # с source, см. миграцию 0042).
+                LotObservation.source == LOT_OBS_SOURCE_LIVE,
+                LotObservation.matched_sale_id.between(min(sale_ids), max(sale_ids)),
             )
         )).scalars().all()
         # Диапазон id захватывает и чужие сделки — оставляем только те, что
