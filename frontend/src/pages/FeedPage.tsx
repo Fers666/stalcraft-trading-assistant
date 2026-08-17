@@ -19,7 +19,7 @@ import { TIER_LABELS } from '../constants/tiers'
 import { fmtN, fmtP, fmtCompact } from '../utils/format'
 import { qualityKeyByValue, iconUrl } from '../utils/i18n'
 import {
-  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, profitPerHourTotal, feedCategoryLabel,
+  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, evPerHour, feedCategoryLabel,
   type FeedLot, type FeedLotsResponse, type FeedSummaryResponse,
   type FeedFiltersResponse, type FeedSortKey,
 } from '../api/feed'
@@ -61,6 +61,7 @@ const COLUMNS: { key: FeedSortKey | 'name'; label: string; tip: string; align: '
   { key: 'buyout_per_unit', label: 'Лот', tip: 'Цена за штуку · количество · итог к оплате', align: 'right' },
   { key: 'profit_pct', label: 'Опора', tip: 'Опорная цена — медиана реальных сделок за 7 дней, взвешенная по свежести', align: 'right' },
   { key: 'profit_total', label: 'Прибыль', tip: 'Прибыль со всего лота, уже за вычетом комиссии аукциона 5 %', align: 'right' },
+  { key: 'ev_per_hour', label: '₽/час ожид.', tip: 'Прибыль в час, умноженная на вероятность продажи за 6 часов. Прибыль в час без поправки на вероятность — в карточке лота', align: 'right' },
   { key: 'volatility', label: 'Рынок', tip: 'Волатильность 7 д, риск и тренд. Тренд — метка, а не поправка к цене', align: 'right' },
   { key: 'sales_per_day', label: 'Ликвидность', tip: 'Сделок в день и за сколько дней рынок переварит нынешнее предложение', align: 'right' },
   { key: 'time_left', label: 'Время', tip: 'Сколько лоту осталось жить (максимум 48 ч) и когда его заметила лента', align: 'right' },
@@ -170,7 +171,10 @@ export default function FeedPage() {
 
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
-  const [sort, setSort] = useState<FeedSortKey>('profit_total')
+  // Умолчание — ожидаемая прибыль в час, а не валовая: сортировка по
+  // profit_total систематически поднимала наверх лоты, которые не продаются
+  // (docs/tasks/ev-ranking.md §1).
+  const [sort, setSort] = useState<FeedSortKey>('ev_per_hour')
   const [order, setOrder] = useState<'asc' | 'desc'>('desc')
   const [itemFilter, setItemFilter] = useState<string>('')
   const [qltFilter, setQltFilter] = useState<number | ''>('')
@@ -271,12 +275,7 @@ export default function FeedPage() {
     const qKey = qualityKeyByValue(lot.qlt)
     const expiring = lot.hours_remaining !== null && lot.hours_remaining < EXPIRING_HOURS
     const fresh = minutesSince(lot.first_seen_at) <= FRESH_MINUTES
-    const pph = profitPerHourTotal(lot)
-    // Кривая дожития (P1-4 фаза B). В плотной строке показываем только когда
-    // число МЕНЯЕТ решение: «продастся за 6 ч» ниже половины означает, что
-    // ₽/час рядом описывает исход, который наступает реже, чем не наступает.
-    // Хорошие значения строку бы только зашумили — полная картина в карточке.
-    const slowSale = lot.p_sold_6h != null && lot.p_sold_6h < 50
+    const ev = evPerHour(lot)
     const name = lot.name_ru ?? lot.name_en ?? lot.item_id
     const aria =
       `Лот: ${name} ${QLT_NAMES[lot.qlt] ?? `кач. ${lot.qlt}`} +${lot.ptn}, ` +
@@ -324,15 +323,15 @@ export default function FeedPage() {
           <Cell
             tone="g" subTone="g"
             value={`+${fmtP(lot.profit_total)}`}
-            sub={`+${d1(lot.profit_pct)} %${pph !== null ? ` · ${fmtCompact(Math.round(pph))}/ч` : ''}`}
+            sub={`+${d1(lot.profit_pct)} %`}
           />
-          {slowSale && (
-            <Tooltip title={`По плановой цене продажи за 6 часов уходит ${lot.p_sold_6h} % таких лотов${lot.pct_sold_ever != null ? `, а ${(100 - lot.pct_sold_ever).toFixed(0)} % не продаются вовсе` : ''}. Прибыль в час считается по тем, что продались.`}>
-              <Box className="mono" sx={{ mt: '2px', fontSize: fs.f10, color: tokens.text2, cursor: 'help', whiteSpace: 'nowrap' }}>
-                за 6 ч уходит {lot.p_sold_6h} %
-              </Box>
-            </Tooltip>
-          )}
+        </td>
+        <td>
+          <Cell
+            tone="g"
+            value={ev !== null ? `${fmtCompact(Math.round(ev))}/ч` : '—'}
+            sub={lot.p_sold_6h != null ? `${lot.p_sold_6h} % за 6 ч` : 'нет данных'}
+          />
         </td>
         <td>
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>

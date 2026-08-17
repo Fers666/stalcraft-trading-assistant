@@ -82,6 +82,11 @@ _CATEGORY_LABELS: dict[str, str] = {
 _CATEGORY_OTHER = "Прочие"
 
 _SORT_COLUMNS = {
+    # Умолчание. profit_total отвечает на вопрос «сколько заработаю, ЕСЛИ
+    # продам»; ev_per_hour домножает его на вероятность того, что продажа
+    # вообще состоится. Прежние ключи сохранены все — валовая прибыль
+    # выбирается явно (docs/tasks/ev-ranking.md).
+    "ev_per_hour":     FeedLot.ev_per_hour,
     "profit_total":    FeedLot.profit_total,
     "profit_pct":      FeedLot.profit_pct,
     # Именно profit_per_hour_total: в таблице напечатана прибыль ВСЕГО лота за
@@ -197,6 +202,10 @@ class FeedLotOut(BaseModel):
     # появления поля, валидируется как None, а не падает.
     profit_per_hour_total: float | None = None
     est_sell_hours: float | None = None
+    # Ожидаемая прибыль в час — величина колонки «₽/час ожид.» и ключ
+    # сортировки по умолчанию. Optional: строка из Redis-кэша витрины,
+    # записанного до появления поля, валидируется как None, а не падает.
+    ev_per_hour: float | None = None
     # Кривая дожития (P1-4 фаза B): P(продан <= 6 ч) по позиции плановой цены
     # продажи в стакане и доля страты, продавшаяся когда-либо. Второе поле
     # важнее первого: до фазы B система вообще не знала, что часть лотов не
@@ -305,6 +314,7 @@ def _to_out(lot: FeedLot, master: MasterItem | None) -> FeedLotOut:
             float(lot.profit_per_hour_total) if lot.profit_per_hour_total is not None else None
         ),
         est_sell_hours=float(lot.est_sell_hours) if lot.est_sell_hours is not None else None,
+        ev_per_hour=float(lot.ev_per_hour) if lot.ev_per_hour is not None else None,
         p_sold_6h=float(lot.p_sold_6h) if lot.p_sold_6h is not None else None,
         pct_sold_ever=float(lot.pct_sold_ever) if lot.pct_sold_ever is not None else None,
         risk=lot.risk,
@@ -376,7 +386,10 @@ async def _showcase_rows(
         query = query.where(FeedLot.buyout_price.between(*bounds))
 
     rows = (await db.execute(
-        query.order_by(FeedLot.profit_total.desc(), FeedLot.id).limit(rows_limit)
+        query.order_by(
+            FeedLot.ev_per_hour.desc().nulls_last(),
+            FeedLot.profit_total.desc(), FeedLot.id,
+        ).limit(rows_limit)
     )).all()
 
     return _rows_to_out(rows), int(band.n), band.snapshot_at
@@ -426,7 +439,7 @@ async def list_feed_lots(
     max_buyout: int | None = Query(None),
     min_amount: int | None = Query(None),
     risk: list[str] | None = Query(None),
-    sort: str = Query("profit_total"),
+    sort: str = Query("ev_per_hour"),
     order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -489,7 +502,11 @@ async def list_feed_lots(
 
     rows = (await db.execute(
         _joined(*conds)
-        .order_by(ordering, FeedLot.id)
+        # profit_total вторичным ключом: когда сортировка идёт по ev_per_hour,
+        # а вероятность не измерена ни у одной строки (пустая sale_survival —
+        # рабочее состояние первых суток), выдача обязана выродиться в прежний
+        # порядок, а не в произвольный по id.
+        .order_by(ordering, FeedLot.profit_total.desc(), FeedLot.id)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )).all()
@@ -645,7 +662,10 @@ async def feed_summary(
     )).one()
 
     best_row = (await db.execute(
-        _joined(*conds).order_by(FeedLot.profit_total.desc(), FeedLot.id).limit(1)
+        _joined(*conds).order_by(
+            FeedLot.ev_per_hour.desc().nulls_last(),
+            FeedLot.profit_total.desc(), FeedLot.id,
+        ).limit(1)
     )).first()
 
     sales_24h = (await db.execute(

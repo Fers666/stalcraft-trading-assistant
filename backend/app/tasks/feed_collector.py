@@ -475,6 +475,14 @@ def score_item_lots(
             "margin_adj_pct":     round(profit_pct / risk_mult, 2),
             "profit_per_hour":    evaluated["profit_per_hour"],
             "profit_per_hour_total": round(profit_total / hours, 2) if hours else None,
+            # Ожидаемая прибыль в час — ключ сортировки по умолчанию (P0-3).
+            # Один множитель к ₽/час, но он меняет верх выдачи целиком:
+            # средняя вероятность продажи в топ-10 растёт с 27.2 % до 49.3 %
+            # при потере 5.3 % средней прибыли (docs/tasks/ev-ranking.md §3).
+            "ev_per_hour": (
+                round(profit_total * (p_sold_6h / 100.0) / hours, 2)
+                if hours and p_sold_6h is not None else None
+            ),
             "est_sell_hours":     hours,
             "p_sold_6h":          p_sold_6h,
             "pct_sold_ever":      pct_sold_ever,

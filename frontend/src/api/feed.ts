@@ -36,8 +36,14 @@ export interface FeedLot {
   profit_pct: number
   /** Прибыль НА ЕДИНИЦУ в час. Для колонки «Прибыль» не использовать — там база «весь лот». */
   profit_per_hour: number | null
-  /** Прибыль ВСЕГО ЛОТА в час — величина колонки «₽/час» и ключ её сортировки на сервере. */
+  /** Прибыль ВСЕГО ЛОТА в час, ЕСЛИ лот продастся. Показывается в карточке. */
   profit_per_hour_total: number | null
+  /**
+   * ОЖИДАЕМАЯ прибыль в час: `profit_per_hour_total × P(продан ≤ 6 ч)`.
+   * Величина колонки «₽/час ожид.» и ключ сортировки ленты по умолчанию.
+   * null — вероятность не измерена; такие строки уходят в конец выдачи.
+   */
+  ev_per_hour: number | null
   est_sell_hours: number | null
   /**
    * Кривая дожития (P1-4 фаза B): доля лотов, проданных не позже 6 часов при
@@ -132,7 +138,7 @@ export function feedCategoryLabel(category: string | null): string {
 
 /** Ключи сортировки — соответствуют data-k прототипа и sort бэкенда. */
 export type FeedSortKey =
-  | 'profit_total' | 'profit_pct' | 'profit_per_hour'
+  | 'ev_per_hour' | 'profit_total' | 'profit_pct' | 'profit_per_hour'
   | 'buyout_per_unit' | 'time_left' | 'volatility' | 'sales_per_day'
 
 export interface FeedLotsParams {
@@ -190,4 +196,22 @@ export function profitPerHourTotal(lot: FeedLot): number | null {
   if (lot.profit_per_hour_total != null) return lot.profit_per_hour_total
   if (!lot.est_sell_hours || lot.est_sell_hours <= 0) return null
   return lot.profit_total / lot.est_sell_hours
+}
+
+/**
+ * Ожидаемая прибыль в час — то, что печатает колонка «₽/час ожид.» и по чему
+ * идёт сортировка по умолчанию.
+ *
+ * Отличие от profitPerHourTotal ровно в одном множителе: та величина отвечает
+ * «сколько получишь в час, ЕСЛИ продашь», эта домножена на вероятность того,
+ * что продажа вообще состоится. Замер показал, что разница решающая: 77 %
+ * строк ленты продаются реже чем в 40 % случаев за 6 ч, и именно у них
+ * обещанная прибыль выше (docs/tasks/ev-ranking.md).
+ *
+ * Локального расчёта нет намеренно: без измеренной вероятности величины не
+ * существует, и подставлять p = 1 значило бы вернуть то самое умолчание
+ * «продастся обязательно».
+ */
+export function evPerHour(lot: FeedLot): number | null {
+  return lot.ev_per_hour ?? null
 }

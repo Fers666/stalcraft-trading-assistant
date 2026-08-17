@@ -436,3 +436,50 @@ def test_band_bounds_applies_on_large_enough_selection():
 def test_band_bounds_degrades_on_small_selection(n):
     """На 1–3 строках перцентили схлопываются — витрина обязана не пустеть."""
     assert band_bounds(n, 100, 500) is None
+
+
+# ─── Ожидаемая прибыль в час (P0-3) ──────────────────────────────────────────
+
+def test_ev_per_hour_is_profit_per_hour_times_probability():
+    """
+    Один множитель к ₽/час, но он и есть смысл P0-3: profit_total отвечает
+    «сколько заработаю, ЕСЛИ продам», ev_per_hour домножает на вероятность
+    того, что продажа состоится.
+    """
+    from types import SimpleNamespace
+    from app.services.analytics.survival import (
+        FEATURE_POS, HORIZONS_H, Stratum, SurvivalTable,
+    )
+
+    rows = {}
+    for h in HORIZONS_H:
+        rows[(FEATURE_POS, "top10", h)] = Stratum(
+            n_at_risk=8270, p_sold_lo=73.68, p_sold_hi=80.0,
+            pct_withdrawn=6.0, pct_sold_ever=80.07, median_hours=2.0,
+        )
+    lots = [_lot(50_000, amount=3)]
+    lots += [_lot(300_000, amount=1, key=f"2026-08-03T10:{i:02d}:00Z") for i in range(20)]
+
+    row = score_item_lots(
+        "art1", "RU", lots, {(4, 15): _variant()}, NOW, survival=SurvivalTable(rows),
+    )[0]
+
+    assert row["p_sold_6h"] == 73.68
+    assert row["est_sell_hours"] == 2.0
+    assert row["profit_per_hour_total"] == pytest.approx(row["profit_total"] / 2.0, abs=0.5)
+    assert row["ev_per_hour"] == pytest.approx(
+        row["profit_total"] * 0.7368 / 2.0, abs=0.5)
+    # Ожидаемая всегда не больше валовой: вероятность не превышает единицы
+    assert row["ev_per_hour"] < row["profit_per_hour_total"]
+
+
+def test_ev_per_hour_is_none_without_probability():
+    """
+    Без измеренной вероятности величины не существует. Подставлять p = 1
+    нельзя — это ровно то умолчание «продастся обязательно», от которого
+    уходит P0-3; такие строки уходят в конец выдачи через nulls_last.
+    """
+    row = score_item_lots("art1", "RU", [_lot(50_000, amount=3)],
+                          {(4, 15): _variant()}, NOW)[0]
+    assert row["ev_per_hour"] is None
+    assert row["profit_per_hour_total"] is not None

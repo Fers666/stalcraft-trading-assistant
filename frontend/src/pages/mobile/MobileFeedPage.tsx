@@ -11,7 +11,7 @@ import { TIER_LABELS } from '../../constants/tiers'
 import { fmtN, fmtP, fmtCompact } from '../../utils/format'
 import { iconUrl, qualityKeyByValue } from '../../utils/i18n'
 import {
-  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, profitPerHourTotal, feedCategoryLabel,
+  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, profitPerHourTotal, evPerHour, feedCategoryLabel,
   type FeedLot, type FeedLotsResponse, type FeedSummaryResponse,
   type FeedFiltersResponse, type FeedSortKey,
 } from '../../api/feed'
@@ -54,6 +54,7 @@ const RISK_LABEL: Record<string, string> = { low: 'низкий', medium: 'ср�
 const SORTS: { label: string; key: FeedSortKey; order: 'asc' | 'desc' }[] = [
   { label: 'Прибыль ₽ ↓',   key: 'profit_total',    order: 'desc' },
   { label: 'Прибыль % ↓',   key: 'profit_pct',      order: 'desc' },
+  { label: '₽/час ожид. ↓', key: 'ev_per_hour', order: 'desc' },
   { label: '₽/час ↓',       key: 'profit_per_hour', order: 'desc' },
   { label: 'Цена за шт ↑',  key: 'buyout_per_unit', order: 'asc'  },
   { label: 'Скоро истекут', key: 'time_left',       order: 'asc'  },
@@ -215,6 +216,7 @@ export default function MobileFeedPage() {
     const qName = lot.quality_name ?? QLT_NAMES[lot.qlt] ?? `кач. ${lot.qlt}`
     const expiring = lot.hours_remaining !== null && lot.hours_remaining < EXPIRING_HOURS
     const pph = profitPerHourTotal(lot)
+    const ev = evPerHour(lot)
 
     return (
       <DCard
@@ -272,8 +274,13 @@ export default function MobileFeedPage() {
           { label: 'Итого к оплате', value: fmtP(lot.buyout_price) },
           { label: 'Опора · безубыток', value: `${fmtP(lot.ref_price)} · ${fmtN(lot.breakeven_per_unit)}` },
           { label: 'Прибыль со всего лота', value: `+${fmtP(lot.profit_total)}`, tone: 'pos' },
+          // Ожидаемая — первой: это ключ сортировки по умолчанию и та величина,
+          // которая учитывает, состоится ли продажа вообще.
+          ...(ev !== null
+            ? [{ label: 'Ожидаемая прибыль в час', value: `${fmtCompact(Math.round(ev))}/ч`, tone: 'pos' as const }]
+            : []),
           ...(pph !== null
-            ? [{ label: 'Прибыль в час', value: `${fmtCompact(Math.round(pph))}/ч`, tone: 'pos' as const }]
+            ? [{ label: 'Прибыль в час, если продашь', value: `${fmtCompact(Math.round(pph))}/ч` }]
             : []),
           // Кривая дожития (фаза B): на мобильном места больше, поэтому строка
           // показывается всегда, когда измерена, — но окрашивается в
