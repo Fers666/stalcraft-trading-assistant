@@ -19,7 +19,7 @@ import { TIER_LABELS } from '../constants/tiers'
 import { fmtN, fmtP, fmtCompact } from '../utils/format'
 import { qualityKeyByValue, iconUrl } from '../utils/i18n'
 import {
-  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, evPerHour, feedCategoryLabel,
+  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, fmtSellTime, feedCategoryLabel,
   type FeedLot, type FeedLotsResponse, type FeedSummaryResponse,
   type FeedFiltersResponse, type FeedSortKey,
 } from '../api/feed'
@@ -60,8 +60,8 @@ const COLUMNS: { key: FeedSortKey | 'name'; label: string; tip: string; align: '
   { key: 'name', label: 'Предмет', tip: 'Артефакт, качество и заточка — один вариант товара', align: 'left' },
   { key: 'buyout_per_unit', label: 'Лот', tip: 'Цена за штуку · количество · итог к оплате', align: 'right' },
   { key: 'profit_pct', label: 'Опора', tip: 'Опорная цена — медиана реальных сделок за 7 дней, взвешенная по свежести', align: 'right' },
-  { key: 'profit_total', label: 'Прибыль', tip: 'Прибыль со всего лота, уже за вычетом комиссии аукциона 5 %', align: 'right' },
-  { key: 'ev_per_hour', label: '₽/час ожид.', tip: 'Прибыль в час, умноженная на вероятность продажи за 6 часов. Прибыль в час без поправки на вероятность — в карточке лота', align: 'right' },
+  { key: 'profit_total', label: 'Продать быстро', tip: 'Прибыль со всего лота по нижней цене (опора −6 %), за вычетом комиссии 5 %. Рядом — сколько лот будет продаваться и с какой вероятностью уйдёт за 6 часов', align: 'right' },
+  { key: 'ev_profit', label: 'Продать дороже', tip: 'Та же сделка по верхней цене (опора +6 %), если готов подождать. Прибыль это разность «продажа минус закупка», поэтому +12 % к цене часто умножают её в разы — платится вероятностью', align: 'right' },
   { key: 'volatility', label: 'Рынок', tip: 'Волатильность 7 д, риск и тренд. Тренд — метка, а не поправка к цене', align: 'right' },
   { key: 'sales_per_day', label: 'Ликвидность', tip: 'Сделок в день и за сколько дней рынок переварит нынешнее предложение', align: 'right' },
   { key: 'time_left', label: 'Время', tip: 'Сколько лоту осталось жить (максимум 48 ч) и когда его заметила лента', align: 'right' },
@@ -174,7 +174,7 @@ export default function FeedPage() {
   // Умолчание — ожидаемая прибыль в час, а не валовая: сортировка по
   // profit_total систематически поднимала наверх лоты, которые не продаются
   // (docs/tasks/ev-ranking.md §1).
-  const [sort, setSort] = useState<FeedSortKey>('ev_per_hour')
+  const [sort, setSort] = useState<FeedSortKey>('ev_profit')
   const [order, setOrder] = useState<'asc' | 'desc'>('desc')
   const [itemFilter, setItemFilter] = useState<string>('')
   const [qltFilter, setQltFilter] = useState<number | ''>('')
@@ -275,7 +275,7 @@ export default function FeedPage() {
     const qKey = qualityKeyByValue(lot.qlt)
     const expiring = lot.hours_remaining !== null && lot.hours_remaining < EXPIRING_HOURS
     const fresh = minutesSince(lot.first_seen_at) <= FRESH_MINUTES
-    const ev = evPerHour(lot)
+
     const name = lot.name_ru ?? lot.name_en ?? lot.item_id
     const aria =
       `Лот: ${name} ${QLT_NAMES[lot.qlt] ?? `кач. ${lot.qlt}`} +${lot.ptn}, ` +
@@ -323,14 +323,22 @@ export default function FeedPage() {
           <Cell
             tone="g" subTone="g"
             value={`+${fmtP(lot.profit_total)}`}
-            sub={`+${d1(lot.profit_pct)} %`}
+            sub={
+              lot.p_sold_6h != null
+                ? `${fmtSellTime(lot.est_sell_hours)} · ${lot.p_sold_6h} % за 6 ч`
+                : `+${d1(lot.profit_pct)} %`
+            }
           />
         </td>
         <td>
           <Cell
-            tone="g"
-            value={ev !== null ? `${fmtCompact(Math.round(ev))}/ч` : '—'}
-            sub={lot.p_sold_6h != null ? `${lot.p_sold_6h} % за 6 ч` : 'нет данных'}
+            tone="g" subTone="g"
+            value={lot.profit_total_slow != null ? `+${fmtP(lot.profit_total_slow)}` : '—'}
+            sub={
+              lot.p_sold_6h_slow != null
+                ? `${fmtSellTime(lot.est_sell_hours_slow)} · ${lot.p_sold_6h_slow} % за 6 ч`
+                : 'нет данных'
+            }
           />
         </td>
         <td>

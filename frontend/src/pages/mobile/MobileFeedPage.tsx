@@ -11,7 +11,7 @@ import { TIER_LABELS } from '../../constants/tiers'
 import { fmtN, fmtP, fmtCompact } from '../../utils/format'
 import { iconUrl, qualityKeyByValue } from '../../utils/i18n'
 import {
-  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, profitPerHourTotal, evPerHour, feedCategoryLabel,
+  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, fmtSellTime, feedCategoryLabel,
   type FeedLot, type FeedLotsResponse, type FeedSummaryResponse,
   type FeedFiltersResponse, type FeedSortKey,
 } from '../../api/feed'
@@ -54,8 +54,7 @@ const RISK_LABEL: Record<string, string> = { low: 'низкий', medium: 'ср�
 const SORTS: { label: string; key: FeedSortKey; order: 'asc' | 'desc' }[] = [
   { label: 'Прибыль ₽ ↓',   key: 'profit_total',    order: 'desc' },
   { label: 'Прибыль % ↓',   key: 'profit_pct',      order: 'desc' },
-  { label: '₽/час ожид. ↓', key: 'ev_per_hour', order: 'desc' },
-  { label: '₽/час ↓',       key: 'profit_per_hour', order: 'desc' },
+  { label: 'Ожидаемая ↓',   key: 'ev_profit',       order: 'desc' },
   { label: 'Цена за шт ↑',  key: 'buyout_per_unit', order: 'asc'  },
   { label: 'Скоро истекут', key: 'time_left',       order: 'asc'  },
   { label: 'Ликвидность ↓', key: 'sales_per_day',   order: 'desc' },
@@ -215,8 +214,6 @@ export default function MobileFeedPage() {
     const qKey = qualityKeyByValue(lot.qlt)
     const qName = lot.quality_name ?? QLT_NAMES[lot.qlt] ?? `кач. ${lot.qlt}`
     const expiring = lot.hours_remaining !== null && lot.hours_remaining < EXPIRING_HOURS
-    const pph = profitPerHourTotal(lot)
-    const ev = evPerHour(lot)
 
     return (
       <DCard
@@ -273,28 +270,23 @@ export default function MobileFeedPage() {
         kv={[
           { label: 'Итого к оплате', value: fmtP(lot.buyout_price) },
           { label: 'Опора · безубыток', value: `${fmtP(lot.ref_price)} · ${fmtN(lot.breakeven_per_unit)}` },
-          { label: 'Прибыль со всего лота', value: `+${fmtP(lot.profit_total)}`, tone: 'pos' },
-          // Ожидаемая — первой: это ключ сортировки по умолчанию и та величина,
-          // которая учитывает, состоится ли продажа вообще.
-          ...(ev !== null
-            ? [{ label: 'Ожидаемая прибыль в час', value: `${fmtCompact(Math.round(ev))}/ч`, tone: 'pos' as const }]
-            : []),
-          ...(pph !== null
-            ? [{ label: 'Прибыль в час, если продашь', value: `${fmtCompact(Math.round(pph))}/ч` }]
-            : []),
-          // Кривая дожития (фаза B): на мобильном места больше, поэтому строка
-          // показывается всегда, когда измерена, — но окрашивается в
-          // предупреждение только там, где исход реже, чем не наступает.
-          // != null, а не !== null: строгое сравнение пропускает undefined, и
-          // строка отрисовывалась бы как «undefined %», если поле пропадёт из
-          // ответа. Через нынешний API недостижимо (FeedLotOut всегда шлёт
-          // null), но хрупкость дешевле убрать, чем помнить.
+          // Два сценария продажи — то, ради чего лента и нужна: сколько лот
+          // будет продаваться и что даёт ожидание. != null, а не !== null:
+          // строгое сравнение пропускает undefined, и строка отрисовалась бы
+          // как «undefined %», если поле пропадёт из ответа.
           ...(lot.p_sold_6h != null
             ? [{
-                label: 'Продастся за 6 ч',
-                value: `${lot.p_sold_6h} %${lot.pct_sold_ever != null && lot.pct_sold_ever < 95
-                  ? ` · не продаётся ${(100 - lot.pct_sold_ever).toFixed(0)} %` : ''}`,
-                ...(lot.p_sold_6h < 50 ? { tone: 'neg' as const } : {}),
+                label: 'Продать быстро',
+                value: `+${fmtP(lot.profit_total)} · ${fmtSellTime(lot.est_sell_hours)} · ${lot.p_sold_6h} %`,
+                ...(lot.p_sold_6h < 50 ? { tone: 'neg' as const } : { tone: 'pos' as const }),
+              }]
+            : [{ label: 'Прибыль со всего лота', value: `+${fmtP(lot.profit_total)}`, tone: 'pos' as const }]),
+          ...(lot.profit_total_slow != null
+            ? [{
+                label: 'Продать дороже',
+                value: `+${fmtP(lot.profit_total_slow)}${lot.p_sold_6h_slow != null
+                  ? ` · ${fmtSellTime(lot.est_sell_hours_slow)} · ${lot.p_sold_6h_slow} %` : ''}`,
+                tone: 'pos' as const,
               }]
             : []),
           {

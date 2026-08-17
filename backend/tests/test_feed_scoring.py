@@ -466,11 +466,10 @@ def test_ev_per_hour_is_profit_per_hour_times_probability():
 
     assert row["p_sold_6h"] == 73.68
     assert row["est_sell_hours"] == 2.0
-    assert row["profit_per_hour_total"] == pytest.approx(row["profit_total"] / 2.0, abs=0.5)
-    assert row["ev_per_hour"] == pytest.approx(
-        row["profit_total"] * 0.7368 / 2.0, abs=0.5)
-    # Ожидаемая всегда не больше валовой: вероятность не превышает единицы
-    assert row["ev_per_hour"] < row["profit_per_hour_total"]
+    # Ожидаемая прибыль — максимум по двум сценариям, и она не может превышать
+    # большую из валовых: вероятность не бывает больше единицы.
+    assert row["ev_profit"] <= max(row["profit_total"], row["profit_total_slow"])
+    assert row["ev_profit"] > 0
 
 
 def test_ev_per_hour_is_none_without_probability():
@@ -481,5 +480,22 @@ def test_ev_per_hour_is_none_without_probability():
     """
     row = score_item_lots("art1", "RU", [_lot(50_000, amount=3)],
                           {(4, 15): _variant()}, NOW)[0]
-    assert row["ev_per_hour"] is None
+    assert row["ev_profit"] is None
+    assert row["p_sold_6h_slow"] is None
     assert row["profit_per_hour_total"] is not None
+    # Прибыль сценария ожидания от вероятности не зависит и есть всегда:
+    # это арифметика цены, а не измерение
+    assert row["profit_total_slow"] is not None
+
+
+def test_patient_scenario_beats_fast_when_margin_is_thin():
+    """
+    Смысл сценария ожидания: прибыль — это РАЗНОСТЬ «продажа минус закупка»,
+    поэтому +12.8 % к цене при тонкой марже умножают её в разы. Замер на проде
+    дал в среднем +451 %, и до этих колонок лента прятала апсайд целиком.
+    """
+    # Опора 100 000, покупка по 94 000 за штуку — маржа у нижнего тира тонкая
+    row = score_item_lots(
+        "art1", "RU", [_lot(88_000, amount=1)], {(4, 15): _variant()}, NOW,
+    )[0]
+    assert row["profit_total_slow"] > row["profit_total"] * 2

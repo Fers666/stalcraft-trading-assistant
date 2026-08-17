@@ -39,11 +39,21 @@ export interface FeedLot {
   /** Прибыль ВСЕГО ЛОТА в час, ЕСЛИ лот продастся. Показывается в карточке. */
   profit_per_hour_total: number | null
   /**
-   * ОЖИДАЕМАЯ прибыль в час: `profit_per_hour_total × P(продан ≤ 6 ч)`.
-   * Величина колонки «₽/час ожид.» и ключ сортировки ленты по умолчанию.
+   * ОЖИДАЕМАЯ прибыль в рублях — ключ сортировки ленты по умолчанию.
+   * Максимум по двум сценариям (быстро / дороже): рациональный игрок выбирает
+   * лучшую стратегию для каждого лота. В рублях, а не в ₽/час: часовая ставка
+   * подразумевала бы поток одинаковых лотов, которого на рынке нет.
    * null — вероятность не измерена; такие строки уходят в конец выдачи.
    */
-  ev_per_hour: number | null
+  ev_profit: number | null
+  /**
+   * Сценарий «подождать и продать дороже» — цена тира premium (опора × 1.06).
+   * Замер: даёт в среднем +451 % прибыли ценой ~17 п.п. вероятности, потому
+   * что прибыль это РАЗНОСТЬ «продажа минус закупка».
+   */
+  profit_total_slow: number | null
+  est_sell_hours_slow: number | null
+  p_sold_6h_slow: number | null
   est_sell_hours: number | null
   /**
    * Кривая дожития (P1-4 фаза B): доля лотов, проданных не позже 6 часов при
@@ -138,7 +148,7 @@ export function feedCategoryLabel(category: string | null): string {
 
 /** Ключи сортировки — соответствуют data-k прототипа и sort бэкенда. */
 export type FeedSortKey =
-  | 'ev_per_hour' | 'profit_total' | 'profit_pct' | 'profit_per_hour'
+  | 'ev_profit' | 'profit_total' | 'profit_pct' | 'profit_per_hour'
   | 'buyout_per_unit' | 'time_left' | 'volatility' | 'sales_per_day'
 
 export interface FeedLotsParams {
@@ -199,19 +209,16 @@ export function profitPerHourTotal(lot: FeedLot): number | null {
 }
 
 /**
- * Ожидаемая прибыль в час — то, что печатает колонка «₽/час ожид.» и по чему
- * идёт сортировка по умолчанию.
+ * Срок продажи словами: «~53 мин», «~1,2 ч».
  *
- * Отличие от profitPerHourTotal ровно в одном множителе: та величина отвечает
- * «сколько получишь в час, ЕСЛИ продашь», эта домножена на вероятность того,
- * что продажа вообще состоится. Замер показал, что разница решающая: 77 %
- * строк ленты продаются реже чем в 40 % случаев за 6 ч, и именно у них
- * обещанная прибыль выше (docs/tasks/ev-ranking.md).
- *
- * Локального расчёта нет намеренно: без измеренной вероятности величины не
- * существует, и подставлять p = 1 значило бы вернуть то самое умолчание
- * «продастся обязательно».
+ * Тот же порог, что у бэкенда (pricing.format_hours с precise=True): ниже
+ * часа — минуты, до двух часов — десятые. Мельче не печатаем: срок берётся из
+ * страты, а их всего пять, и лишние знаки изобразили бы точность, которой нет.
  */
-export function evPerHour(lot: FeedLot): number | null {
-  return lot.ev_per_hour ?? null
+export function fmtSellTime(hours: number | null): string {
+  if (hours === null || hours <= 0) return '—'
+  if (hours < 1) return `~${Math.round(hours * 60)} мин`
+  if (hours < 2) return `~${hours.toFixed(1).replace('.', ',')} ч`
+  if (hours < 24) return `~${Math.round(hours)} ч`
+  return `~${Math.round(hours / 24)} дн`
 }

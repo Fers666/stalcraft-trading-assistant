@@ -368,17 +368,17 @@ def score_item_lots(
     возвращается только для убыточных лотов.
     """
     from app.services.analytics.pricing import (
-        RISK_MARGIN_MULT, _is_liquid, _lot_quality_enchant, evaluate_lot_profit,
+        COMMISSION, RISK_MARGIN_MULT, _is_liquid, _lot_quality_enchant,
+        evaluate_lot_profit, tier_prices,
     )
 
     now = now or cycle_started_at
     rows: list[dict] = []
 
     # Лестница цен стакана — для страты по позиции ПЛАНОВОЙ цены продажи.
-    # В ленте берётся именно позиционная страта, а не ценовая: замер дал
-    # корреляцию с «продан <= 6 ч» -0.330 против -0.138 у цены к опоре
-    # (docs/tasks/sale-survival-curve.md §2.3). Ценовая остаётся в
-    # sell_options — там стакана нет.
+    # В ленте берётся позиционная страта, а не ценовая, потому что стакан у
+    # сборщика в руках и позиция есть даже у вариантов без опоры; по силе
+    # признаки сопоставимы (docs/tasks/sale-survival-curve.md §2.3).
     ladders = variant_ladders(lots, now) if survival else {}
 
     # Предложение варианта — по ВСЕМ лотам среза (в т.ч. неликвидным по сроку:
@@ -435,25 +435,56 @@ def score_item_lots(
         hours = (fast or {}).get("estimated_hours")
         profit_total = evaluated["profit"] * amount
 
-        # Срок продажи по позиции плановой цены в стакане (P1-4 фаза B).
-        # Считаем от sell_price_used — цены, по которой мы СОБИРАЕМСЯ продать,
-        # а не от цены покупки лота: вопрос «за сколько уйдёт то, что я куплю».
-        # Замеренный разброс огромен — 0.98 ч в верхних 10% книги против
-        # 9.79 ч в нижней половине, — и до фазы B он был системе не виден.
-        p_sold_6h = pct_sold_ever = None
-        if survival:
+        # Срок и вероятность по позиции ПЛАНОВОЙ цены продажи в стакане
+        # (P1-4 фаза B). Считаем от цены, по которой СОБИРАЕМСЯ продать, а не
+        # от цены покупки: вопрос «за сколько уйдёт то, что я куплю».
+        #
+        # Сценариев два, и это главное, что видит пользователь:
+        #   быстро  — цена тира fast (та, по которой считается profit_total);
+        #   дороже  — цена тира premium, если готов подождать.
+        # Замер на проде: верхняя цена даёт в среднем +451 % прибыли, потому
+        # что прибыль — это РАЗНОСТЬ «продажа минус закупка», и при тонкой
+        # марже +12.8 % к цене умножают её в разы. Платится ~17 п.п.
+        # вероятности. До этого лента показывала только нижний сценарий.
+        ladder = ladders.get((qlt, ptn)) if survival else None
+
+        def _scenario(sell_price: int):
+            """(часы, P(продан <= 6 ч), доля продавшихся) для цены продажи."""
+            if not survival or not ladder or not sell_price:
+                return None, None, None
             from app.services.analytics.survival import FEATURE_POS, pos_bucket
-            ladder = ladders.get((qlt, ptn))
-            if ladder:
-                rank, book = rank_for_price(ladder, evaluated["sell_price_used"])
-                bucket = pos_bucket(rank, book)
-                summary = survival.summary(FEATURE_POS, bucket)
-                h6 = survival.get(FEATURE_POS, bucket, 6)
-                if summary is not None:
-                    p_sold_6h = h6.p_sold_lo if h6 else None
-                    pct_sold_ever = summary.pct_sold_ever
-                    if summary.median_hours is not None:
-                        hours = summary.median_hours
+            rank, book = rank_for_price(ladder, sell_price)
+            bucket = pos_bucket(rank, book)
+            summary = survival.summary(FEATURE_POS, bucket)
+            if summary is None:
+                return None, None, None
+            h6 = survival.get(FEATURE_POS, bucket, 6)
+            return (
+                summary.median_hours,
+                h6.p_sold_lo if h6 else None,
+                summary.pct_sold_ever,
+            )
+
+        fast_hours, p_sold_6h, pct_sold_ever = _scenario(evaluated["sell_price_used"])
+        if fast_hours is not None:
+            hours = fast_hours
+
+        # Сценарий ожидания. Цену берём из того же tier_prices, что и везде:
+        # вторая копия множителей уже расходилась с первой.
+        slow_price = tier_prices(int(variant.ref_price))["premium"]
+        profit_total_slow = int(slow_price * amount * (1 - COMMISSION)) - buyout
+        slow_hours, p_sold_6h_slow, _ = _scenario(slow_price)
+
+        # Ожидаемая прибыль — максимум по сценариям: рациональный игрок выбирает
+        # лучшую стратегию для каждого лота, а не одну на всю ленту. Без
+        # измеренной вероятности величины не существует (подставлять p = 1
+        # значило бы вернуть допущение «продастся обязательно»).
+        candidates = [
+            int(p / 100.0 * v)
+            for p, v in ((p_sold_6h, profit_total), (p_sold_6h_slow, profit_total_slow))
+            if p is not None and v > 0
+        ]
+        ev_profit = max(candidates) if candidates else None
 
         rows.append({
             "item_id":            item_id,
@@ -475,17 +506,13 @@ def score_item_lots(
             "margin_adj_pct":     round(profit_pct / risk_mult, 2),
             "profit_per_hour":    evaluated["profit_per_hour"],
             "profit_per_hour_total": round(profit_total / hours, 2) if hours else None,
-            # Ожидаемая прибыль в час — ключ сортировки по умолчанию (P0-3).
-            # Один множитель к ₽/час, но он меняет верх выдачи целиком:
-            # средняя вероятность продажи в топ-10 растёт с 27.2 % до 49.3 %
-            # при потере 5.3 % средней прибыли (docs/tasks/ev-ranking.md §3).
-            "ev_per_hour": (
-                round(profit_total * (p_sold_6h / 100.0) / hours, 2)
-                if hours and p_sold_6h is not None else None
-            ),
+            "ev_profit":          ev_profit,
             "est_sell_hours":     hours,
             "p_sold_6h":          p_sold_6h,
             "pct_sold_ever":      pct_sold_ever,
+            "profit_total_slow":   profit_total_slow,
+            "est_sell_hours_slow": slow_hours,
+            "p_sold_6h_slow":      p_sold_6h_slow,
             "risk":               risk,
             "risk_mult":          risk_mult,
             "volatility_7d":      float(variant.volatility_7d) if variant.volatility_7d is not None else None,
