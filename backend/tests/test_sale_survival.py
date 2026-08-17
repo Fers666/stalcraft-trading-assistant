@@ -467,3 +467,37 @@ def test_agg_sql_uses_one_denominator():
     assert _AGG_SQL.count("planned_h >= h.horizon_h") == 5
     body = _AGG_SQL[_AGG_SQL.index("AS n_at_risk"):]
     assert "count(*) AS n_total" not in body
+
+
+# ─── Знаменатель: ещё живые лоты — тоже наблюдения ───────────────────────────
+
+def test_agg_sql_counts_still_live_lots_that_outlived_the_horizon():
+    """
+    Главный дефект расчёта, найденный уже после выкатки: в знаменатель шли
+    только ЗАКРЫТЫЕ наблюдения. Лот закрывается через 2 ч после последнего
+    появления, поэтому среди недавних успевают закрыться в основном быстро
+    проданные — классическая метрика по выжившим. Замер на проде: завышение
+    12.5-15.7 п.п. по горизонтам и до 21.4 п.п. по отдельным стратам.
+
+    Лот, переживший горизонт у нас на глазах, обязан считаться как
+    «за H не продался», даже если он всё ещё висит на рынке.
+    """
+    from app.services.analytics.survival import _AGG_SQL
+
+    # Выборка больше не отсеивает незакрытые строки в WHERE
+    where_block = _AGG_SQL[:_AGG_SQL.index("), h AS (")]
+    assert "outcome IS NOT NULL" not in where_block
+    # ...а каждая считалка знает, когда исход к горизонту известен
+    assert _AGG_SQL.count("(outcome IS NOT NULL OR life_h >= h.horizon_h)") == 5
+
+
+def test_still_live_lot_lowers_the_probability():
+    """
+    Смысловая проверка на числах: 100 проданных за 1 ч и 100 ещё живых,
+    переваливших за 6 ч, дают 50 %, а не 100 %.
+    """
+    agg = _Agg("top10", 6, n_at_risk=200, n_sold=100, n_withdrawn=0,
+               n_total=200, n_sold_ever=100, median_hours=1.0)
+    row = _stratum_row(FEATURE_POS, agg, None)
+    assert row["p_sold_lo"] == 50.0
+    assert row["pct_sold_ever"] == 50.0

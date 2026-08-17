@@ -208,6 +208,22 @@ _FEATURE_SQL = {
 # измеряют позицию в книге верно (corr = 0.992 с живым на общих лотах), но их
 # популяция смещена обрезкой снапшота до 200 дешёвых лотов предмета, и на
 # одних и тех же предметах они дают вероятность продажи ниже на 8-16 п.п.
+#
+# ЕЩЁ ЖИВЫЕ ЛОТЫ ВХОДЯТ В ЗНАМЕНАТЕЛЬ. Лот, который всё ещё висит на рынке и
+# прожил дольше горизонта, — это полноценное наблюдение «за H часов не
+# продался», и выбрасывать его нельзя. Первая версия брала только закрытые
+# (outcome IS NOT NULL), а лот закрывается лишь через LOT_OBS_RESOLVE_DELAY_HOURS
+# после последнего наблюдения: среди недавних успевают закрыться в основном
+# быстро проданные. Замер на проде дал завышение на 12.5-15.7 п.п. по горизонтам
+# и до 21.4 п.п. по отдельным стратам — ровно та ошибка «метрика по выжившим»,
+# ради которой вся эта таблица и заводилась.
+#
+# Условие «исход известен к горизонту H»: outcome IS NOT NULL (лот ушёл с рынка,
+# судьба ясна) ЛИБО life_h >= H (лот пережил горизонт у нас на глазах, значит по
+# H он точно не продан). Лот моложе H и ещё живой не даёт информации о H и в
+# выборку не идёт.
+_KNOWN_AT_H = "(outcome IS NOT NULL OR life_h >= h.horizon_h)"
+
 _AGG_SQL = """
 WITH inc AS (
     SELECT {bucket_case} AS bucket,
@@ -216,7 +232,6 @@ WITH inc AS (
            outcome
     FROM lot_observations
     WHERE source = 'live'
-      AND outcome IS NOT NULL
       AND start_time IS NOT NULL
       AND end_time IS NOT NULL
       AND first_seen_at - start_time <= make_interval(mins => :max_delay)
@@ -227,19 +242,19 @@ WITH inc AS (
 )
 SELECT inc.bucket,
        h.horizon_h,
-       count(*) FILTER (WHERE planned_h >= h.horizon_h) AS n_at_risk,
-       count(*) FILTER (WHERE planned_h >= h.horizon_h
+       count(*) FILTER (WHERE planned_h >= h.horizon_h AND {known}) AS n_at_risk,
+       count(*) FILTER (WHERE planned_h >= h.horizon_h AND {known}
                           AND outcome = 'sold' AND life_h <= h.horizon_h) AS n_sold,
-       count(*) FILTER (WHERE planned_h >= h.horizon_h
+       count(*) FILTER (WHERE planned_h >= h.horizon_h AND {known}
                           AND outcome = 'withdrawn' AND life_h <= h.horizon_h) AS n_withdrawn,
-       count(*) FILTER (WHERE planned_h >= h.horizon_h) AS n_total,
-       count(*) FILTER (WHERE planned_h >= h.horizon_h
+       count(*) FILTER (WHERE planned_h >= h.horizon_h AND {known}) AS n_total,
+       count(*) FILTER (WHERE planned_h >= h.horizon_h AND {known}
                           AND outcome = 'sold') AS n_sold_ever,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY life_h)
            FILTER (WHERE outcome = 'sold') AS median_hours
 FROM inc CROSS JOIN h
 GROUP BY inc.bucket, h.horizon_h
-"""
+""".replace("{known}", _KNOWN_AT_H)
 
 
 def _stratum_row(feature: str, row, now: datetime) -> Optional[dict]:
@@ -263,11 +278,16 @@ def _stratum_row(feature: str, row, now: datetime) -> Optional[dict]:
         "p_sold_lo":     round(100.0 * n_sold / n_at_risk, 2),
         "p_sold_hi":     round(100.0 * n_sold / denom_hi, 2) if denom_hi > 0 else 100.0,
         "pct_withdrawn": round(100.0 * n_withdrawn / n_at_risk, 2),
-        # Знаменатель ТОТ ЖЕ, что у p_sold_* (дожившие административно до
-        # горизонта). Считать «продались когда-либо» по всей страте нельзя:
-        # 6- и 12-часовые аукционы продаются реже, и на общей популяции
-        # pct_sold_ever выходил МЕНЬШЕ p_sold_24h во всех 59 стратах — в UI
-        # «за сутки 89.93 %» соседствовало с «не продаётся 13 %».
+        # Знаменатель ТОТ ЖЕ, что у p_sold_* (дожившие до горизонта и с
+        # известным к нему исходом). Считать «продались когда-либо» по всей
+        # страте нельзя: 6- и 12-часовые аукционы продаются реже, и на общей
+        # популяции pct_sold_ever выходил МЕНЬШЕ p_sold_24h во всех стратах —
+        # в UI «за сутки 89.93 %» соседствовало с «не продаётся 13 %».
+        #
+        # Это НИЖНЯЯ граница: ещё живые лоты попадают в знаменатель, а
+        # продаться могут позже. То есть «не продаётся N %» — оценка сверху.
+        # Направление выбрано намеренно: покупателю осторожная оценка
+        # безопасна, оптимистичная — нет.
         "pct_sold_ever": (
             round(100.0 * (row.n_sold_ever or 0) / row.n_total, 2) if row.n_total else None
         ),
