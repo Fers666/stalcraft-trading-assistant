@@ -1,23 +1,36 @@
 ﻿version: "3.9"
 
-# Публичные резолверы для контейнеров, ходящих во внешний мир.
+# Рабочий адрес Stalcraft API в обход неудачного anycast-ответа.
 #
-# DNS хостера (188.93.16.19/17.19) отдаёт по eapi.stalcraft.net подставные
-# адреса 8.6.112.0 / 8.47.69.0: TCP-порт на них открывается, но HTTPS виснет и
-# рвётся по таймауту. В логах это httpx.ConnectTimeout с ПУСТЫМ текстом, из-за
-# чего сбор молча «пропускал» предметы, не называя причины. Проверка: тот же
-# запрос с реальным IP Cloudflare (--resolve) отдаёт 200 за 0.26 с.
+# Cloudflare отдаёт этому серверу 8.6.112.0 / 8.47.69.0, и оба из его сети НЕ
+# маршрутизируются: TCP-порт формально открывается, но HTTPS виснет до таймаута.
+# Наружу это выглядело как httpx.ConnectTimeout с ПУСТЫМ текстом, поэтому сбор
+# молча «пропускал» предметы, не называя причины:
 #
-# api.telegram.org тот же DNS резолвит ТОЛЬКО в IPv6 (2001:67c:4e8:f004::9),
-# которого у сервера нет, — отсюда и вечный рестарт-луп telegram_bot.
+#   feed: 5rm0 пропущен после 3 попыток:
+#   feed history: 5ln40 пропущен:
 #
-# Проблема всплывает при пересоздании контейнера: живущий контейнер держит
-# корректный адрес в кэше сколь угодно долго, поэтому после деплоя сбор встаёт,
-# хотя код ни при чём.
-x-external-dns: &external-dns
-  dns:
-    - 1.1.1.1
-    - 8.8.8.8
+# Замер с сервера (curl --resolve, один и тот же URL):
+#   8.6.112.0      -> таймаут 8 с
+#   8.47.69.0      -> таймаут 8 с
+#   172.66.166.52  -> 200 за 0.18 с
+#   104.20.16.214  -> 200 за 0.16 с
+#
+# Подмены DNS тут нет: DNS-over-HTTPS к 1.1.1.1, который перехватить нельзя,
+# отдаёт ровно те же 8.6.112.0 / 8.47.69.0. Адреса настоящие, просто этому
+# серверу достаётся неудачный узел anycast. Поэтому лечится не резолвером, а
+# фиксацией рабочего адреса.
+#
+# Всплывает только при ПЕРЕСОЗДАНИИ контейнера: живущий держит адрес в кэше
+# сколь угодно долго, и сбор встал после планового деплоя, хотя код ни при чём.
+#
+# ХРУПКО: адреса Cloudflare могут смениться. Если сбор снова встанет с пустым
+# ConnectTimeout — первым делом проверить эти IP тем же curl --resolve.
+# api.telegram.org сюда не добавлен: он недоступен и по IPv4 (149.154.166.110 —
+# тоже таймаут), это отдельная сетевая блокировка, адресом не лечится.
+x-stalcraft-api-host: &stalcraft-api-host
+  extra_hosts:
+    - "eapi.stalcraft.net:172.66.166.52"
 
 services:
   postgres:
@@ -68,7 +81,7 @@ services:
 
   backend:
     build: ./backend
-    <<: *external-dns
+    <<: *stalcraft-api-host
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
@@ -84,7 +97,7 @@ services:
 
   worker:
     build: ./backend
-    <<: *external-dns
+    <<: *stalcraft-api-host
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
@@ -103,7 +116,7 @@ services:
 
   scheduler:
     build: ./backend
-    <<: *external-dns
+    <<: *stalcraft-api-host
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
@@ -119,7 +132,7 @@ services:
 
   telegram_bot:
     build: ./backend
-    <<: *external-dns
+    <<: *stalcraft-api-host
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
@@ -139,7 +152,7 @@ services:
 
   push_service:
     build: ./backend
-    <<: *external-dns
+    <<: *stalcraft-api-host
     env_file: .env          # VAPID_PRIVATE_KEY / VAPID_SUBJECT
     environment:
       DATABASE_URL: postgresql+asyncpg://stalcraft:${POSTGRES_PASSWORD}@postgres:5432/stalcraft
