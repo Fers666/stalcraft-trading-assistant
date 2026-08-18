@@ -5,10 +5,14 @@
 но переиспользует все точки истины: StalcraftClient (в нём же rate limiter),
 services/analytics/pricing (все формулы), api_cache (общий кэш лотов).
 
-  collect_artifact_lots    — полная пагинация /lots по всем артефактам,
+  collect_artifact_lots    — полная пагинация /lots по всему набору ленты,
                              скоринг и запись выгодных лотов в feed_lots;
-  collect_artifact_history — часовая дельта /history по всем артефактам
+  collect_artifact_history — часовая дельта /history по тому же набору
                              в sales_history с user_id = NULL;
+
+Набор ленты задаётся ОДНИМ источником — services/feed/scope.feed_scope_clause
+(артефакты, снаряжение высоких рангов, части предметов, премиум, сезонные
+пропуска). Имена задач остались историческими: их знает beat-расписание.
   resolve_lot_observations — закрывает наблюдения за исчезнувшими лотами
                              (sold / expired / withdrawn), к API не ходит.
 
@@ -254,7 +258,7 @@ def lot_price_per_unit(lot: dict) -> int:
     return price // amount if amount > 0 else price
 
 
-def lot_identity_key(lot: dict) -> str:
+def lot_identity_key(lot: dict, master=None) -> str:
     """
     lot_key строки feed_lots — идентичность лота в пределах (item_id, region).
 
@@ -269,13 +273,14 @@ def lot_identity_key(lot: dict) -> str:
     одновременно выставленных лота: startTime | qlt | ptn | buyoutPrice |
     amount. Без startTime ключа нет (пустая строка) — такой лот не сохраняем.
     """
-    from app.services.analytics.pricing import _lot_quality_enchant
+    from app.services.analytics.pricing import resolve_variant_key
 
     start = lot.get("startTime") or ""
     if not start:
         return ""
-    # master не нужен: у артефактов qlt/ptn берутся из lot["additional"]
-    qlt, ptn = _lot_quality_enchant(lot, None, True)
+    # master нужен только не-артефактам: у снаряжения качества в lot["additional"]
+    # нет, оно берётся из каталога (§3.2 ТЗ feed-gear-expansion.md).
+    qlt, ptn = resolve_variant_key(lot.get("additional"), master)
     return f"{start}|{qlt}|{ptn}|{lot.get('buyoutPrice') or 0}|{lot.get('amount') or 0}"
 
 
@@ -354,6 +359,7 @@ def score_item_lots(
     cycle_started_at: datetime,
     now: datetime | None = None,
     survival=None,
+    master=None,
 ) -> list[dict]:
     """
     Скоринг лотов предмета -> строки feed_lots (ТОЛЬКО выгодные).
@@ -363,23 +369,32 @@ def score_item_lots(
     сделок нет честной опоры, а считать выгодность от цен выставленных лотов —
     ровно та ошибка, на которой фича умерла дважды (docs/CHANGELOG.md).
 
+    master — строка master_items предмета. Обязательна для не-артефактов: у
+    снаряжения качество является свойством ПРЕДМЕТА, и без неё ключ варианта
+    разошёлся бы с ключом продаж — лента по снаряжению вернула бы ноль строк
+    без единой ошибки в логах (§3.2 ТЗ). master=None означает «артефакт».
+
     Формулы не форкаются: evaluate_lot_profit вызывается с min_margin_pct=0.0
     (порог видимости персональный и применяется при чтении), поэтому None
     возвращается только для убыточных лотов.
     """
     from app.services.analytics.pricing import (
-        COMMISSION, RISK_MARGIN_MULT, _is_liquid, _lot_quality_enchant,
+        COMMISSION, RISK_MARGIN_MULT, _is_liquid, resolve_variant_key,
         evaluate_lot_profit, tier_prices,
     )
+    from app.services.feed.scope import CLASS_ARTEFACT, feed_item_class
 
     now = now or cycle_started_at
     rows: list[dict] = []
+    # Класс предмета — измерение кривой дожития: снаряжению артефактная кривая
+    # чужая, и подставлять её нельзя (§3.3 ТЗ).
+    item_class = feed_item_class(master.category) if master is not None else CLASS_ARTEFACT
 
     # Лестница цен стакана — для страты по позиции ПЛАНОВОЙ цены продажи.
     # В ленте берётся позиционная страта, а не ценовая, потому что стакан у
     # сборщика в руках и позиция есть даже у вариантов без опоры; по силе
     # признаки сопоставимы (docs/tasks/sale-survival-curve.md §2.3).
-    ladders = variant_ladders(lots, now) if survival else {}
+    ladders = variant_ladders(lots, now, master) if survival else {}
 
     # Предложение варианта — по ВСЕМ лотам среза (в т.ч. неликвидным по сроку:
     # они всё равно висят на рынке), поэтому считается отдельным проходом.
@@ -387,20 +402,19 @@ def score_item_lots(
     for lot in lots:
         amount = lot.get("amount", 1)
         if amount and amount > 0:
-            # master не нужен: у артефактов qlt/ptn берутся из lot["additional"]
-            variant = _lot_quality_enchant(lot, None, True)
+            variant = resolve_variant_key(lot.get("additional"), master)
             supply[variant] = supply.get(variant, 0) + amount
 
     for lot in lots:
         buyout = lot.get("buyoutPrice", 0) or 0
         amount = lot.get("amount", 1) or 0
-        lot_key = lot_identity_key(lot)
+        lot_key = lot_identity_key(lot, master)
         if buyout <= 0 or amount <= 0 or not lot_key:
             continue
         if not _is_liquid(lot, now):
             continue
 
-        qlt, ptn = _lot_quality_enchant(lot, None, True)
+        qlt, ptn = resolve_variant_key(lot.get("additional"), master)
         variant = variants.get((qlt, ptn))
         if variant is None or not variant.ref_price or not variant.sell_options:
             continue
@@ -455,10 +469,10 @@ def score_item_lots(
             from app.services.analytics.survival import FEATURE_POS, pos_bucket
             rank, book = rank_for_price(ladder, sell_price)
             bucket = pos_bucket(rank, book)
-            summary = survival.summary(FEATURE_POS, bucket)
+            summary = survival.summary(item_class, FEATURE_POS, bucket)
             if summary is None:
                 return None, None, None
-            h6 = survival.get(FEATURE_POS, bucket, 6)
+            h6 = survival.get(item_class, FEATURE_POS, bucket, 6)
             return (
                 summary.median_hours,
                 h6.p_sold_lo if h6 else None,
@@ -531,7 +545,7 @@ def score_item_lots(
 
 
 def _live_by_variant(
-    lots: list[dict], now: datetime,
+    lots: list[dict], now: datetime, master=None,
 ) -> dict[tuple[int, int], list[tuple[int, int]]]:
     """
     Живые лоты среза по вариантам: (qlt, ptn) -> [(цена за единицу, количество)].
@@ -542,7 +556,7 @@ def _live_by_variant(
     две копии этого фильтра означали бы, что позиция в стакане при записи
     наблюдения и при прогнозе срока считается по разным книгам.
     """
-    from app.services.analytics.pricing import _is_liquid, _lot_quality_enchant
+    from app.services.analytics.pricing import _is_liquid, resolve_variant_key
 
     live: dict[tuple[int, int], list[tuple[int, int]]] = {}
     for lot in lots:
@@ -550,13 +564,14 @@ def _live_by_variant(
         buyout = lot.get("buyoutPrice", 0) or 0
         if buyout <= 0 or amount <= 0 or not _is_liquid(lot, now):
             continue
-        # master не нужен: у артефактов qlt/ptn берутся из lot["additional"]
-        variant = _lot_quality_enchant(lot, None, True)
+        variant = resolve_variant_key(lot.get("additional"), master)
         live.setdefault(variant, []).append((buyout // amount, amount))
     return live
 
 
-def variant_ladders(lots: list[dict], now: datetime) -> dict[tuple[int, int], list[int]]:
+def variant_ladders(
+    lots: list[dict], now: datetime, master=None,
+) -> dict[tuple[int, int], list[int]]:
     """
     Отсортированные цены живых лотов по вариантам — «лестница» стакана.
 
@@ -566,7 +581,7 @@ def variant_ladders(lots: list[dict], now: datetime) -> dict[tuple[int, int], li
     """
     return {
         variant: sorted(price for price, _ in entries)
-        for variant, entries in _live_by_variant(lots, now).items()
+        for variant, entries in _live_by_variant(lots, now, master).items()
     }
 
 
@@ -580,7 +595,7 @@ def rank_for_price(ladder: list[int], price: int) -> tuple[int, int]:
 
 
 def variant_queues(
-    lots: list[dict], now: datetime,
+    lots: list[dict], now: datetime, master=None,
 ) -> dict[tuple[int, int], tuple[dict[int, tuple[int, int]], int]]:
     """
     Очередь по цене внутри каждого варианта: (qlt, ptn) -> (карта цены, живых лотов).
@@ -598,7 +613,7 @@ def variant_queues(
     Живой = ликвидный по общему критерию (_is_liquid, >= 2 ч до конца): лот в
     последние два часа аукциона очередь покупателю не создаёт.
     """
-    live = _live_by_variant(lots, now)
+    live = _live_by_variant(lots, now, master)
 
     queues: dict[tuple[int, int], tuple[dict[int, tuple[int, int]], int]] = {}
     for variant, entries in live.items():
@@ -621,6 +636,7 @@ def observation_rows(
     lots: list[dict],
     variants: dict[tuple[int, int], object],
     seen_at: datetime,
+    master=None,
 ) -> list[dict]:
     """
     Строки lot_observations по срезу предмета — для ВСЕХ лотов, а не выгодных.
@@ -651,21 +667,20 @@ def observation_rows(
     (продаются лишь ставками, сделку с ними не сматчить), без amount и без
     startTime (нет ключа идентичности — см. lot_identity_key).
     """
-    from app.services.analytics.pricing import _is_liquid, _lot_quality_enchant
+    from app.services.analytics.pricing import _is_liquid, resolve_variant_key
 
-    queues = variant_queues(lots, seen_at)
+    queues = variant_queues(lots, seen_at, master)
 
     rows: list[dict] = []
     for lot in lots:
         buyout  = lot.get("buyoutPrice", 0) or 0
         amount  = lot.get("amount", 1) or 0
-        lot_key = lot_identity_key(lot)
+        lot_key = lot_identity_key(lot, master)
         start   = _parse_lot_time(lot.get("startTime"))
         if buyout <= 0 or amount <= 0 or not lot_key or start is None:
             continue
 
-        # master не нужен: у артефактов qlt/ptn берутся из lot["additional"]
-        qlt, ptn = _lot_quality_enchant(lot, None, True)
+        qlt, ptn = resolve_variant_key(lot.get("additional"), master)
         variant  = variants.get((qlt, ptn))
         ref      = getattr(variant, "ref_price", None)
 
@@ -1041,14 +1056,19 @@ async def scan_item(
 ) -> ItemScanResult:
     """Обработка одного предмета: скоринг -> апсерт -> наблюдения -> уборка -> commit."""
     variants = await _load_variants(db, item_id, region)
+    # Предмет каталога нужен целиком: у не-артефактов из него берутся качество
+    # (color) и класс кривой дожития (category). Одна строка по уникальному
+    # индексу — цена, которую можно платить раз на предмет за цикл.
+    master = await _load_master(db, item_id)
     from app.services.analytics.survival import load_survival
     survival = await load_survival(db)
     rows = score_item_lots(
-        item_id, region, lots, variants, cycle_started_at, survival=survival,
+        item_id, region, lots, variants, cycle_started_at,
+        survival=survival, master=master,
     )
     await upsert_feed_rows(db, rows)
     obs_inserted, obs_updated = await upsert_lot_observations(
-        db, observation_rows(item_id, region, lots, variants, cycle_started_at),
+        db, observation_rows(item_id, region, lots, variants, cycle_started_at, master),
     )
     deleted = await delete_stale_rows(db, item_id, region, cycle_started_at)
     await db.commit()
@@ -1143,21 +1163,32 @@ async def _load_variants(db, item_id: str, region: str) -> dict[tuple[int, int],
     return {(row.qlt, row.ptn): row for row in rows}
 
 
-async def _artifact_items(db) -> list[tuple[str, int | None]]:
-    """
-    Набор ленты: артефакты каталога, не подтверждённые как неторгуемые
-    (on_auction IS NOT FALSE = TRUE или ещё не проверенные — консистентно
-    с фильтром /items). Возвращает пары (item_id, lots_total).
-    """
+async def _load_master(db, item_id: str):
+    """Строка master_items предмета — источник качества и класса не-артефактов."""
     from sqlalchemy import select
     from app.models.models import MasterItem
 
+    return (await db.execute(
+        select(MasterItem).where(MasterItem.item_id == item_id)
+    )).scalar_one_or_none()
+
+
+async def _feed_items(db) -> list[tuple[str, int | None]]:
+    """
+    Набор ленты: артефакты, снаряжение высоких рангов, части предметов, премиум
+    и сезонные пропуска — ровно то, что описывает feed_scope_clause (§3.1 ТЗ
+    feed-gear-expansion.md). Возвращает пары (item_id, lots_total).
+
+    Торгуемость строгая (on_auction IS TRUE): предмет с FALSE/NULL не даст ни
+    одной строки, а бюджет API на его опрос потратится.
+    """
+    from sqlalchemy import select
+    from app.models.models import MasterItem
+    from app.services.feed.scope import feed_scope_clause
+
     rows = (await db.execute(
         select(MasterItem.item_id, MasterItem.lots_total)
-        .where(
-            MasterItem.category.like("artefact%"),
-            MasterItem.on_auction.is_not(False),
-        )
+        .where(feed_scope_clause())
         .order_by(MasterItem.item_id)
     )).all()
     return [(row.item_id, row.lots_total) for row in rows]
@@ -1230,9 +1261,9 @@ def collect_artifact_lots(self):
                         )
                         return
 
-                    items = await _artifact_items(db)
+                    items = await _feed_items(db)
                     if not items:
-                        logger.warning("feed cycle #%s: набор артефактов пуст", cycle)
+                        logger.warning("feed cycle #%s: набор ленты пуст", cycle)
                         return
 
                     sales_map = dict((await db.execute(
@@ -1501,7 +1532,7 @@ def collect_artifact_history(self):
         stats = {"items": 0, "requests": 0, "inserted": 0, "errors": 0}
         try:
             async with get_db_session() as db:
-                items = await _artifact_items(db)
+                items = await _feed_items(db)
                 logger.info(
                     "collect_artifact_history: старт region=%s предметов=%s", region, len(items),
                 )
@@ -1652,7 +1683,7 @@ async def _resolve_observations(db, now: datetime) -> dict[str, int]:
     а не тихо припишет одну сделку двум наблюдениям.
     """
     from sqlalchemy import select, update
-    from app.models.models import LotObservation, SalesHistory
+    from app.models.models import LotObservation, MasterItem, SalesHistory
     from app.services.analytics.variant_stats import variant_key
 
     cutoff = resolve_cutoff(now)
@@ -1691,9 +1722,20 @@ async def _resolve_observations(db, now: datetime) -> dict[str, int]:
         )
     )).all()
 
+    # Предметы каталога — для ключа варианта не-артефактов: у снаряжения в
+    # additional продажи нет ни qlt, ни ptn, и без master сделка легла бы в
+    # вариант (0, 0), а наблюдение искало бы (3, 0) — ни один лот снаряжения
+    # не получил бы исход sold (§3.2 ТЗ).
+    masters = {
+        row.item_id: row
+        for row in (await db.execute(
+            select(MasterItem).where(MasterItem.item_id.in_(item_ids))
+        )).scalars().all()
+    }
+
     by_variant: dict[tuple[str, str, int, int], list[tuple[datetime, int, int, int]]] = {}
     for sale in sales:
-        qlt, ptn = variant_key(sale.additional_info)
+        qlt, ptn = variant_key(sale.additional_info, masters.get(sale.item_id))
         by_variant.setdefault((sale.item_id, sale.region, qlt, ptn), []).append(
             (sale.sale_time, sale.id, sale.total_price, sale.amount)
         )

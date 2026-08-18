@@ -65,7 +65,7 @@ Docker Compose. Данные глобальные (user_id=NULL), персона
 ```
 backend/app/   — FastAPI (entry: main.py), SQLAlchemy models, Celery tasks (graphify: 492 nodes)
 frontend/src/  — React/TS (entry: App.tsx), Zustand store, MUI (graphify: 327 nodes)
-design/v5/     — прототип-эталон редизайна «Терминал»; все 7 фаз внедрены (Ф1–5 2026-07-18, Ф6 2026-07-19, Ф7 «Лента» 2026-08-03 — фичей «Лента артефактов», ТЗ docs/tasks/artifact-feed.md), см. docs/tasks/design-v5-implementation.md
+design/v5/     — прототип-эталон редизайна «Терминал»; все 7 фаз внедрены (Ф1–5 2026-07-18, Ф6 2026-07-19, Ф7 «Лента» 2026-08-03 — фичей «Лента», ТЗ docs/tasks/artifact-feed.md), см. docs/tasks/design-v5-implementation.md
 docs/          — формулы, БД, архитектура, деплой (см. таблицу в Блоке 2)
 .claude/       — агенты, skills, команды Claude Code
 ```
@@ -81,6 +81,7 @@ docs/          — формулы, БД, архитектура, деплой (�
 
 **API Rate Limit:** 400 запросов/мин (verified experimentally 2026-06-07, NOT документация 100 токенов!)
 - /lots = 2, /history = 2, /emission = 1 (Request-based, не token-based)
+- **«Лента» — больше не только артефакты** (2026-08-17, ТЗ docs/tasks/feed-gear-expansion.md): набор **103 → 382 предмета** (+ снаряжение рангов veteran/master/legend, части предметов, премиум, сезонные пропуска). Единственный источник правила отбора — `backend/app/services/feed/scope.py`, дублировать маску `artefact%` нельзя. Бюджет сборщика не менялся (`FEED_BUDGET_UNITS_PER_MIN = 200`), но окно часовой задачи истории выросло ~4 → ~13 мин/час
 - **Лента включена на проде; расход близок к потолку.** Оценка по логам 2026-08-07: watchlist ~140 ед/мин + лента 200 ед/мин ≈ **340 из 400 (85%)**, резерв ~60. Оценка снята из логов, а не из `GET /admin/stats` — подтвердить счётчиком лимитера (задача в `docs/NOTES.md`). Константы — `FEED_BUDGET_UNITS_PER_MIN` / `FEED_RATE_GUARD_UNITS` в `backend/app/tasks/feed_collector.py`
 - Следствие: цикл обновления watchlist ~110 с вместо проектных 60 с — принято как норма (60 с потребовали бы 570 ед/мин). Ускорять только в обмен на бюджет ленты, см. `docs/SERVICES.md` → «Пропускная способность»
 - **При оптимизации:** спрашивай разрешение перед изменением LOTS_PER_RUN / BATCH_SIZE / REFRESH_INTERVAL / FEED_BUDGET_UNITS_PER_MIN

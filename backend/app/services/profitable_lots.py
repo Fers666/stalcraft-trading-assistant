@@ -252,8 +252,16 @@ async def compute_signals_for_entry(
     trend      = ref_info["trend"]
     risk       = classify_risk(msg_volatility)
 
+    # Класс предмета — измерение кривой дожития (§3.3 feed-gear-expansion.md):
+    # у снаряжения своя кривая, артефактную ему подставлять нельзя. master здесь
+    # уже под рукой, поэтому сигналы читают страту своего класса.
+    from app.services.feed.scope import feed_item_class
+
     sell_options = (
-        make_sell_options(ref, vol_for_opts, pairs_for_options, survival)
+        make_sell_options(
+            ref, vol_for_opts, pairs_for_options, survival,
+            feed_item_class(master.category),
+        )
         if vol_for_opts is not None else None
     )
     batch_stats  = stats.batch_stats if stats else None

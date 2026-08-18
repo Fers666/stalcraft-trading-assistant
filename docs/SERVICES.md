@@ -528,11 +528,56 @@ DIRECT-exchange `push.events` (fan-out по routing_key `push`): `push.notificat
 > ручка `GET /feed/signals` и артефактные карточки в полосе сигналов **удалены из кода**.
 > Лента — отдельный раздел, мониторинг ведётся с портала. Полоса сигналов вернулась к
 > прежнему поведению: только «Избранное».
+>
+> ⚠ **Набор больше не только артефакты (2026-08-17, `docs/tasks/feed-gear-expansion.md`).**
+> **103 → 382 предмета:** артефакты + снаряжение рангов veteran/master/legend
+> (`weapon` / `attachment` / `armor` / `backpacks`) + все «части предметов» + премиум и
+> сезонные пропуска. Название раздела осталось прежним.
+
+### app/services/feed/scope.py — единственный источник набора ленты
+
+До 2026-08-17 маска `category LIKE 'artefact%'` была зашита в **шести** местах (сборщик ×2,
+`variant_stats`, `/feed/summary`, `backfill_artifact_history`, `reconstruct_lot_history`), и
+любое расширение набора означало шесть независимых правок. Разъехавшиеся копии — это молча
+пустая лента по части предметов, поэтому правило живёт здесь и больше нигде.
+
+Предмет входит в набор, если он торгуется **и** попадает в одну из групп:
+
+| Группа | Правило | Торгуется / кандидатов (прод, 2026-08-17) |
+|---|---|---|
+| `parts` | `name_ru ILIKE 'Часть%'`, любой ранг | 55 / 123 |
+| `pass` | `name_ru ILIKE 'Премиум на %'` или `'Сезонный пропуск%'` | 10 / 12 |
+| `artefact` | `category LIKE 'artefact%'` | 103 / 104 |
+| `weapon` | `category LIKE 'weapon%'` + `color ∈ FEED_RANKS` | 111 / 249 |
+| `attachment` | то же по `attachment%` | 68 / 137 |
+| `armor` | то же по `armor%` | 33 / 75 |
+| `backpacks` | то же по `backpacks%` | 2 / 10 |
+
+- **Порядок `FEED_GROUPS` = приоритет:** правила по имени идут первыми, а из категорийных
+  правил шаблоны имени исключены. Группы обязаны разбивать набор **без пересечений** —
+  группа служит и фильтром `/feed/lots?category=`, и счётчиком чипа в `/feed/filters`.
+- **`FEED_RANKS = rank_veteran / rank_master / rank_legend` действует ВНУТРИ категорий
+  снаряжения.** Одним предикатом по рангу набор не описать: в категории `other` 361 предмет
+  с этими рангами — почти сплошь косметика (облики, скины, эмоции). Премиум и пропуска заданы
+  шаблонами имени ещё и потому, что пропуска пришли разовым импортом с `color = NULL`.
+- **Торгуемость — строгий `on_auction IS TRUE`**, а не `IS NOT FALSE`: предмет с `FALSE`/`NULL`
+  не даст ни одной строки, а бюджет API на его опрос потратится. Следствие: новый предмет
+  после `refresh-catalog` приходит с `NULL` и в ленту не попадёт, пока не отработает
+  `POST /admin/audit-auction-status`. `feed_scope_clause(tradable=False)` — только для разбора
+  **исторических** данных (снапшоты восстановления): снятый с торгов предмет месяц назад
+  торговался.
+- **`feed_item_class(category)` → `artefact` / `gear`** — измерение кривой дожития
+  (`docs/DATABASE.md`, `sale_survival.class`). Тот же предикат в сыром SQL — `class_case_sql()`;
+  расхождение означало бы, что кривая считается по одному разбиению, а читается по другому
+  (закрыто тестом `test_class_sql_matches_python`).
+- **Замер подтвердил свойство рынка, а не дефект отбора:** чем выше ранг, тем реже предмет
+  торгуется (weapon veteran 49 %, master 38 %; armor master 19 %; attachment legend 0 из 5) —
+  высокотировая экипировка выменивается и апгрейдится, а не покупается.
 
 ### app/tasks/feed_collector.py — четыре Celery-задачи
 
-**`collect_artifact_lots`** (beat `crontab(minute="*")`) — обход артефактов и перезапись
-`feed_lots`.
+**`collect_artifact_lots`** (beat `crontab(minute="*")`) — обход набора ленты
+(`feed_scope_clause()`, 382 предмета) и перезапись `feed_lots`.
 
 Ключевые константы (значения **до калибровки на проде**, см. `docs/NOTES.md`):
 
@@ -591,15 +636,25 @@ FEED_ITEM_PARK_TTL        = 900   # на сколько припаркованн
   items_failed=… pages=… units=… elapsed=…s deferred=… guard_trips=… rows_upserted=…
   rows_deleted=…` и `feed sweep: полный круг за …с`.
 
-**`collect_artifact_history`** (beat раз в час на :15) — постраничный `/history` по всем
-артефактам до первой известной продажи либо `HISTORY_BACKSTOP_PAGES = 3`; запись с
+**`collect_artifact_history`** (beat раз в час на :15) — постраничный `/history` по **всем
+предметам набора** до первой известной продажи либо `HISTORY_BACKSTOP_PAGES = 3`; запись с
 **`user_id = NULL`**, `additional_info` приоритетно из `record["additional"]`,
 `on_conflict_do_nothing` по `uq_sales_history_sale`. Снэпшот-матчинг `lot_start` **не
-делается** (у артефактов вне watchlist нет `collected_data`) — следствие отражается в
-`stats_confidence` строки ленты. Стоимость ≈ 3.4 ед/мин.
+делается** (у предметов вне watchlist нет `collected_data`) — следствие отражается в
+`stats_confidence` строки ленты.
 
-Без этой задачи у артефактов вне чьего-то «Избранного» истории продаж нет вовсе:
-`sales_history` исторически наполнялся только по watchlist-парам.
+⚠ **Расход этой задачи вырос пропорционально набору (2026-08-17):** 382 предмета вместо 103,
+то есть окно часовой дельты растянулось с **~4 до ~13 минут** каждый час. Средняя нагрузка за
+час остаётся низкой (задача разовая, с `HISTORY_ITEM_DELAY` и джиттером), но окно, в котором
+она соседствует со свипом ленты и watchlist, стало втрое длиннее. Предохранитель прежний:
+`FEED_RATE_GUARD_UNITS = 340` прерывает **цикл ленты** по фактическому расходу минуты, так
+что худшее следствие наложения — растянутый интервал обновления, а не 429. Проверить по
+`GET /admin/stats` при первом прогоне на проде.
+
+Без этой задачи у предметов вне чьего-то «Избранного» истории продаж нет вовсе:
+`sales_history` исторически наполнялся только по watchlist-парам. По снаряжению истории в базе
+нет совсем — до разового бэкфилла (`backfill_artifact_history.py`) у его вариантов не будет
+`ref_price`, и лента отбракует все лоты.
 
 **`calculate_artifact_variant_stats`** (beat :14,:24,:34,:44,:54) — тонкая Celery-обёртка над
 `services/analytics/variant_stats.py`.
@@ -664,18 +719,23 @@ resolve_cutoff(now)` по `ix_lot_obs_pending`, одним запросом по
 будущего), `feed:scan:fail:{item_id}` (счётчик подряд идущих отказов, TTL 1 ч),
 `feed:scan:cycle` (счётчик прогонов — определяет темп холодных), `feed:scan:sweep`
 (`"{цикл}:{unix_ts}"` начала текущего полного круга). Состояние держится в Redis сознательно: оно операционное, потеря безвредна, а UPDATE
-103 строк каталога каждую минуту — лишняя запись в таблицу, которую читают все разделы.
+382 строк каталога каждую минуту — лишняя запись в таблицу, которую читают все разделы.
 
 ### app/services/analytics/variant_stats.py — статистика вариантов
 
 `calculate_artifact_variant_stats(db, region, now=None) -> dict` пересчитывает
-`artifact_variant_stats` по всем вариантам всех артефактов:
+`artifact_variant_stats` по всем вариантам всех предметов набора:
 
-1. Один SQL-запрос: продажи всех артефактов (`master_items.category LIKE 'artefact%'`) за 30 д.
-2. Группировка по `(item_id, region, qlt, ptn)` **в Python** — `variant_key(additional_info)`:
-   `qlt = int(additional.get("qlt") or 0)`, `ptn = int(additional.get("ptn") or 0)`, та же
-   трактовка, что у `_lot_quality_enchant` для артефактов. Вариант без сделок за 30 д не
-   создаётся, существующий без сделок — удаляется.
+1. Один SQL-запрос: продажи всех предметов набора (`feed_scope_clause()`, а не маска
+   `artefact%`) за 30 д.
+2. Группировка по `(item_id, region, qlt, ptn)` **в Python** — `variant_key(additional_info,
+   master)` поверх общего `pricing.resolve_variant_key()`: у артефакта `qlt` берётся из
+   `additional.qlt` (отсутствие = 0), у снаряжения `additional.qlt` нет вовсе и качество
+   приходит из `master_items.color` (`_COLOR_TO_QLT`). Та же функция вызывается сборщиком по
+   лоту — **обе стороны ключа обязаны считать одинаково**, иначе продажи ветеранского ствола
+   лягут в вариант `(0, 0)`, сборщик пойдёт искать `(3, 0)`, и лента по снаряжению вернёт ноль
+   строк без единой ошибки в логах. Вариант без сделок за 30 д не создаётся, существующий без
+   сделок — удаляется.
 3. На вариант — **та же последовательность вызовов, что в `profitable_lots.compute_signals_for_entry`**:
    `weighted_reference` → `compute_reference` (без `median_now`/`current_min`: живых лотов
    здесь нет) → волатильность (при ≥ 5 сделках) → `classify_risk` → `make_sell_options` →
@@ -684,6 +744,8 @@ resolve_cutoff(now)` по `ix_lot_obs_pending`, одним запросом по
    пола по данным** (`ref_info["below_floor"]`, эффективный вес < `MIN_REF_WEIGHT = 5`):
    `ref_price` и `sell_options` пишутся `NULL`, а `ref_source`/`ref_confidence`/`ref_samples`
    сохраняются — иначе «мало данных» не отличить от «сделок не было вовсе».
+   В `make_sell_options` прокидывается **класс предмета** (`feed_item_class(category)`), чтобы
+   снаряжение не читало артефактную кривую дожития.
 4. Апсерт по `(item_id, region, qlt, ptn)` чанками; numeric-поля — через `market_stats._clamp_pct`.
 
 Сопутствующий рефактор в `market_stats.py`: извлечение пар «часы на рынке → цена» вынесено из
@@ -698,10 +760,23 @@ resolve_cutoff(now)` по `ix_lot_obs_pending`, одним запросом по
 
 | Ручка | Гейт | Кэш | Что делает |
 |---|---|---|---|
-| `GET /feed/lots` | **нет** | витрина — Redis TTL 30 с | Ветвится по тарифу: `feed_rows_limit is None` → полная лента (фильтры `item_id`/`qlt`/`ptn`/`min_profit_pct`/`max_buyout`/`min_amount`/`risk`, 7 сортировок, серверная пагинация 25/50/100, `total_count`). Иначе → фиксированная витрина из `feed_rows_limit` строк, где `sort`/фильтры/`page`/`page_size` **игнорируются**. Списочные фильтры — не больше `FEED_MAX_LIST_VALUES = 50` значений (422) |
+| `GET /feed/lots` | **нет** | витрина — Redis TTL 30 с | Ветвится по тарифу: `feed_rows_limit is None` → полная лента (фильтры `item_id`/**`category`**/`qlt`/`ptn`/`min_profit_pct`/`max_buyout`/`min_amount`/`risk`, 7 сортировок, серверная пагинация 25/50/100, `total_count`). Иначе → фиксированная витрина из `feed_rows_limit` строк, где `sort`/фильтры/`page`/`page_size` **игнорируются**. Списочные фильтры — не больше `FEED_MAX_LIST_VALUES = 50` значений (422) |
 | `GET /feed/variant/{item_id}?qlt=&ptn=[&region=]` | **нет** | — | Статистика варианта для карточки артефакта (`ArtifactModal` → `LotStatCard`). Ответ — тот же `MonitoringItemResponse`, что у `/monitoring/item`, окна режет тот же `_mask_stats_windows`. Одна строка `artifact_variant_stats` по индексу `uq_artifact_variant`, нет строки → 404 |
 | `GET /feed/summary` | `feed_access` | Redis TTL 60 с | Сводка 24 ч: `profitable_lots`, `avg_profit_pct`, `total_profit`, `sales_24h`, `items_tracked`, `best_lot`, `snapshot_at` |
-| `GET /feed/filters` | `feed_access` | — | Счётчики для чипов: предметы, качества, заточки, подкатегории (Био/Грав/Терм/Электро/Прочие). Все — с учётом персонального порога, иначе чипы обещали бы строки, которых пользователь не увидит |
+| `GET /feed/filters` | `feed_access` | — | Счётчики для чипов: предметы, качества, заточки, **группы набора** (`categories[].value` — ключ группы `artefact`/`weapon`/`attachment`/`armor`/`backpacks`/`parts`/`pass`, подпись — `FEED_GROUP_LABELS`). Все — с учётом персонального порога, иначе чипы обещали бы строки, которых пользователь не увидит |
+
+**Фильтр `category` — серверный, и это обязательное условие расширения набора (2026-08-17).**
+Раньше фронт эмулировал группы списком `item_id[]`, который упирается в
+`FEED_MAX_LIST_VALUES = 50`: на 382 предметах механизм ломается физически. Значения проверяются
+против `FEED_GROUPS` (неизвестная группа → 422), фильтр разворачивается в подзапрос
+`MasterItem.item_id WHERE feed_groups_clause(...)` — предметов сотни, подзапрос по
+`ix_master_category` дешёвый. Группа для подписи строки берётся тем же `feed_item_group()`:
+подпись и фильтр обязаны считаться по одному правилу.
+
+Ещё одно следствие расширения: **`items_tracked` в `/feed/summary` сменил семантику** —
+считается по строгому `on_auction IS TRUE` вместо прежнего `IS NOT FALSE`, поэтому число
+станет меньше. Это не регресс, а отказ тратить бюджет API на предметы с непроверенной
+торгуемостью.
 
 Ключи кэша включают порог пользователя (и лимит тарифа для витрины), чтобы пользователи с
 разными настройками не делили выдачу: `feed:showcase:{region}:{int(threshold)}:{rows_limit}`,

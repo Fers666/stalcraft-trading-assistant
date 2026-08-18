@@ -1,5 +1,5 @@
 /**
- * API-слой раздела «Лента артефактов».
+ * API-слой раздела «Лента» (артефакты, снаряжение, части, пропуска).
  *
  * Единственный источник типов ответа для FeedPage / MobileFeedPage /
  * ArtifactModal — форма строки лота одна, чтобы таблица и карточка
@@ -126,24 +126,42 @@ export interface FeedFiltersResponse {
 }
 
 /**
- * Группы артефактов для чипов-счётчиков панели фильтров.
+ * Группы набора «Ленты» — чипы фильтра.
  *
- * Зеркало `_CATEGORY_LABELS` / `_CATEGORY_OTHER` из
- * backend/app/api/v1/endpoints/feed.py: в `FeedFiltersResponse.categories`
- * бэкенд отдаёт уже готовые ПОДПИСИ (value = label), а сырую категорию —
- * только в `items[].category`. Чтобы связать чип со списком item_id,
- * подпись приходится вычислять и на клиенте.
+ * Зеркало `FEED_GROUPS` / `FEED_GROUP_LABELS` из
+ * backend/app/services/feed/scope.py. Ключ группы уходит обратно параметром
+ * `category` в /feed/lots, значение вне списка ручка отклоняет 422 — поэтому
+ * список обязан совпадать с серверным.
+ *
+ * Порядок здесь — ПОРЯДОК ЧИПОВ, а не серверный приоритет классификации:
+ * /feed/filters отдаёт группы отсортированными по счётчику, и на живых данных
+ * чипы менялись бы местами между обновлениями раз в 30 секунд. Артефакты
+ * первыми — на них у ленты есть измеренная вероятность продажи.
  */
-const FEED_CATEGORY_LABELS: Record<string, string> = {
-  'artefact/biochemical':     'Био',
-  'artefact/gravity':         'Грав',
-  'artefact/thermal':         'Терм',
-  'artefact/electrophysical': 'Электро',
-}
-export const FEED_CATEGORY_OTHER = 'Прочие'
+export const FEED_GROUPS = [
+  'artefact', 'weapon', 'attachment', 'armor', 'backpacks', 'parts', 'pass',
+] as const
+export type FeedGroup = (typeof FEED_GROUPS)[number]
 
-export function feedCategoryLabel(category: string | null): string {
-  return (category && FEED_CATEGORY_LABELS[category]) || FEED_CATEGORY_OTHER
+export const FEED_GROUP_LABELS: Record<FeedGroup, string> = {
+  artefact:   'Артефакты',
+  weapon:     'Оружие',
+  attachment: 'Обвесы',
+  armor:      'Броня',
+  backpacks:  'Рюкзаки',
+  parts:      'Части',
+  pass:       'Пропуска и премиум',
+}
+
+/** Подпись группы. Фолбэк на ключ: новая группа на сервере не должна ломать UI. */
+export function feedGroupLabel(group: string): string {
+  return FEED_GROUP_LABELS[group as FeedGroup] ?? group
+}
+
+/** Позиция группы в канонической раскладке чипов; неизвестные — в хвост. */
+export function feedGroupOrder(group: string): number {
+  const i = (FEED_GROUPS as readonly string[]).indexOf(group)
+  return i === -1 ? FEED_GROUPS.length : i
 }
 
 /** Ключи сортировки — соответствуют data-k прототипа и sort бэкенда. */
@@ -155,6 +173,8 @@ export interface FeedLotsParams {
   page?: number
   page_size?: number
   item_id?: string[]
+  /** Ключи групп набора (FEED_GROUPS). Серверный фильтр чипов. */
+  category?: string[]
   qlt?: number[]
   ptn?: number[]
   min_profit_pct?: number

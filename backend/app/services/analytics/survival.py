@@ -22,6 +22,8 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.feed.scope import CLASS_ARTEFACT, CLASS_GEAR, class_case_sql
+
 
 # Горизонты прогноза. Мельче часа не строим: шаг обхода ленты 5-25 минут, и
 # момент события известен только с этой точностью. Крупнее 24 ч нет смысла:
@@ -154,20 +156,28 @@ class SurvivalTable:
     Прочитанная sale_survival. Пустая таблица — рабочее состояние: первый
     пересчёт идёт через сутки после деплоя, и до него все потребители обязаны
     вести себя как раньше.
+
+    Ключ строки включает КЛАСС предмета (artefact / gear): у снаряжения своя
+    механика рынка, и заимствовать артефактную кривую ему нельзя. Пока
+    gear-страты не набрали MIN_STRATUM_N, get() по ним возвращает None —
+    ровно та же деградация, что у артефактов до первого пересчёта, второй
+    выкатки не нужно (§3.3 ТЗ feed-gear-expansion.md).
     """
 
-    def __init__(self, rows: Optional[dict[tuple[str, str, int], Stratum]] = None):
+    def __init__(self, rows: Optional[dict[tuple[str, str, str, int], Stratum]] = None):
         self._rows = rows or {}
 
     def __bool__(self) -> bool:
         return bool(self._rows)
 
-    def get(self, feature: str, bucket: Optional[str], horizon_h: int) -> Optional[Stratum]:
+    def get(
+        self, item_class: str, feature: str, bucket: Optional[str], horizon_h: int,
+    ) -> Optional[Stratum]:
         if not bucket:
             return None
-        return self._rows.get((feature, bucket, horizon_h))
+        return self._rows.get((item_class, feature, bucket, horizon_h))
 
-    def summary(self, feature: str, bucket: Optional[str]) -> Optional[Stratum]:
+    def summary(self, item_class: str, feature: str, bucket: Optional[str]) -> Optional[Stratum]:
         """
         Сводка страты: median_hours не зависит от горизонта, pct_sold_ever
         зависит (знаменатель — дожившие до горизонта, см. _stratum_row).
@@ -177,7 +187,7 @@ class SurvivalTable:
         if not bucket:
             return None
         for h in HORIZONS_H:
-            row = self._rows.get((feature, bucket, h))
+            row = self._rows.get((item_class, feature, bucket, h))
             if row is not None:
                 return row
         return None
@@ -241,13 +251,20 @@ _FEATURE_SQL = {
 # выборку не идёт.
 _KNOWN_AT_H = "(outcome IS NOT NULL OR life_h >= h.horizon_h)"
 
+# Класс предмета (artefact / gear) — полноценное измерение страты, а не метка:
+# у снаряжения качество является свойством предмета, тиры получают апгрейдом, а
+# не покупкой, и артефактная кривая для него — чужая. Берётся из каталога
+# (JOIN master_items), потому что в наблюдении класса нет и денормализовать его
+# в 200-тысячную таблицу ради одного JOIN незачем.
 _AGG_SQL = """
 WITH inc AS (
-    SELECT {bucket_case} AS bucket,
+    SELECT {class_case} AS item_class,
+           {bucket_case} AS bucket,
            EXTRACT(epoch FROM end_time   - start_time) / 3600 AS planned_h,
            EXTRACT(epoch FROM last_seen_at - start_time) / 3600 AS life_h,
            outcome
-    FROM lot_observations
+    FROM lot_observations o
+    JOIN master_items mi ON mi.item_id = o.item_id
     WHERE source = 'live'
       AND start_time IS NOT NULL
       AND end_time IS NOT NULL
@@ -257,7 +274,8 @@ WITH inc AS (
 ), h AS (
     SELECT unnest(CAST(:horizons AS int[])) AS horizon_h
 )
-SELECT inc.bucket,
+SELECT inc.item_class,
+       inc.bucket,
        h.horizon_h,
        count(*) FILTER (WHERE planned_h >= h.horizon_h AND {known}) AS n_at_risk,
        count(*) FILTER (WHERE planned_h >= h.horizon_h AND {known}
@@ -270,8 +288,8 @@ SELECT inc.bucket,
        percentile_cont(0.5) WITHIN GROUP (ORDER BY life_h)
            FILTER (WHERE outcome = 'sold') AS median_hours
 FROM inc CROSS JOIN h
-GROUP BY inc.bucket, h.horizon_h
-""".replace("{known}", _KNOWN_AT_H)
+GROUP BY inc.item_class, inc.bucket, h.horizon_h
+""".replace("{known}", _KNOWN_AT_H).replace("{class_case}", class_case_sql("mi"))
 
 
 def _stratum_row(feature: str, row, now: datetime) -> Optional[dict]:
@@ -287,6 +305,11 @@ def _stratum_row(feature: str, row, now: datetime) -> Optional[dict]:
     # 92-99% во всех стратах и различия стирает, поэтому в UI идёт lo.
     denom_hi = n_at_risk - n_withdrawn
     return {
+        # Ключ словаря — ИМЯ КОЛОНКИ ("class"): строки уходят в Core-INSERT по
+        # SaleSurvival.__table__. Атрибут модели называется item_class, потому
+        # что class — ключевое слово Python; в агрегате поле тоже под
+        # псевдонимом item_class (row.class не написать).
+        "class":         row.item_class,
         "feature":       feature,
         "bucket":        row.bucket,
         "horizon_h":     int(row.horizon_h),
@@ -327,6 +350,9 @@ async def recalculate_survival(db: AsyncSession, now: Optional[datetime] = None)
 
     rows: list[dict] = []
     skipped: dict[str, int] = {}
+    # Класс приходит из агрегата отдельным полем: страты обоих классов
+    # считаются одним проходом, но НЕ смешиваются — группировка идёт по
+    # (класс, страта, горизонт).
     for feature, (bucket_case, availability) in _FEATURE_SQL.items():
         sql = _AGG_SQL.format(bucket_case=bucket_case, availability=availability)
         result = await db.execute(
@@ -355,6 +381,8 @@ async def recalculate_survival(db: AsyncSession, now: Optional[datetime] = None)
         "rows": len(rows),
         "pos": sum(1 for r in rows if r["feature"] == FEATURE_POS),
         "ratio": sum(1 for r in rows if r["feature"] == FEATURE_RATIO),
+        "artefact": sum(1 for r in rows if r["class"] == CLASS_ARTEFACT),
+        "gear": sum(1 for r in rows if r["class"] == CLASS_GEAR),
         "skipped_thin_strata": sum(skipped.values()),
         "window_days": SURVIVAL_WINDOW_DAYS,
     }
@@ -380,13 +408,16 @@ async def load_survival(db: AsyncSession, now: Optional[datetime] = None) -> Sur
         if (now - loaded_at).total_seconds() < SURVIVAL_CACHE_TTL_SECONDS:
             return table
 
+    # "class" в кавычках и под псевдонимом: это ключевое слово Python, атрибутом
+    # строки результата оно быть не может.
     result = await db.execute(text(
-        "SELECT feature, bucket, horizon_h, n_at_risk, p_sold_lo, p_sold_hi, "
-        "       pct_withdrawn, pct_sold_ever, median_hours FROM sale_survival"
+        'SELECT "class" AS item_class, feature, bucket, horizon_h, n_at_risk, '
+        "       p_sold_lo, p_sold_hi, pct_withdrawn, pct_sold_ever, median_hours "
+        "FROM sale_survival"
     ))
-    rows: dict[tuple[str, str, int], Stratum] = {}
+    rows: dict[tuple[str, str, str, int], Stratum] = {}
     for r in result:
-        rows[(r.feature, r.bucket, int(r.horizon_h))] = Stratum(
+        rows[(r.item_class, r.feature, r.bucket, int(r.horizon_h))] = Stratum(
             n_at_risk=r.n_at_risk,
             p_sold_lo=float(r.p_sold_lo),
             p_sold_hi=float(r.p_sold_hi),

@@ -450,10 +450,11 @@ def test_ev_per_hour_is_profit_per_hour_times_probability():
     from app.services.analytics.survival import (
         FEATURE_POS, HORIZONS_H, Stratum, SurvivalTable,
     )
+    from app.services.feed.scope import CLASS_ARTEFACT
 
     rows = {}
     for h in HORIZONS_H:
-        rows[(FEATURE_POS, "top10", h)] = Stratum(
+        rows[(CLASS_ARTEFACT, FEATURE_POS, "top10", h)] = Stratum(
             n_at_risk=8270, p_sold_lo=73.68, p_sold_hi=80.0,
             pct_withdrawn=6.0, pct_sold_ever=80.07, median_hours=2.0,
         )

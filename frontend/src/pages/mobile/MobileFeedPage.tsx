@@ -11,13 +11,15 @@ import { TIER_LABELS } from '../../constants/tiers'
 import { fmtN, fmtP, fmtCompact } from '../../utils/format'
 import { iconUrl, qualityKeyByValue } from '../../utils/i18n'
 import {
-  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, fmtSellTime, feedCategoryLabel,
+  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, fmtSellTime,
+  feedGroupLabel, feedGroupOrder,
   type FeedLot, type FeedLotsResponse, type FeedSummaryResponse,
   type FeedFiltersResponse, type FeedSortKey,
 } from '../../api/feed'
 
 import Kick from '../../components/ui/Kick'
 import ItemIcon from '../../components/ui/ItemIcon'
+import ItemSearch, { type SearchItem } from '../../components/ui/ItemSearch'
 import QualityChip from '../../components/ui/QualityChip'
 import RiskChip from '../../components/ui/RiskChip'
 import PageLock from '../../components/ui/PageLock'
@@ -28,10 +30,16 @@ import DCard from '../../components/mobile/ui/DCard'
 import StatusGrid from '../../components/mobile/ui/StatusGrid'
 import ArtifactModal from '../../components/ArtifactModal'
 
-// «Лента артефактов» (мобайл) — тот же дата-слой, что десктопный FeedPage
+// «Лента» (мобайл) — тот же дата-слой, что десктопный FeedPage
 // (/feed/lots с серверной пагинацией, /feed/summary, /feed/filters), но
 // карточки .dcard вместо семи колонок и фильтры в шите. Строка = ОДИН лот:
 // три выгодных лота «Ломоть Мастер +15» дают три карточки.
+// Набор — не только артефакты (docs/tasks/feed-gear-expansion.md): группы
+// фильтруются серверным параметром category, предмет выбирается поиском.
+// Чипы групп живут НА СТРАНИЦЕ, а не в шите: пока у снаряжения нет измеренной
+// вероятности продажи, оно лежит хвостом под артефактами (сортировка по
+// ev_profit, nulls_last), и спрятанный в шит переключатель — единственный
+// способ его увидеть — не находится.
 // Тарифы без полного доступа получают витрину (showcase): фиксированный набор
 // из rows_limit строк, фильтры и сортировка закрыты, под списком — CTA.
 
@@ -78,6 +86,36 @@ const hhmm = (iso: string | null | undefined): string => {
     : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+/** Чип группы для мобильной ленты прокрутки — .fchip с тач-высотой 36. */
+function MobileCatChip({ label, count, on, onToggle }: {
+  label: string
+  count: number
+  on: boolean
+  onToggle: () => void
+}) {
+  return (
+    <Box
+      component="button" type="button" aria-pressed={on} onClick={onToggle}
+      sx={{
+        display: 'inline-flex', alignItems: 'center', gap: '7px', flex: 'none',
+        minHeight: 36, px: '12px', cursor: 'pointer', borderRadius: '2px',
+        fontFamily: tokens.fontHead, fontWeight: 600, fontSize: fs.f11,
+        letterSpacing: '.06em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+        color: on ? tokens.goldAccent : tokens.text1,
+        bgcolor: on ? tokens.goldDim : tokens.bg2,
+        border: `1px solid ${on ? tokens.goldLine : tokens.border}`,
+      }}
+    >
+      {label}
+      <Box component="span" className="mono" sx={{
+        fontSize: fs.f105, color: on ? tokens.goldAccent : tokens.text2,
+      }}>
+        {fmtN(count)}
+      </Box>
+    </Box>
+  )
+}
+
 export default function MobileFeedPage() {
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -90,11 +128,12 @@ export default function MobileFeedPage() {
 
   const [page, setPage]             = useState(1)
   const [sortIndex, setSortIndex]   = useState(0)
-  const [itemFilter, setItemFilter] = useState('all')
+  // Предмет — поиском по каталогу: селект на 382 позиции на телефоне нечитаем.
+  const [item, setItem]             = useState<SearchItem | null>(null)
   const [qltFilter, setQltFilter]   = useState('all')
   const [ptnFilter, setPtnFilter]   = useState('all')
   const [minProfit, setMinProfit]   = useState(0)
-  // Группы артефактов (чипы .fchip десктопной панели). Пустой набор = «Все».
+  // Группы набора (чипы .fchip десктопной панели). Пустой набор = «Все».
   const [cats, setCats]             = useState<string[]>([])
 
   const [filtOpen, setFiltOpen] = useState(false)
@@ -105,21 +144,30 @@ export default function MobileFeedPage() {
   const rowsLimit = data?.rows_limit ?? null
   const lots = data?.lots ?? []
 
-  // Чип группы = набор item_id этой группы: у /feed/lots нет параметра
-  // «категория», зато есть item_id[]. Выбранный артефакт старше групп.
-  const catItemIds = useMemo(() => {
-    if (cats.length === 0) return undefined
-    const ids = (filters?.items ?? [])
-      .filter(it => cats.includes(feedCategoryLabel(it.category)))
-      .map(it => it.item_id)
-    return ids.length > 0 ? ids : undefined
-  }, [cats, filters])
+  const lotsCountOf = useCallback(
+    (itemId: string) => filters?.items.find(it => it.item_id === itemId)?.lots_count,
+    [filters],
+  )
+
+  // Канонический порядок чипов: сервер сортирует группы по счётчику, и на
+  // обновлении раз в 30 секунд чипы прыгали бы под пальцем.
+  const catChips = useMemo(
+    () => [...(filters?.categories ?? [])].sort(
+      (a, b) => feedGroupOrder(String(a.value)) - feedGroupOrder(String(b.value)),
+    ),
+    [filters],
+  )
+
+  const catsLabel = useMemo(() => cats.map(feedGroupLabel).join(' · '), [cats])
 
   const load = useCallback(async () => {
     try {
       const res = await fetchFeedLots({
         page, page_size: PAGE_SIZE, sort: sort.key, order: sort.order,
-        item_id: itemFilter !== 'all' ? [itemFilter] : catItemIds,
+        item_id: item ? [item.item_id] : undefined,
+        // Серверный фильтр групп: список item_id[] капнут 50 значениями, а в
+        // группе «Части» предметов больше.
+        category: !item && cats.length > 0 ? cats : undefined,
         qlt: qltFilter !== 'all' ? [Number(qltFilter)] : undefined,
         ptn: ptnFilter !== 'all' ? [Number(ptnFilter)] : undefined,
         min_profit_pct: minProfit > 0 ? minProfit : undefined,
@@ -130,7 +178,7 @@ export default function MobileFeedPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, sort, itemFilter, catItemIds, qltFilter, ptnFilter, minProfit])
+  }, [page, sort, item, cats, qltFilter, ptnFilter, minProfit])
 
   useEffect(() => {
     setLoading(true)
@@ -172,13 +220,23 @@ export default function MobileFeedPage() {
     setModalLot(lot)
   }
 
+  // Группы переключаются НА СТРАНИЦЕ и применяются сразу — черновика у них
+  // нет: чип, который надо «применить», перестаёт читаться как переключатель
+  // раздела ленты. Предмет и группы взаимоисключающи (сервер соединяет их
+  // через AND: предмет не из выбранной группы дал бы пустой список при двух
+  // горящих фильтрах).
+  const toggleCat = (group: string) => {
+    setCats(prev => (prev.includes(group) ? prev.filter(x => x !== group) : [...prev, group]))
+    setItem(null)
+    setPage(1)
+  }
+
   // ── Черновик фильтров (применяется по кнопке — как в остальных шитах) ──────
   const [draftSort, setDraftSort]       = useState(0)
-  const [draftItem, setDraftItem]       = useState('all')
+  const [draftItem, setDraftItem]       = useState<SearchItem | null>(null)
   const [draftQlt, setDraftQlt]         = useState('all')
   const [draftPtn, setDraftPtn]         = useState('all')
   const [draftProfit, setDraftProfit]   = useState(0)
-  const [draftCats, setDraftCats]       = useState<string[]>([])
 
   const openFilters = () => {
     if (showcase) {
@@ -186,27 +244,26 @@ export default function MobileFeedPage() {
       return
     }
     setDraftSort(sortIndex)
-    setDraftItem(itemFilter)
+    setDraftItem(item)
     setDraftQlt(qltFilter)
     setDraftPtn(ptnFilter)
     setDraftProfit(minProfit)
-    setDraftCats(cats)
     setFiltOpen(true)
   }
 
   const applyFilters = () => {
     setSortIndex(draftSort)
-    setItemFilter(draftItem)
+    setItem(draftItem)
+    if (draftItem) setCats([])
     setQltFilter(draftQlt)
     setPtnFilter(draftPtn)
     setMinProfit(draftProfit)
-    setCats(draftCats)
     setPage(1)
     setFiltOpen(false)
   }
 
-  const filtersDirty = itemFilter !== 'all' || qltFilter !== 'all' || ptnFilter !== 'all'
-    || minProfit > 0 || cats.length > 0
+  const filtersDirty = item !== null || qltFilter !== 'all' || ptnFilter !== 'all'
+    || minProfit > 0
 
   // ── Карточка лота ─────────────────────────────────────────────────────────
   const renderCard = (lot: FeedLot) => {
@@ -327,7 +384,7 @@ export default function MobileFeedPage() {
     <Box>
       {/* .pg-h */}
       <Box sx={{ pb: '12px' }}>
-        <Kick>Лента артефактов // Artefact Feed</Kick>
+        <Kick>Лента // Market Feed</Kick>
         <Typography
           component="h1"
           sx={{ fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f16, letterSpacing: '0.04em', mt: '4px' }}
@@ -335,8 +392,8 @@ export default function MobileFeedPage() {
           Что выгодно купить прямо сейчас
         </Typography>
         <Typography sx={{ fontSize: fs.f12, color: tokens.text2, mt: '4px', lineHeight: 1.5 }}>
-          Все артефакты рынка в одном списке: прибыль уже за вычетом комиссии 5 %, качество и
-          заточка сравниваются отдельно.
+          Артефакты, снаряжение, части и пропуска в одном списке: прибыль уже за вычетом
+          комиссии 5 %, качество и заточка сравниваются отдельно.
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', mt: '8px' }}>
           <Box
@@ -345,6 +402,9 @@ export default function MobileFeedPage() {
           />
           <Box className="mono" sx={{ fontSize: fs.f105, color: tokens.text2 }}>
             срез {hhmm(data?.snapshot_at)} · {fmtN(data?.total_available ?? 0)} выгодных лотов на рынке
+            {cats.length > 0 && (
+              <Box component="span" sx={{ color: tokens.goldAccent }}> · {catsLabel}</Box>
+            )}
           </Box>
         </Box>
       </Box>
@@ -365,6 +425,34 @@ export default function MobileFeedPage() {
             { k: 'Сделок 24ч', v: fmtN(summary.sales_24h) },
           ]}
         />
+      )}
+
+      {/* Группы набора — лента горизонтальной прокрутки. Единственный способ
+          увидеть снаряжение, пока у него нет измеренной вероятности продажи,
+          поэтому переключатель на виду, а не в шите фильтров. В витрине чипов
+          нет: /feed/filters под гейтом, а фильтры всё равно игнорируются. */}
+      {!showcase && catChips.length > 0 && (
+        <Box
+          role="group" aria-label="Группы предметов"
+          sx={{
+            display: 'flex', gap: '6px', mb: '10px', pb: '2px',
+            overflowX: 'auto', scrollbarWidth: 'none',
+            '&::-webkit-scrollbar': { display: 'none' },
+          }}
+        >
+          <MobileCatChip
+            label="Все" count={filters?.total_count ?? 0}
+            on={cats.length === 0 && !item}
+            onToggle={() => { setCats([]); setItem(null); setPage(1) }}
+          />
+          {catChips.map(c => (
+            <MobileCatChip
+              key={String(c.value)} label={c.label} count={c.count}
+              on={cats.includes(String(c.value))}
+              onToggle={() => toggleCat(String(c.value))}
+            />
+          ))}
+        </Box>
       )}
 
       {/* Фильтры + сортировка. В витрине не прячем, а показываем закрытыми:
@@ -401,8 +489,10 @@ export default function MobileFeedPage() {
         <Box sx={{ p: '36px 20px', textAlign: 'center' }}>
           <Typography sx={{ fontSize: fs.f14, fontWeight: 600, color: tokens.text1 }}>
             {data && data.total_available === 0
-              ? 'Сейчас выгодных лотов артефактов нет'
-              : 'По текущим фильтрам выгодных лотов нет'}
+              ? 'Сейчас выгодных лотов нет'
+              : cats.length > 0
+                ? `В группе «${catsLabel}» выгодных лотов сейчас нет`
+                : 'По текущим фильтрам выгодных лотов нет'}
           </Typography>
           <Typography sx={{ fontSize: fs.f12, color: tokens.text2, mt: '6px', lineHeight: 1.5 }}>
             {data && data.total_available === 0
@@ -499,53 +589,13 @@ export default function MobileFeedPage() {
             </ToggleButtonGroup>
           </Box>
 
-          {/* Группы артефактов со счётчиками — мобильный вид чипов .fchips.
-              Счётчики приходят с /feed/filters (только персональный порог),
-              поэтому не обнуляются при переключении самих групп. */}
-          {(filters?.categories.length ?? 0) > 0 && (
-            <Box>
-              <Kick sx={{ display: 'block', mb: '8px' }}>Группы</Kick>
-              <ToggleButtonGroup
-                value={draftCats}
-                onChange={(_, v: string[]) => setDraftCats(v)}
-                sx={{
-                  flexWrap: 'wrap', gap: '6px',
-                  '& .MuiToggleButton-root': {
-                    minHeight: 36, px: '10px',
-                    border: `1px solid ${tokens.border}`, borderRadius: '2px !important',
-                  },
-                }}
-              >
-                {(filters?.categories ?? []).map(c => (
-                  <ToggleButton key={String(c.value)} value={String(c.value)}>
-                    {c.label}
-                    <Box component="span" className="mono" sx={{ ml: '7px', fontSize: fs.f105, color: tokens.text2 }}>
-                      {fmtN(c.count)}
-                    </Box>
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
-              {draftCats.length === 0 && (
-                <Box sx={{ fontSize: fs.f11, color: tokens.text2, mt: '6px' }}>
-                  Ничего не выбрано — показываются все группы ({fmtN(filters?.total_count ?? 0)}).
-                </Box>
-              )}
-            </Box>
-          )}
-
-          {(filters?.items.length ?? 0) > 0 && (
-            <FormControl size="small" fullWidth sx={sheetSelectSx}>
-              <InputLabel>Артефакт</InputLabel>
-              <Select value={draftItem} label="Артефакт" onChange={(e) => setDraftItem(e.target.value)}>
-                <MenuItem value="all">Все артефакты</MenuItem>
-                {(filters?.items ?? []).map(it => (
-                  <MenuItem key={it.item_id} value={it.item_id}>
-                    {it.name_ru ?? it.name_en ?? it.item_id} ({it.lots_count})
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
+          {/* Предмет — поиском по каталогу: в наборе 382 предмета, список
+              выбора здесь был бы бесконечной простынёй. Выбор предмета
+              сбрасывает группы (применяется в applyFilters). */}
+          <Box>
+            <Kick sx={{ display: 'block', mb: '8px' }}>Предмет</Kick>
+            <ItemSearch value={draftItem} onChange={setDraftItem} lotsCount={lotsCountOf} fullWidth />
+          </Box>
 
           {(filters?.qualities.length ?? 0) > 0 && (
             <FormControl size="small" fullWidth sx={sheetSelectSx}>

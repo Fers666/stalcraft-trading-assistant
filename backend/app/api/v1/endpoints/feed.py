@@ -46,6 +46,9 @@ from app.models.models import (
     ArtifactVariantStats, FeedLot, MasterItem, SalesHistory, User, UserSettings,
 )
 from app.services.analytics.pricing import _QLT_NAMES
+from app.services.feed.scope import (
+    FEED_GROUPS, FEED_GROUP_LABELS, feed_groups_clause, feed_item_group, feed_scope_clause,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +75,10 @@ FEED_SHOWCASE_MIN_STEP = 5
 # сколько угодно элементов одним запросом.
 FEED_MAX_LIST_VALUES = 50
 
-# Подкатегории артефактов каталога -> подписи чипов прототипа.
-_CATEGORY_LABELS: dict[str, str] = {
-    "artefact/biochemical":     "Био",
-    "artefact/gravity":         "Грав",
-    "artefact/thermal":         "Терм",
-    "artefact/electrophysical": "Электро",
-}
-_CATEGORY_OTHER = "Прочие"
+# Группы чипов — из scope-модуля (Артефакты · Оружие · Обвесы · Броня ·
+# Рюкзаки · Части · Пропуска и премиум). Прежняя таксономия по подкатегориям
+# артефактов (Био / Грав / Терм / Электро) больше не описывает набор: в ленте
+# 382 предмета семи групп, а не 103 артефакта.
 
 _SORT_COLUMNS = {
     # Умолчание. profit_total отвечает на вопрос «сколько заработаю, ЕСЛИ
@@ -446,6 +445,7 @@ async def list_feed_lots(
     page: int = Query(1, ge=1),
     page_size: int = Query(25),
     item_id: list[str] | None = Query(None),
+    category: list[str] | None = Query(None),
     qlt: list[int] | None = Query(None),
     ptn: list[int] | None = Query(None),
     min_profit_pct: float | None = Query(None),
@@ -461,12 +461,21 @@ async def list_feed_lots(
         raise HTTPException(status_code=422, detail=f"page_size должен быть одним из {PAGE_SIZES}")
     if sort not in _SORT_COLUMNS:
         raise HTTPException(status_code=422, detail=f"sort должен быть одним из {list(_SORT_COLUMNS)}")
-    for name, values in (("item_id", item_id), ("qlt", qlt), ("ptn", ptn), ("risk", risk)):
+    for name, values in (
+        ("item_id", item_id), ("category", category),
+        ("qlt", qlt), ("ptn", ptn), ("risk", risk),
+    ):
         if values is not None and len(values) > FEED_MAX_LIST_VALUES:
             raise HTTPException(
                 status_code=422,
                 detail=f"{name}: не больше {FEED_MAX_LIST_VALUES} значений в фильтре",
             )
+    unknown = set(category or ()) - set(FEED_GROUPS)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"category: неизвестные группы {sorted(unknown)}; допустимы {list(FEED_GROUPS)}",
+        )
 
     region     = app_settings.stalcraft_region
     user_min   = await _user_min_margin(db, current_user)
@@ -493,6 +502,13 @@ async def list_feed_lots(
         conds.append(FeedLot.profit_pct >= min_profit_pct)
     if item_id:
         conds.append(FeedLot.item_id.in_(item_id))
+    if category:
+        # Подзапросом, а не join: те же conds уходят и в агрегат (count + max),
+        # и в выдачу, а лишний join в агрегате изменил бы total_count. Набор
+        # предметов маленький (сотни), подзапрос по ix_master_category дешёвый.
+        conds.append(FeedLot.item_id.in_(
+            select(MasterItem.item_id).where(feed_groups_clause(category))
+        ))
     if qlt:
         conds.append(FeedLot.qlt.in_(qlt))
     if ptn:
@@ -686,17 +702,14 @@ async def feed_summary(
         .select_from(SalesHistory)
         .join(MasterItem, MasterItem.item_id == SalesHistory.item_id)
         .where(
-            MasterItem.category.like("artefact%"),
+            feed_scope_clause(),
             SalesHistory.region == region,
             SalesHistory.sale_time >= datetime.now(timezone.utc) - timedelta(hours=24),
         )
     )).scalar_one()
 
     items_tracked = (await db.execute(
-        select(func.count()).select_from(MasterItem).where(
-            MasterItem.category.like("artefact%"),
-            MasterItem.on_auction.is_not(False),
-        )
+        select(func.count()).select_from(MasterItem).where(feed_scope_clause())
     )).scalar_one()
 
     response = FeedSummaryResponse(
@@ -751,10 +764,20 @@ async def feed_filters(
         select(FeedLot.ptn, func.count()).where(*conds).group_by(FeedLot.ptn).order_by(FeedLot.ptn)
     )).all()
 
+    # Счётчики по группам набора. Ключ чипа — group, он же уходит обратно
+    # параметром category в /feed/lots: подпись и фильтр обязаны считаться по
+    # одному правилу, иначе чип обещает строки, которых фильтр не покажет.
+    #
+    # Строка вне групп в чипы не идёт: это предмет, выпавший из набора (снят с
+    # торгов, удалён из каталога), его строки живут не дольше часа —
+    # _finish_sweep_if_complete их убирает. Чип «Прочие» под такую строку был бы
+    # некликабельным: значения вне FEED_GROUPS ручка /feed/lots отклоняет.
     categories: dict[str, int] = {}
     for row in item_rows:
-        label = _CATEGORY_LABELS.get(row.category or "", _CATEGORY_OTHER)
-        categories[label] = categories.get(label, 0) + row.lots_count
+        group = feed_item_group(row.category, row.name_ru)
+        if group is None:
+            continue
+        categories[group] = categories.get(group, 0) + row.lots_count
 
     return FeedFiltersResponse(
         items=[
@@ -775,8 +798,10 @@ async def feed_filters(
             for value, count in ptn_rows
         ],
         categories=[
-            FeedFilterBucket(value=label, label=label, count=count)
-            for label, count in sorted(categories.items(), key=lambda kv: -kv[1])
+            FeedFilterBucket(
+                value=group, label=FEED_GROUP_LABELS.get(group, group), count=count,
+            )
+            for group, count in sorted(categories.items(), key=lambda kv: -kv[1])
         ],
         total_count=sum(row.lots_count for row in item_rows),
     )

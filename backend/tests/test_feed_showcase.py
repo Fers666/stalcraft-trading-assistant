@@ -165,20 +165,52 @@ def test_feed_endpoints_never_trigger_heavy_recalculation(forbidden):
 
 def _call_lots(**kwargs):
     """Прямой вызов ручки: значения по умолчанию у FastAPI — объекты Query."""
-    params = {"item_id": None, "qlt": None, "ptn": None, "risk": None, **kwargs}
+    params = {
+        "item_id": None, "category": None, "qlt": None, "ptn": None, "risk": None, **kwargs,
+    }
     return asyncio.run(feed_module.list_feed_lots(
         page=1, page_size=25, sort="profit_total", order="desc",
         current_user=_user("base"), db=None, **params,
     ))
 
 
-@pytest.mark.parametrize("param", ["item_id", "qlt", "ptn", "risk"])
+@pytest.mark.parametrize("param", ["item_id", "category", "qlt", "ptn", "risk"])
 def test_list_filters_are_capped(param):
     """L9: IN (...) без верхней границы принимает сколько угодно значений."""
-    values = {"item_id": "a", "qlt": 1, "ptn": 1, "risk": "low"}[param]
+    values = {
+        "item_id": "a", "category": "weapon", "qlt": 1, "ptn": 1, "risk": "low",
+    }[param]
     with pytest.raises(HTTPException) as exc:
         _call_lots(**{param: [values] * (FEED_MAX_LIST_VALUES + 1)})
     assert exc.value.status_code == 422
+
+
+def test_unknown_category_group_is_rejected():
+    """
+    Группы чипов — закрытый список из scope-модуля. Незнакомое значение обязано
+    падать 422, а не тихо давать пустую выдачу: «фильтр не сработал» и «лотов
+    нет» — разные ответы.
+    """
+    with pytest.raises(HTTPException) as exc:
+        _call_lots(category=["weapon", "не-группа"])
+    assert exc.value.status_code == 422
+
+
+def test_known_category_groups_pass_validation(monkeypatch):
+    """Все группы набора обязаны приниматься ручкой — иначе чип не работает."""
+    from app.services.feed.scope import FEED_GROUPS
+
+    async def _showcase(db, region, user_min, rows_limit):
+        return [], 0, None, 0.0
+
+    monkeypatch.setattr(feed_module, "_user_min_margin", _min_margin)
+    monkeypatch.setattr(feed_module, "_cached_showcase", _showcase)
+    for group in FEED_GROUPS:
+        assert _call_lots(category=[group]).total_count == 0
+
+
+async def _min_margin(db, user):
+    return 0.0
 
 
 # ─── Порог: квантование витрины и серверная валидация ────────────────────────

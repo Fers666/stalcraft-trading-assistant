@@ -634,6 +634,12 @@ class SaleSurvival(Base):
     __tablename__ = "sale_survival"
 
     id            = Column(Integer, primary_key=True)
+    # Класс предмета: artefact / gear. Полноценное измерение страты, а не метка —
+    # у снаряжения качество является свойством предмета, а высокие тиры чаще
+    # получают апгрейдом, чем покупкой, поэтому артефактная кривая ему чужая.
+    # Имя колонки в БД — "class" (ключевое слово Python, атрибутом быть не может).
+    # Классов ровно два: дробить мельче нельзя, страты не наберут MIN_STRATUM_N.
+    item_class    = Column("class", String(8), nullable=False)
     # pos — нормированная позиция в книге варианта (queue_rank/variant_live_lots),
     # ratio — цена лота к опоре варианта. Замер: pos сильнее (корреляция с
     # «продан <= 6 ч» -0.330 против -0.138), но признаки почти независимы
@@ -665,7 +671,7 @@ class SaleSurvival(Base):
     computed_at   = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
-        Index("uq_sale_survival", "feature", "bucket", "horizon_h", unique=True),
+        Index("uq_sale_survival", "class", "feature", "bucket", "horizon_h", unique=True),
     )
 
 

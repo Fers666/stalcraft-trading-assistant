@@ -19,6 +19,8 @@ from app.services.analytics.survival import (
     pos_bucket, ratio_bucket,
 )
 from app.services.analytics.pricing import make_sell_options, tier_prices
+from app.models.models import SaleSurvival
+from app.services.feed.scope import CLASS_ARTEFACT, CLASS_GEAR, feed_item_class
 
 
 # ─── Страты ──────────────────────────────────────────────────────────────────
@@ -103,7 +105,7 @@ def test_measured_option_bucket_survives_price_truncation(ref):
     """Тот же дефект на уровне выдачи: fast обязан получить страту r94_98."""
     rows = {}
     for h in HORIZONS_H:
-        rows[(FEATURE_RATIO, "r94_98", h)] = Stratum(
+        rows[(CLASS_ARTEFACT, FEATURE_RATIO, "r94_98", h)] = Stratum(
             n_at_risk=1560, p_sold_lo=83.72, p_sold_hi=93.09,
             pct_withdrawn=8.0, pct_sold_ever=87.31, median_hours=0.80,
         )
@@ -139,13 +141,41 @@ def test_sql_buckets_match_python():
     for bucket in ("lt90", "r90_94", "r94_98", "r98_103", "r103_110", "r110_130", "ge130"):
         assert f"'{bucket}'" in _RATIO_CASE
 
+    # Измерение «класс предмета» (§3.3 feed-gear-expansion.md): страта считается
+    # ОТДЕЛЬНО по артефактам и по снаряжению, и разбиение в SQL обязано
+    # совпадать с feed_item_class. Иначе снаряжение молча читало бы
+    # артефактную кривую — измеренное число с чужого рынка.
+    from app.services.analytics.survival import _AGG_SQL
+
+    assert "item_class" in _AGG_SQL
+    assert "GROUP BY inc.item_class, inc.bucket, h.horizon_h" in _AGG_SQL
+    # Класс берётся из каталога — в самом наблюдении его нет
+    assert "JOIN master_items mi ON mi.item_id = o.item_id" in _AGG_SQL
+    assert f"THEN '{CLASS_ARTEFACT}' ELSE '{CLASS_GEAR}' END" in _AGG_SQL
+    assert feed_item_class("artefact/thermal") == CLASS_ARTEFACT
+    assert feed_item_class("weapon/assault_rifle") == CLASS_GEAR
+
+
+def test_stratum_row_carries_the_class():
+    """
+    Класс уезжает в строку таблицы под ИМЕНЕМ КОЛОНКИ ("class"): строки идут
+    в Core-INSERT по SaleSurvival.__table__, а не через ORM-атрибут.
+    """
+    agg = _Agg("top10", 6, n_at_risk=1000, n_sold=700, n_withdrawn=100,
+               n_total=1000, n_sold_ever=800, median_hours=0.74, item_class=CLASS_GEAR)
+    row = _stratum_row(FEATURE_POS, agg, None)
+
+    assert row["class"] == CLASS_GEAR
+    assert set(row) <= {col.name for col in SaleSurvival.__table__.columns}
+
 
 # ─── Сборка строки таблицы ───────────────────────────────────────────────────
 
 class _Agg:
     """Строка агрегата, как её отдаёт _AGG_SQL."""
     def __init__(self, bucket, horizon_h, n_at_risk, n_sold, n_withdrawn,
-                 n_total, n_sold_ever, median_hours):
+                 n_total, n_sold_ever, median_hours, item_class=CLASS_ARTEFACT):
+        self.item_class = item_class
         self.bucket = bucket
         self.horizon_h = horizon_h
         self.n_at_risk = n_at_risk
@@ -194,7 +224,7 @@ def test_all_withdrawn_does_not_divide_by_zero():
 def _table():
     rows = {}
     for h, p in zip(HORIZONS_H, (20.0, 50.0, 84.4, 90.0, 92.0)):
-        rows[(FEATURE_RATIO, "r94_98", h)] = Stratum(
+        rows[(CLASS_ARTEFACT, FEATURE_RATIO, "r94_98", h)] = Stratum(
             n_at_risk=1523, p_sold_lo=p, p_sold_hi=p + 9.5,
             pct_withdrawn=8.0, pct_sold_ever=88.0, median_hours=0.79,
         )
@@ -246,14 +276,14 @@ def test_option_shape_is_stable_with_and_without_survival():
 
 def test_summary_falls_back_across_horizons():
     """Сводка страты берётся с любого доступного горизонта, а не только с первого."""
-    rows = {(FEATURE_POS, "top10", 24): Stratum(
+    rows = {(CLASS_ARTEFACT, FEATURE_POS, "top10", 24): Stratum(
         n_at_risk=900, p_sold_lo=92.0, p_sold_hi=99.0,
         pct_withdrawn=7.0, pct_sold_ever=77.3, median_hours=0.98,
     )}
     table = SurvivalTable(rows)
-    assert table.summary(FEATURE_POS, "top10").median_hours == 0.98
-    assert table.get(FEATURE_POS, "top10", 6) is None
-    assert table.summary(FEATURE_POS, None) is None
+    assert table.summary(CLASS_ARTEFACT, FEATURE_POS, "top10").median_hours == 0.98
+    assert table.get(CLASS_ARTEFACT, FEATURE_POS, "top10", 6) is None
+    assert table.summary(CLASS_ARTEFACT, FEATURE_POS, None) is None
 
 
 # ─── Позиция плановой цены в стакане ─────────────────────────────────────────
@@ -304,7 +334,7 @@ def test_ladder_and_queue_share_the_same_book():
 def _feed_survival(median_hours=0.98, p6=89.4, sold_ever=77.3, bucket="top10"):
     rows = {}
     for h, p in zip(HORIZONS_H, (54.4, 81.5, p6, 92.6, 94.0)):
-        rows[(FEATURE_POS, bucket, h)] = Stratum(
+        rows[(CLASS_ARTEFACT, FEATURE_POS, bucket, h)] = Stratum(
             n_at_risk=4958, p_sold_lo=p, p_sold_hi=p + 7.0,
             pct_withdrawn=6.0, pct_sold_ever=sold_ever, median_hours=median_hours,
         )
@@ -433,7 +463,7 @@ def test_tiers_with_different_medians_show_different_durations():
     rows = {}
     for bucket, med in (("r94_98", 0.80), ("r98_103", 1.00), ("r103_110", 1.03)):
         for h in HORIZONS_H:
-            rows[(FEATURE_RATIO, bucket, h)] = Stratum(
+            rows[(CLASS_ARTEFACT, FEATURE_RATIO, bucket, h)] = Stratum(
                 n_at_risk=1560, p_sold_lo=83.0, p_sold_hi=90.0,
                 pct_withdrawn=8.0, pct_sold_ever=87.0, median_hours=med,
             )

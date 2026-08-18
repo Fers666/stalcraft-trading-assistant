@@ -36,8 +36,10 @@ from app.services.analytics.pricing import (
     classify_risk,
     compute_reference,
     make_sell_options,
+    resolve_variant_key,
     weighted_reference,
 )
+from app.services.feed.scope import CLASS_ARTEFACT, feed_item_class, feed_scope_clause
 
 logger = logging.getLogger(__name__)
 
@@ -48,23 +50,20 @@ STATS_WINDOW_DAYS = 30
 UPSERT_CHUNK = 500
 
 
-def variant_key(additional_info: dict | None) -> tuple[int, int]:
+def variant_key(additional_info: dict | None, master=None) -> tuple[int, int]:
     """
     (qlt, ptn) варианта из additional_info продажи.
 
-    Та же трактовка, что pricing._lot_quality_enchant для артефактов:
-    отсутствующее поле = 0 («Обычный» / «Не точёный»), а не NULL — иначе
-    продажи одного и того же товара разъехались бы по двум вариантам.
+    Тонкая обёртка над общим резолвером (pricing.resolve_variant_key): та же
+    величина обязана получаться из ЛОТА в сборщике ленты, иначе опора варианта
+    не найдётся и лента по предмету молча опустеет (§3.2 ТЗ
+    feed-gear-expansion.md).
+
+    master нужен для не-артефактов: у снаряжения в additional нет ни qlt, ни
+    ptn — качество берётся из master_items.color. Без master функция трактует
+    предмет как артефакт (отсутствующее поле = 0 «Обычный» / «Не точёный»).
     """
-    info = additional_info or {}
-
-    def _as_int(value) -> int:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return 0
-
-    return _as_int(info.get("qlt")), _as_int(info.get("ptn"))
+    return resolve_variant_key(additional_info, master)
 
 
 def trend_7d_pct(median_7d: float | None, median_30d: float | None) -> float | None:
@@ -84,7 +83,9 @@ def _volatility(prices: list[int]) -> float | None:
     return round(statistics.stdev(prices) / mean * 100, 2)
 
 
-def compute_variant(sales_30d: list, now: datetime, survival=None) -> dict:
+def compute_variant(
+    sales_30d: list, now: datetime, survival=None, item_class: str = CLASS_ARTEFACT,
+) -> dict:
     """
     Метрики одного варианта по его продажам за 30 дней.
 
@@ -135,8 +136,12 @@ def compute_variant(sales_30d: list, now: datetime, survival=None) -> dict:
         pairs if (coverage >= COVERAGE_MEDIUM and len(pairs) >= MIN_BATCH_SAMPLES) else None
     )
 
+    # item_class — измерение кривой дожития (§3.3): снаряжение не должно
+    # заимствовать артефактную кривую, страты у классов разные.
     sell_options = (
-        make_sell_options(ref_info["ref"], len(prices_7d), pairs_for_options, survival)
+        make_sell_options(
+            ref_info["ref"], len(prices_7d), pairs_for_options, survival, item_class,
+        )
         if ref_info is not None and not below_floor else None
     )
 
@@ -167,9 +172,10 @@ async def calculate_artifact_variant_stats(
     db: AsyncSession, region: str, now: datetime | None = None,
 ) -> dict:
     """
-    Пересчитывает artifact_variant_stats по всем вариантам всех артефактов.
+    Пересчитывает artifact_variant_stats по всем вариантам набора ленты
+    (feed_scope_clause: артефакты, снаряжение высоких рангов, части, премиум).
 
-    Один SELECT на все продажи артефактов за 30 дней, группировка в Python,
+    Один SELECT на все продажи набора за 30 дней, группировка в Python,
     один апсерт-батч. Варианты, по которым за 30 дней не было ни одной сделки,
     удаляются: срез должен отражать текущий рынок, а не историю.
 
@@ -179,6 +185,8 @@ async def calculate_artifact_variant_stats(
     now = now or datetime.now(timezone.utc)
     cutoff_30d = now - timedelta(days=STATS_WINDOW_DAYS)
 
+    # category/color предмета едут вместе с продажей: у снаряжения качество —
+    # свойство ПРЕДМЕТА, и без них ключ варианта не собрать (§3.2 ТЗ).
     rows = (await db.execute(
         select(
             SalesHistory.item_id,
@@ -187,19 +195,23 @@ async def calculate_artifact_variant_stats(
             SalesHistory.amount,
             SalesHistory.total_price,
             SalesHistory.additional_info,
+            MasterItem.category,
+            MasterItem.color,
         )
         .join(MasterItem, MasterItem.item_id == SalesHistory.item_id)
         .where(
-            MasterItem.category.like("artefact%"),
+            feed_scope_clause(),
             SalesHistory.region == region,
             SalesHistory.sale_time >= cutoff_30d,
         )
     )).all()
 
     groups: dict[tuple[str, int, int], list] = {}
+    classes: dict[str, str] = {}
     for row in rows:
-        qlt, ptn = variant_key(row.additional_info)
+        qlt, ptn = variant_key(row.additional_info, row)
         groups.setdefault((row.item_id, qlt, ptn), []).append(row)
+        classes[row.item_id] = feed_item_class(row.category)
 
     # Таблица дожития читается ОДИН раз на весь пересчёт: она общая для всех
     # вариантов (страты по признакам, а не по варианту) и меняется раз в сутки.
@@ -211,7 +223,7 @@ async def calculate_artifact_variant_stats(
         values.append({
             "item_id": item_id, "region": region, "qlt": qlt, "ptn": ptn,
             "calculated_at": now,
-            **compute_variant(sales, now, survival),
+            **compute_variant(sales, now, survival, classes.get(item_id, CLASS_ARTEFACT)),
         })
 
     # Батчами: у 103 артефактов набирается несколько тысяч вариантов, каждый с

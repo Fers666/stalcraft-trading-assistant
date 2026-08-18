@@ -80,7 +80,6 @@ DEFECT_RATIO = 0.7          # упал больше чем на 30% за шаг 
 DEFECT_MIN_LOTS = 20        # на мелких стаканах такой перепад — обычное дело
 
 SNAPSHOT_CHUNK = 200        # снапшотов за один запрос при стриминге
-ARTEFACT_CATEGORY = "artefact%"
 
 # Состояние наблюдения к моменту записи.
 STATE_RESOLVABLE = "resolvable"   # лот исчез при живом сборе -> исход считаем
@@ -131,12 +130,15 @@ class LotHistoryReconstructor:
     (§2.1.4 ТЗ) — outcome остаётся NULL, «снятыми» они не объявляются.
     """
 
-    def __init__(self, item_id: str, region: str, max_gap: timedelta):
+    def __init__(self, item_id: str, region: str, max_gap: timedelta, master=None):
         from app.tasks.feed_collector import LOT_OBS_SOURCE_SNAPSHOT
 
         self.item_id = item_id
         self.region = region
         self.max_gap = max_gap
+        # Предмет каталога: у не-артефактов качество берётся из него, иначе
+        # ключ варианта разойдётся с ключом продаж (§3.2 ТЗ feed-gear-expansion).
+        self.master = master
         self.source = LOT_OBS_SOURCE_SNAPSHOT
 
         self.lots: dict[str, dict] = {}     # lot_key -> строка наблюдения
@@ -164,7 +166,9 @@ class LotHistoryReconstructor:
         # момент наблюдения задним числом не восстановить.
         current = {
             row["lot_key"]: row
-            for row in observation_rows(self.item_id, self.region, lots, {}, collect_time)
+            for row in observation_rows(
+                self.item_id, self.region, lots, {}, collect_time, self.master,
+            )
         }
 
         if gap is not None:
@@ -322,6 +326,7 @@ async def select_pairs(db, since: datetime, until: datetime) -> list[SimpleNames
     """
     from sqlalchemy import func, select
     from app.models.models import CollectedData, MasterItem
+    from app.services.feed.scope import feed_scope_clause
 
     truncated = func.count().filter(
         func.jsonb_array_length(CollectedData.raw_lots) >= SNAPSHOT_LOT_LIMIT
@@ -334,7 +339,10 @@ async def select_pairs(db, since: datetime, until: datetime) -> list[SimpleNames
         .join(MasterItem, MasterItem.item_id == CollectedData.item_id)
         .where(
             CollectedData.user_id.is_(None),
-            MasterItem.category.like(ARTEFACT_CATEGORY),
+            # Набор ленты целиком (§3.1 ТЗ feed-gear-expansion.md), без
+            # фильтра торгуемости: снятый с торгов сегодня предмет месяц
+            # назад торговался, и его снапшоты — валидная история.
+            feed_scope_clause(tradable=False),
             CollectedData.raw_lots.is_not(None),
             CollectedData.collect_time >= since,
             CollectedData.collect_time < until,
@@ -395,7 +403,19 @@ async def iter_snapshots(db, item_id: str, region: str, since: datetime, until: 
         cursor_time, cursor_id = chunk[-1].collect_time, chunk[-1].id
 
 
-async def load_sales(db, item_id: str, region: str, since: datetime, until: datetime) -> dict:
+async def load_master(db, item_id: str):
+    """Предмет каталога — источник качества не-артефактов (§3.2 ТЗ)."""
+    from sqlalchemy import select
+    from app.models.models import MasterItem
+
+    return (await db.execute(
+        select(MasterItem).where(MasterItem.item_id == item_id)
+    )).scalar_one_or_none()
+
+
+async def load_sales(
+    db, item_id: str, region: str, since: datetime, until: datetime, master=None,
+) -> dict:
     """Сделки предмета в окне, разложенные по варианту — вход resolve_batch."""
     from sqlalchemy import select
     from app.models.models import SalesHistory
@@ -418,7 +438,7 @@ async def load_sales(db, item_id: str, region: str, since: datetime, until: date
 
     by_variant: dict = {}
     for sale in rows:
-        qlt, ptn = variant_key(sale.additional_info)
+        qlt, ptn = variant_key(sale.additional_info, master)
         by_variant.setdefault((item_id, region, qlt, ptn), []).append(
             (sale.sale_time, sale.id, sale.total_price, sale.amount)
         )
@@ -774,7 +794,8 @@ def print_report(report: Report, dry_run: bool) -> None:
 
 async def reconstruct_pair(db, pair, since, until, max_gap, now, dry_run):
     """Полный цикл по одной паре: стриминг -> исходы -> запись."""
-    worker = LotHistoryReconstructor(pair.item_id, pair.region, max_gap)
+    master = await load_master(db, pair.item_id)
+    worker = LotHistoryReconstructor(pair.item_id, pair.region, max_gap, master)
     async for snapshot in iter_snapshots(db, pair.item_id, pair.region, since, until):
         worker.push(snapshot.collect_time, snapshot.raw_lots)
     worker.close()
@@ -783,7 +804,7 @@ async def reconstruct_pair(db, pair, since, until, max_gap, now, dry_run):
     if not rows:
         return worker.report, [], (0, 0)
 
-    sales = await load_sales(db, pair.item_id, pair.region, since, until)
+    sales = await load_sales(db, pair.item_id, pair.region, since, until, master)
     used = await load_used_sales(db, pair.item_id, pair.region, {row["lot_key"] for row in rows})
     worker.report.outcomes = classify_rows(rows, sales, used, now)
 

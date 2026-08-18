@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Optional
 from sqlalchemy import or_
 
 from app.models.models import SalesHistory
+from app.services.feed.scope import CLASS_ARTEFACT
 
 if TYPE_CHECKING:                       # только аннотация: pricing остаётся
     from app.services.analytics.survival import SurvivalTable   # без доступа к БД
@@ -128,18 +129,82 @@ def _is_artefact(category: Optional[str]) -> bool:
     return bool(category and "artefact" in category.lower())
 
 
+def _as_int(value) -> Optional[int]:
+    """int или None: API отдаёт числа, но строка/мусор не должны ронять разбор."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_quality(
+    additional: Optional[dict], master=None, is_art: Optional[bool] = None,
+) -> Optional[int]:
+    """
+    Качество товара по данным лота/продажи и предмету каталога.
+
+    ЕДИНЫЙ резолвер (docs/tasks/feed-gear-expansion.md §3.2). У артефактов
+    качество — свойство ЛОТА (`additional.qlt`, отсутствие = 0 «Обычный»); у
+    снаряжения его в лоте нет вовсе, качество является свойством ПРЕДМЕТА
+    (`master_items.color`, см. _COLOR_TO_QLT).
+
+    Почему одна функция, а не две ветки в разных модулях: ключ варианта
+    считается с двух сторон — из продажи (variant_stats.variant_key) и из лота
+    (сборщик ленты). Разойдись они, лента по снаряжению вернула бы НОЛЬ строк
+    без единой ошибки в логах: все продажи ветеранского ствола легли бы в
+    вариант (0, 0), а сборщик искал бы (3, 0).
+
+    master=None и is_art=None означают «артефакт» — так вызывают места, где
+    набор гарантированно артефактный.
+
+    None возвращается только для не-артефакта с неизвестным цветом: «качество
+    неизвестно» и «качество 0» — разные вещи для фильтров карточки.
+    """
+    qlt = _as_int((additional or {}).get("qlt"))
+    if qlt is not None:
+        return qlt
+
+    if is_art is None:
+        is_art = _is_artefact(getattr(master, "category", None)) if master is not None else True
+    if is_art:
+        return 0
+    return _COLOR_TO_QLT.get((getattr(master, "color", None) or "").lower())
+
+
+def resolve_variant_key(
+    additional: Optional[dict], master=None, is_art: Optional[bool] = None,
+) -> tuple[int, int]:
+    """
+    (qlt, ptn) варианта — единица расчёта ленты и ключ artifact_variant_stats.
+
+    Отличие от resolve_quality: здесь величины ВСЕГДА целые. Неизвестное
+    качество и отсутствующая заточка схлопываются в 0 — иначе продажи одного и
+    того же товара разъехались бы по двум вариантам, а колонки qlt/ptn в
+    feed_lots / lot_observations NOT NULL.
+    """
+    return (
+        resolve_quality(additional, master, is_art) or 0,
+        _as_int((additional or {}).get("ptn")) or 0,
+    )
+
+
 def _lot_quality_enchant(lot: dict, master, is_art: bool) -> tuple[Optional[int], Optional[int]]:
+    """
+    (качество, заточка) лота для фильтров карточки/Радара/сигналов.
+
+    Качество считает общий резолвер (resolve_quality) — та же величина, что у
+    ключа варианта. Заточка трактуется по-разному намеренно: у артефакта её
+    отсутствие означает «не точёный» (0, полноценное значение фильтра), у
+    снаряжения — «признака нет» (None).
+    """
     additional = lot.get("additional") or {}
-    qlt = additional.get("qlt")
     ptn = additional.get("ptn")
 
+    qlt_val = resolve_quality(additional, master, is_art)
     if is_art:
-        qlt_val = int(qlt) if qlt is not None else 0
         enchant = 0 if ptn is None else int(ptn)
     else:
-        color_qlt = _COLOR_TO_QLT.get((master.color or "").lower())
-        qlt_val   = int(qlt) if qlt is not None else color_qlt
-        enchant   = int(ptn) if ptn is not None and int(ptn) > 0 else None
+        enchant = int(ptn) if ptn is not None and int(ptn) > 0 else None
 
     return qlt_val, enchant
 
@@ -474,6 +539,7 @@ def apply_survival(
     ref: int,
     survival: Optional["SurvivalTable"],
     override_hours: bool,
+    item_class: str = CLASS_ARTEFACT,
 ) -> dict:
     """
     Дописывает в ценовую точку измеренную вероятность продажи (P1-4 фаза B).
@@ -484,6 +550,11 @@ def apply_survival(
     срока информативнее, и терять её из-за глобальной незачем. Вероятность
     продажи при этом добавляется в любом случае: предметная оценка видит
     только состоявшиеся сделки и о непроданных лотах сказать не может ничего.
+
+    item_class — класс предмета кривой дожития (scope.CLASS_*). Умолчание
+    "artefact" сохраняет прежнее поведение путей, которые про класс не знают
+    (карточка watchlist, Радар): до этой задачи наблюдались только артефакты,
+    и другой кривой в таблице не было. Пути ленты класс передают явно.
     """
     if survival is None:
         return option
@@ -500,15 +571,15 @@ def apply_survival(
         ratio_bucket_value(tier_ratio) if tier_ratio
         else ratio_bucket(option["price_per_unit"], ref)
     )
-    summary = survival.summary(FEATURE_RATIO, bucket)
+    summary = survival.summary(item_class, FEATURE_RATIO, bucket)
     if summary is None:
         return option
 
     # Публикуем нижнюю границу: снятый лот считается непроданным. Верхняя
     # (withdrawn выкинут из знаменателя) даёт 92-99% во всех стратах и различия
     # между ними стирает — решение она не поддерживает.
-    h6  = survival.get(FEATURE_RATIO, bucket, 6)
-    h24 = survival.get(FEATURE_RATIO, bucket, 24)
+    h6  = survival.get(item_class, FEATURE_RATIO, bucket, 6)
+    h24 = survival.get(item_class, FEATURE_RATIO, bucket, 24)
     option["p_sold_6h"]     = h6.p_sold_lo if h6 else None
     option["p_sold_24h"]    = h24.p_sold_lo if h24 else None
     option["pct_sold_ever"] = summary.pct_sold_ever
@@ -529,6 +600,7 @@ def make_sell_options(
     volume_7d: Optional[int],
     time_price_pairs: Optional[list[tuple[float, int]]] = None,
     survival: Optional["SurvivalTable"] = None,
+    item_class: str = CLASS_ARTEFACT,
 ) -> list[dict]:
     """
     3 ценовые точки (fast/normal/premium) от ref с прогнозом времени продажи
@@ -580,7 +652,7 @@ def make_sell_options(
     def opt(label, label_ru, price, hours):
         return apply_survival(
             base_option(label, label_ru, price, hours, confidence, data_points),
-            ref, survival, override_hours=True,
+            ref, survival, override_hours=True, item_class=item_class,
         )
 
     return [

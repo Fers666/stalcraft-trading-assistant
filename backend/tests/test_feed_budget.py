@@ -348,6 +348,11 @@ class _EmptyRows:
     def scalars(self):
         return SimpleNamespace(all=lambda: [])
 
+    def scalar_one_or_none(self):
+        # Предмет каталога сборщик читает отдельно (качество не-артефактов):
+        # «предмета нет» — рабочее состояние, лоты трактуются как артефактные.
+        return None
+
     def __iter__(self):
         return iter(())
 

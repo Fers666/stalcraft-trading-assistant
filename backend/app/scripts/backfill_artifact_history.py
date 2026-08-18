@@ -44,15 +44,19 @@ BACKFILL_MAX_PAGE_RETRIES = 5   # повторов одной страницы �
 
 
 async def _find_items(db) -> list[str]:
-    """Артефакты каталога, не подтверждённые как неторгуемые — набор ленты."""
+    """
+    Набор ленты целиком (feed_scope_clause): артефакты, снаряжение высоких
+    рангов, части предметов, премиум и сезонные пропуска.
+
+    Правило набора не дублируется здесь намеренно — разъехавшийся список
+    означал бы бэкфилл истории не по тем предметам, которые лента опрашивает.
+    """
     from app.models.models import MasterItem
+    from app.services.feed.scope import feed_scope_clause
 
     rows = (await db.execute(
         select(MasterItem.item_id)
-        .where(
-            MasterItem.category.like("artefact%"),
-            MasterItem.on_auction.is_not(False),
-        )
+        .where(feed_scope_clause())
         .order_by(MasterItem.item_id)
     )).all()
     return [row.item_id for row in rows]

@@ -1,6 +1,11 @@
 /**
- * «Лента артефактов» — таблица живых лотов артефактов, которые выгодно
- * купить и перепродать. Эталон вёрстки — design/v5/app/feed.html.
+ * «Лента» — таблица живых лотов, которые выгодно купить и перепродать.
+ * Эталон вёрстки — design/v5/app/feed.html.
+ *
+ * Набор — не только артефакты: снаряжение высоких рангов, части предметов,
+ * премиум и сезонные пропуска (docs/tasks/feed-gear-expansion.md). Группы
+ * фильтруются СЕРВЕРОМ (параметр category): клиентская эмуляция через
+ * item_id[] упиралась в кап в 50 значений, а предметов в наборе 382.
  *
  * Строка = ОДИН лот: три выгодных лота «Ломоть Мастер +15» дают три строки.
  * Качество и заточка — часть идентичности товара, сравнение всегда в рамках
@@ -19,7 +24,8 @@ import { TIER_LABELS } from '../constants/tiers'
 import { fmtN, fmtP, fmtCompact } from '../utils/format'
 import { qualityKeyByValue, iconUrl } from '../utils/i18n'
 import {
-  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, fmtSellTime, feedCategoryLabel,
+  fetchFeedLots, fetchFeedSummary, fetchFeedFilters, fmtSellTime,
+  feedGroupLabel, feedGroupOrder,
   type FeedLot, type FeedLotsResponse, type FeedSummaryResponse,
   type FeedFiltersResponse, type FeedSortKey,
 } from '../api/feed'
@@ -35,6 +41,7 @@ import RiskChip from '../components/ui/RiskChip'
 import TierGate from '../components/ui/TierGate'
 import PageLock from '../components/ui/PageLock'
 import ArtifactModal from '../components/ArtifactModal'
+import ItemSearch, { type SearchItem } from '../components/ui/ItemSearch'
 
 const PAGE_SIZES = [25, 50, 100]
 /** Период обновления таблицы. Частоту опроса внешнего API это не меняет:
@@ -57,7 +64,7 @@ const RISK_LABEL: Record<string, string> = { low: 'низкий', medium: 'ср�
 
 /** Колонки таблицы: ключ сортировки бэкенда + подпись + тултип. */
 const COLUMNS: { key: FeedSortKey | 'name'; label: string; tip: string; align: 'left' | 'right' }[] = [
-  { key: 'name', label: 'Предмет', tip: 'Артефакт, качество и заточка — один вариант товара', align: 'left' },
+  { key: 'name', label: 'Предмет', tip: 'Предмет, качество и заточка — один вариант товара', align: 'left' },
   { key: 'buyout_per_unit', label: 'Лот', tip: 'Цена за штуку · количество · итог к оплате', align: 'right' },
   { key: 'profit_pct', label: 'Опора', tip: 'Опорная цена — медиана реальных сделок за 7 дней, взвешенная по свежести', align: 'right' },
   { key: 'profit_total', label: 'Продать быстро', tip: 'Прибыль со всего лота по нижней цене (опора −6 %), за вычетом комиссии 5 %. Рядом — сколько лот будет продаваться и с какой вероятностью уйдёт за 6 часов', align: 'right' },
@@ -125,7 +132,7 @@ function TrendMark({ trend, pct }: { trend: string | null; pct: number | null })
   )
 }
 
-/** .fchip — чип-тумблер группы артефактов со счётчиком (.fc-n). */
+/** .fchip — чип-тумблер группы набора со счётчиком (.fc-n). */
 function CatChip({ label, count, on, onToggle }: {
   label: string
   count: number
@@ -176,7 +183,8 @@ export default function FeedPage() {
   // (docs/tasks/ev-ranking.md §1).
   const [sort, setSort] = useState<FeedSortKey>('ev_profit')
   const [order, setOrder] = useState<'asc' | 'desc'>('desc')
-  const [itemFilter, setItemFilter] = useState<string>('')
+  // Предмет выбирается поиском по каталогу: селект на 382 позиции нечитаем.
+  const [item, setItem] = useState<SearchItem | null>(null)
   const [qltFilter, setQltFilter] = useState<number | ''>('')
   const [ptnFilter, setPtnFilter] = useState<number | ''>('')
   const [minProfit, setMinProfit] = useState<number>(0)
@@ -189,23 +197,50 @@ export default function FeedPage() {
   const showcase = data?.showcase ?? false
   const rowsLimit = data?.rows_limit ?? null
 
-  // Чип группы = набор item_id этой группы: у /feed/lots нет параметра
-  // «категория», зато есть item_id[]. Конкретный артефакт в селекте старше
-  // групп — он уже сузил выборку до одного предмета.
-  const catItemIds = useMemo(() => {
-    if (cats.length === 0) return undefined
-    const ids = (filters?.items ?? [])
-      .filter(it => cats.includes(feedCategoryLabel(it.category)))
-      .map(it => it.item_id)
-    return ids.length > 0 ? ids : undefined
-  }, [cats, filters])
+  const lotsCountOf = useCallback(
+    (itemId: string) => filters?.items.find(it => it.item_id === itemId)?.lots_count,
+    [filters],
+  )
+
+  // Порядок чипов канонический (FEED_GROUPS), а не серверный «по убыванию
+  // счётчика»: таблица переспрашивает сервер раз в 30 секунд, и чипы,
+  // отсортированные счётчиком, прыгали бы под курсором.
+  const catChips = useMemo(
+    () => [...(filters?.categories ?? [])].sort(
+      (a, b) => feedGroupOrder(String(a.value)) - feedGroupOrder(String(b.value)),
+    ),
+    [filters],
+  )
+
+  const catsLabel = useMemo(
+    () => cats.map(feedGroupLabel).join(' · '),
+    [cats],
+  )
+
+  // Предмет и группы — взаимоисключающие области поиска, а не вложенные
+  // фильтры: сервер соединяет их через AND, и выбор предмета не из выбранной
+  // группы давал бы пустую таблицу при двух горящих фильтрах.
+  const pickItem = (next: SearchItem | null) => {
+    setItem(next)
+    if (next) setCats([])
+    setPage(1)
+  }
+
+  const toggleCat = (group: string) => {
+    setCats(prev => (prev.includes(group) ? prev.filter(x => x !== group) : [...prev, group]))
+    setItem(null)
+    setPage(1)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetchFeedLots({
         page, page_size: pageSize, sort, order,
-        item_id: itemFilter ? [itemFilter] : catItemIds,
+        item_id: item ? [item.item_id] : undefined,
+        // Серверный фильтр групп: клиентский список item_id[] капнут 50
+        // значениями, а в одной группе «Части» предметов больше.
+        category: !item && cats.length > 0 ? cats : undefined,
         qlt: qltFilter !== '' ? [qltFilter] : undefined,
         ptn: ptnFilter !== '' ? [ptnFilter] : undefined,
         min_profit_pct: minProfit > 0 ? minProfit : undefined,
@@ -216,7 +251,7 @@ export default function FeedPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, pageSize, sort, order, itemFilter, catItemIds, qltFilter, ptnFilter, minProfit])
+  }, [page, pageSize, sort, order, item, cats, qltFilter, ptnFilter, minProfit])
 
   // Срез ленты живёт минуты — таблица переспрашивает сервер раз в 30 с.
   useEffect(() => {
@@ -320,6 +355,10 @@ export default function FeedPage() {
         <td><Cell value={fmtP(lot.buyout_per_unit)} sub={`×${fmtN(lot.amount)} · ${fmtP(lot.buyout_price)}`} /></td>
         <td><Cell value={fmtP(lot.ref_price)} sub={`безуб. ${fmtN(lot.breakeven_per_unit)}`} /></td>
         <td>
+          {/* Срок печатаем только вместе с измеренной вероятностью: без страты
+              est_sell_hours приходит эвристикой (pricing.base_option), и
+              показывать её рядом с измеренными сроками нельзя. Фолбэк — процент
+              прибыли, величина посчитанная, а не предсказанная. */}
           <Cell
             tone="g" subTone="g"
             value={`+${fmtP(lot.profit_total)}`}
@@ -331,13 +370,19 @@ export default function FeedPage() {
           />
         </td>
         <td>
+          {/* Прибыль верхнего сценария — арифметика (цена × количество минус
+              комиссия), она есть всегда. А срок и вероятность берутся из кривой
+              дожития: у снаряжения страты набирают объём неделями, и до тех пор
+              подпись честно пустая. Зелёным её не красим — зелёное здесь
+              означает измеренную величину. */}
           <Cell
-            tone="g" subTone="g"
+            tone={lot.profit_total_slow != null ? 'g' : undefined}
+            subTone={lot.p_sold_6h_slow != null ? 'g' : undefined}
             value={lot.profit_total_slow != null ? `+${fmtP(lot.profit_total_slow)}` : '—'}
             sub={
               lot.p_sold_6h_slow != null
                 ? `${fmtSellTime(lot.est_sell_hours_slow)} · ${lot.p_sold_6h_slow} % за 6 ч`
-                : 'нет данных'
+                : 'прогноз не измерен'
             }
           />
         </td>
@@ -410,17 +455,45 @@ export default function FeedPage() {
         position: 'sticky', top: 'var(--sc-top-offset, 48px)', zIndex: 30,
       }),
     }}>
-      <Select
-        size="small" displayEmpty value={itemFilter} sx={selectSx}
-        onChange={e => { setItemFilter(String(e.target.value)); setPage(1) }}
-      >
-        <MenuItem value="">Все артефакты</MenuItem>
-        {(filters?.items ?? []).map(it => (
-          <MenuItem key={it.item_id} value={it.item_id}>
-            {(it.name_ru ?? it.name_en ?? it.item_id)} · {it.lots_count}
-          </MenuItem>
-        ))}
-      </Select>
+      {/* .fchips — группы набора со счётчиками. Первой строкой панели, а не
+          последней: пока у снаряжения нет измеренной вероятности продажи, оно
+          лежит хвостом под артефактами (сортировка по ev_profit, nulls_last), и
+          чипы — единственный способ его увидеть. Счётчики приходят с
+          /feed/filters и считаются по персональному порогу, поэтому не
+          обнуляются при переключении самих чипов. */}
+      {catChips.length > 0 && (
+        <Box sx={{
+          flexBasis: '100%', display: 'flex', alignItems: 'center', gap: '6px',
+          flexWrap: 'wrap', mb: '2px', pb: '8px', borderBottom: `1px solid ${tokens.border}`,
+        }}>
+          <Kick>Группы</Kick>
+          <CatChip
+            label="Все" count={filters?.total_count ?? 0} on={cats.length === 0 && !item}
+            onToggle={() => { setCats([]); setItem(null); setPage(1) }}
+          />
+          {catChips.map(c => {
+            const group = String(c.value)
+            return (
+              <CatChip
+                key={group} label={c.label} count={c.count} on={cats.includes(group)}
+                onToggle={() => toggleCat(group)}
+              />
+            )
+          })}
+        </Box>
+      )}
+
+      {/* Высота 28 — как у соседних селектов панели: разнобой в одной строке
+          фильтров читается как сбой вёрстки. */}
+      <ItemSearch
+        value={item} onChange={pickItem} lotsCount={lotsCountOf}
+        placeholder="Найти предмет…"
+        sx={{
+          width: 240,
+          '& .MuiInputBase-root': { height: 28 },
+          '& .MuiInputBase-input': { py: 0 },
+        }}
+      />
       <Select
         size="small" displayEmpty value={qltFilter} sx={selectSx}
         onChange={e => { setQltFilter(e.target.value === '' ? '' : Number(e.target.value)); setPage(1) }}
@@ -451,34 +524,6 @@ export default function FeedPage() {
           <MenuItem key={v} value={v}>{v === 0 ? 'по профилю' : `${v} %`}</MenuItem>
         ))}
       </Select>
-
-      {/* .fchips — группы артефактов со счётчиками. Счётчики приходят с
-          /feed/filters и считаются только по персональному порогу, поэтому
-          не обнуляются при переключении самих чипов. */}
-      {(filters?.categories.length ?? 0) > 0 && (
-        <Box sx={{
-          flexBasis: '100%', display: 'flex', alignItems: 'center', gap: '6px',
-          flexWrap: 'wrap', mt: '2px', pt: '8px', borderTop: `1px solid ${tokens.border}`,
-        }}>
-          <Kick>Группы</Kick>
-          <CatChip
-            label="Все" count={filters?.total_count ?? 0} on={cats.length === 0}
-            onToggle={() => { setCats([]); setPage(1) }}
-          />
-          {(filters?.categories ?? []).map(c => {
-            const label = String(c.value)
-            return (
-              <CatChip
-                key={label} label={c.label} count={c.count} on={cats.includes(label)}
-                onToggle={() => {
-                  setCats(prev => prev.includes(label) ? prev.filter(x => x !== label) : [...prev, label])
-                  setPage(1)
-                }}
-              />
-            )
-          })}
-        </Box>
-      )}
     </Box>
   )
 
@@ -559,8 +604,10 @@ export default function FeedPage() {
                 <Box component="td" colSpan={8} sx={{ p: '32px 12px', textAlign: 'center' }}>
                   <Box sx={{ fontSize: fs.f14, fontWeight: 600, color: tokens.text1 }}>
                     {data && data.total_available === 0
-                      ? 'Сейчас выгодных лотов артефактов нет'
-                      : 'По текущим фильтрам выгодных лотов нет'}
+                      ? 'Сейчас выгодных лотов нет'
+                      : cats.length > 0
+                        ? `В группе «${catsLabel}» выгодных лотов сейчас нет`
+                        : 'По текущим фильтрам выгодных лотов нет'}
                   </Box>
                   <Box sx={{ fontSize: fs.f12, color: tokens.text2, mt: '6px' }}>
                     {data && data.total_available === 0
@@ -608,7 +655,7 @@ export default function FeedPage() {
     }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: 0 }}>
         <Panel>
-          <Kick>Лента артефактов // ARTEFACT FEED</Kick>
+          <Kick>Лента // MARKET FEED</Kick>
           <Typography sx={{
             fontFamily: tokens.fontHead, fontWeight: 700, fontSize: fs.f26,
             color: tokens.text0, mt: '4px',
@@ -622,6 +669,16 @@ export default function FeedPage() {
             }} />
             <Box sx={{ fontFamily: tokens.fontMono, fontSize: fs.f105, color: tokens.text2 }}>
               срез {snapshotLabel} · {fmtN(data?.total_available ?? 0)} выгодных лотов на рынке
+              {/* Выбранная группа — в шапке, а не только в чипе: чипов семь,
+                  и в свёрнутой панели активный не бросается в глаза. */}
+              {cats.length > 0 && (
+                <Box component="span" sx={{ color: tokens.goldAccent }}> · {catsLabel}</Box>
+              )}
+              {item && (
+                <Box component="span" sx={{ color: tokens.goldAccent }}>
+                  {' '}· {item.name_ru ?? item.name_en ?? item.item_id}
+                </Box>
+              )}
             </Box>
           </Box>
         </Panel>
