@@ -351,6 +351,14 @@ CALIBRATION_MATURITY_HOURS = 2  # запас на задержку резолв�
 # (полуширина 95%-интервала там ~14 п.п.).
 MIN_CALIBRATION_N = 150
 
+# Окно короче суток сверять НЕЛЬЗЯ: продажи имеют выраженный суточный ход
+# (замер 2026-08-19: 36-40 % в 2-5 утра против 54-57 % в 7-11 по Москве), и
+# короткое окно измеряет время суток, а не качество кривой. Проверено на себе:
+# ручной прогон через 5.5 ч после ночного пересчёта дал среднюю ошибку
+# -16.25 п.п., тогда как на полных сутках она -8.2 — разница целиком от того,
+# что окно пришлось на ночной провал.
+MIN_CALIBRATION_WINDOW_HOURS = 20
+
 _CALIB_SQL = """
 WITH inc AS (
     SELECT {class_case} AS item_class,
@@ -431,6 +439,17 @@ async def evaluate_calibration(db: AsyncSession, now: Optional[datetime] = None)
     if window_from.tzinfo is None:
         window_from = window_from.replace(tzinfo=timezone.utc)
 
+    window_hours = (now - window_from).total_seconds() / 3600
+    if window_hours < MIN_CALIBRATION_WINDOW_HOURS:
+        return {
+            "rows": 0,
+            "window_hours": round(window_hours, 1),
+            "reason": (
+                f"окно короче {MIN_CALIBRATION_WINDOW_HOURS} ч — сверка измерила бы "
+                f"время суток, а не кривую"
+            ),
+        }
+
     predicted = {
         (r.item_class, r.feature, r.bucket, r.horizon_h): float(r.p_sold_lo)
         for r in published
@@ -490,7 +509,7 @@ async def evaluate_calibration(db: AsyncSession, now: Optional[datetime] = None)
     return {
         "rows": len(rows),
         "window_from": window_from.isoformat(),
-        "window_hours": round((now - window_from).total_seconds() / 3600, 1),
+        "window_hours": round(window_hours, 1),
         "mean_abs_error_pp": round(sum(errors) / len(errors), 2) if errors else None,
         "max_abs_error_pp": round(max(errors), 2) if errors else None,
         # Систематический перекос важнее средней ошибки: если все страты врут в

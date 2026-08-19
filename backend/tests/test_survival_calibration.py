@@ -73,3 +73,17 @@ def test_error_sign_is_documented_as_dangerous_direction():
     error_pp = round(realized - predicted, 2)
     assert error_pp < 0
     assert error_pp == pytest.approx(-23.59, abs=0.01)
+
+
+def test_short_window_is_refused():
+    """
+    Окно короче суток измеряет время суток, а не кривую: продажи идут в
+    36-40 % в ночные часы против 54-57 % утром. Проверено на себе — ручной
+    прогон через 5.5 ч после пересчёта дал среднюю ошибку -16.25 п.п. против
+    -8.2 на полных сутках, и вся разница была от попадания окна в ночной
+    провал. Такая строка в таблице хуже отсутствующей: она выглядит как
+    сломанная кривая.
+    """
+    from app.services.analytics.survival import MIN_CALIBRATION_WINDOW_HOURS
+
+    assert MIN_CALIBRATION_WINDOW_HOURS >= 20
