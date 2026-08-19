@@ -145,6 +145,18 @@ LOT_OBS_RESOLVE_DELAY_HOURS = 2
 # все страты на две недели, пока не вышли бы из окна. Восстанавливать пришлось
 # вручную; повторять — нет.
 MARKET_DARK_MINUTES = 15
+
+# Исход «пропал вместе со всем рынком»: лот перестал наблюдаться ровно перед
+# тем, как аукцион замолчал целиком. Такое исчезновение НЕЛЬЗЯ отнести к
+# поведению рынка, поэтому наблюдение не классифицируется, а исключается из
+# кривой (см. survival._AGG_SQL). Отдельное значение, а не удаление строки:
+# факт наблюдения был, и терять его незачем.
+#
+# Первая версия защиты (MARKET_DARK_MINUTES) лишь запрещала резолв ВО ВРЕМЯ
+# темноты — и этого оказалось мало: 2026-08-19 после возвращения аукциона те же
+# 14 463 лота были закрыты как withdrawn, потому что на рынок они уже не
+# вернулись. Отсрочка на семь часов, а не решение.
+LOT_OBS_OUTCOME_BLACKOUT = "blackout"
 LOT_OBS_RESOLVE_BATCH       = 5000  # строк за один прогон резолвера
 # Допуск «дожил до конца аукциона»: последний раз лот видели за один обход до
 # end_time. Полный круг ~5 мин, холодные предметы — раз в FEED_COLD_EVERY_N_CYCLES
@@ -1692,6 +1704,38 @@ def resolve_lot_observations(self):
     return run_async(_run())
 
 
+async def blackout_orphans(db, ids: list[int]) -> set[int]:
+    """
+    Из переданных наблюдений — те, что пропали вместе со всем рынком.
+
+    Признак не требует хранить интервалы недоступности: если после последнего
+    показа лота НИ ОДИН лот не наблюдался ещё MARKET_DARK_MINUTES, значит
+    замолчал аукцион целиком, а не исчез конкретный лот. Набор ленты — сотни
+    предметов, одновременно опустеть они не могут.
+    """
+    from sqlalchemy import text
+
+    if not ids:
+        return set()
+
+    result = await db.execute(
+        text("""
+            SELECT o.id
+            FROM lot_observations o
+            WHERE o.id = ANY(:ids)
+              AND NOT EXISTS (
+                  SELECT 1 FROM lot_observations x
+                  WHERE x.source = :live
+                    AND x.last_seen_at >  o.last_seen_at
+                    AND x.last_seen_at <= o.last_seen_at
+                                          + make_interval(mins => CAST(:dark AS int))
+              )
+        """),
+        {"ids": ids, "live": LOT_OBS_SOURCE_LIVE, "dark": MARKET_DARK_MINUTES},
+    )
+    return {row.id for row in result}
+
+
 async def market_dark_for(db, now: datetime) -> float | None:
     """
     Сколько минут не видно ни одного лота, если рынок погас. Иначе None.
@@ -1748,10 +1792,30 @@ async def _resolve_observations(db, now: datetime) -> dict[str, int]:
         .limit(LOT_OBS_RESOLVE_BATCH)
     )).scalars().all()
 
-    stats = {"sold": 0, "expired": 0, "withdrawn": 0}
+    stats = {"sold": 0, "expired": 0, "withdrawn": 0, LOT_OBS_OUTCOME_BLACKOUT: 0}
     if not rows:
         logger.info("lot_obs resolve: закрывать нечего")
         return stats
+
+    # Лоты, пропавшие вместе со всем рынком, отделяем ДО классификации: их
+    # исчезновение вызвано недоступностью аукциона, а не поведением рынка, и
+    # любая метка (withdrawn/expired) была бы враньём.
+    orphans = await blackout_orphans(db, [row.id for row in rows])
+    if orphans:
+        await db.execute(
+            update(LotObservation)
+            .where(LotObservation.id.in_(orphans))
+            .values(outcome=LOT_OBS_OUTCOME_BLACKOUT, resolved_at=now)
+        )
+        stats[LOT_OBS_OUTCOME_BLACKOUT] = len(orphans)
+        logger.warning(
+            "lot_obs resolve: %s наблюдений исключено как пропавшие вместе с рынком",
+            len(orphans),
+        )
+        rows = [row for row in rows if row.id not in orphans]
+        if not rows:
+            await db.commit()
+            return stats
 
     item_ids = {row.item_id for row in rows}
     regions  = {row.region for row in rows}

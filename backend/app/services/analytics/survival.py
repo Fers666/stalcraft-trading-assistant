@@ -270,6 +270,12 @@ WITH inc AS (
       AND start_time IS NOT NULL
       AND end_time IS NOT NULL
       AND first_seen_at - start_time <= make_interval(mins => :max_delay)
+      -- Наблюдения, пропавшие вместе со всем рынком, из популяции ВЫБРАСЫВАЮТСЯ.
+      -- Оставить их нельзя ни в каком виде: outcome не NULL, поэтому строка
+      -- попала бы в знаменатель и никогда в числитель, то есть тихо просаживала
+      -- бы вероятность. Ровно это и случилось 2026-08-19 на техработах, когда
+      -- 14 463 живых лота были помечены withdrawn.
+      AND (outcome IS NULL OR outcome <> 'blackout')
       AND first_seen_at >= :since
       AND {availability}
 ), h AS (
@@ -373,6 +379,12 @@ WITH inc AS (
       AND start_time IS NOT NULL
       AND end_time IS NOT NULL
       AND first_seen_at - start_time <= make_interval(mins => :max_delay)
+      -- Наблюдения, пропавшие вместе со всем рынком, из популяции ВЫБРАСЫВАЮТСЯ.
+      -- Оставить их нельзя ни в каком виде: outcome не NULL, поэтому строка
+      -- попала бы в знаменатель и никогда в числитель, то есть тихо просаживала
+      -- бы вероятность. Ровно это и случилось 2026-08-19 на техработах, когда
+      -- 14 463 живых лота были помечены withdrawn.
+      AND (outcome IS NULL OR outcome <> 'blackout')
       AND first_seen_at >= :window_from
       AND {availability}
 ), h AS (

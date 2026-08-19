@@ -111,3 +111,39 @@ def test_market_blackout_threshold_is_short_enough_to_catch_outage():
     assert MARKET_DARK_MINUTES < LOT_OBS_RESOLVE_DELAY_HOURS * 60
     # Обход ленты занимает единицы минут — порог не должен ловить норму
     assert MARKET_DARK_MINUTES >= 10
+
+
+def test_blackout_observations_leave_the_population_entirely():
+    """
+    Лот, пропавший вместе со всем рынком, должен ВЫПАСТЬ из выборки, а не
+    получить метку.
+
+    Первая версия защиты лишь запрещала резолв во время темноты, и этого не
+    хватило: 2026-08-19, как только аукцион вернулся, те же 14 463 лота были
+    закрыты как withdrawn — на рынок они уже не вернулись. Отсрочка на семь
+    часов, а не решение.
+
+    Метка тут не спасает: любой не-NULL outcome заводит строку в знаменатель
+    (n_at_risk считает `outcome IS NOT NULL OR life_h >= H`) и никогда в
+    числитель, то есть тихо просаживает вероятность по всем стратам.
+    """
+    from app.services.analytics.survival import _AGG_SQL, _CALIB_SQL
+
+    for sql in (_AGG_SQL, _CALIB_SQL):
+        assert "outcome IS NULL OR outcome <> 'blackout'" in sql
+
+
+def test_blackout_detection_needs_no_stored_intervals():
+    """
+    Признак «пропал вместе с рынком» выводится из самих наблюдений: если после
+    последнего показа лота ни один лот не наблюдался ещё MARKET_DARK_MINUTES,
+    замолчал аукцион целиком. Хранить интервалы недоступности не нужно —
+    отдельное состояние рассинхронизировалось бы с фактом.
+    """
+    import inspect
+    from app.tasks import feed_collector
+
+    src = inspect.getsource(feed_collector.blackout_orphans)
+    assert "NOT EXISTS" in src
+    assert "x.last_seen_at >  o.last_seen_at" in src
+    assert "make_interval(mins => CAST(:dark AS int))" in src
