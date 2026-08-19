@@ -133,6 +133,18 @@ LOT_OBS_UPSERT_CHUNK = 500          # как UPSERT_CHUNK в variant_stats.py
 # идёт раз в час (:15), поэтому продажа попадает в sales_history с задержкой до
 # часа; резолвить раньше — массово метить проданные лоты как withdrawn.
 LOT_OBS_RESOLVE_DELAY_HOURS = 2
+
+# Рынок считается погасшим, если ни один лот не наблюдался дольше этого срока.
+# Признак надёжен потому, что набор ленты — сотни предметов: одновременно
+# опустеть они не могут, а вот аукцион целиком — может.
+#
+# Повод (2026-08-19): на время техработ в игре API отвечал 200 OK, но с
+# total=0 по всем предметам. Лоты «исчезли», и резолвер добросовестно закрыл
+# 16 238 наблюдений как withdrawn — против нормы в три-четыре сотни за час.
+# Эти строки попали бы в знаменатель кривой как «не продались» и просадили бы
+# все страты на две недели, пока не вышли бы из окна. Восстанавливать пришлось
+# вручную; повторять — нет.
+MARKET_DARK_MINUTES = 15
 LOT_OBS_RESOLVE_BATCH       = 5000  # строк за один прогон резолвера
 # Допуск «дожил до конца аукциона»: последний раз лот видели за один обход до
 # end_time. Полный круг ~5 мин, холодные предметы — раз в FEED_COLD_EVERY_N_CYCLES
@@ -1664,9 +1676,43 @@ def resolve_lot_observations(self):
         from app.db.session import get_celery_db_session as get_db_session
 
         async with get_db_session() as db:
-            return await _resolve_observations(db, datetime.now(timezone.utc))
+            now = datetime.now(timezone.utc)
+            dark_for = await market_dark_for(db, now)
+            if dark_for is not None:
+                # Закрывать наблюдения, когда погас весь аукцион, значит
+                # записать «лот сняли с продажи» про каждый лот на рынке.
+                logger.warning(
+                    "резолв пропущен: ни одного лота не видно %.0f мин — "
+                    "похоже, аукцион недоступен, а не рынок опустел",
+                    dark_for,
+                )
+                return {"skipped": "market_dark", "dark_minutes": round(dark_for)}
+            return await _resolve_observations(db, now)
 
     return run_async(_run())
+
+
+async def market_dark_for(db, now: datetime) -> float | None:
+    """
+    Сколько минут не видно ни одного лота, если рынок погас. Иначе None.
+
+    Момент последнего наблюдения ЛЮБОГО лота — и есть последний момент, когда
+    аукцион отвечал. Отдельное состояние для этого заводить не нужно.
+    """
+    from sqlalchemy import func, select
+    from app.models.models import LotObservation
+
+    last_seen = (await db.execute(
+        select(func.max(LotObservation.last_seen_at))
+        .where(LotObservation.source == LOT_OBS_SOURCE_LIVE)
+    )).scalar()
+    if last_seen is None:
+        return None                      # наблюдений ещё нет — не наш случай
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=timezone.utc)
+
+    minutes = (now - last_seen).total_seconds() / 60
+    return minutes if minutes > MARKET_DARK_MINUTES else None
 
 
 async def _resolve_observations(db, now: datetime) -> dict[str, int]:

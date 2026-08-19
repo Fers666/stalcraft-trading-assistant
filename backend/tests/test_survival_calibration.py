@@ -87,3 +87,27 @@ def test_short_window_is_refused():
     from app.services.analytics.survival import MIN_CALIBRATION_WINDOW_HOURS
 
     assert MIN_CALIBRATION_WINDOW_HOURS >= 20
+
+
+# ─── Защита от техработ на стороне игры ──────────────────────────────────────
+
+def test_market_blackout_threshold_is_short_enough_to_catch_outage():
+    """
+    Резолвер обязан отличать «лот исчез» от «исчез весь аукцион».
+
+    2026-08-19 на время техработ API отвечал 200 OK, но с total=0 по всем
+    предметам. Лоты «пропали», и резолвер закрыл 16 238 наблюдений как
+    withdrawn — при норме в три-четыре сотни за час. Эти строки попали бы в
+    знаменатель кривой как «не продались» и просадили бы все страты на две
+    недели, пока не вышли бы из окна выборки.
+
+    Порог должен срабатывать заметно раньше LOT_OBS_RESOLVE_DELAY_HOURS,
+    иначе первые закрытия успеют пройти до того, как защита сработает.
+    """
+    from app.tasks.feed_collector import (
+        LOT_OBS_RESOLVE_DELAY_HOURS, MARKET_DARK_MINUTES,
+    )
+
+    assert MARKET_DARK_MINUTES < LOT_OBS_RESOLVE_DELAY_HOURS * 60
+    # Обход ленты занимает единицы минут — порог не должен ловить норму
+    assert MARKET_DARK_MINUTES >= 10
