@@ -600,47 +600,22 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
         if owns_client and r is not None:
             await r.aclose()
 
-    # Лог для будущей калибровки — раз за цикл на каждую уникальную комбинацию
-    # (quality_filter, enchant_filter), встречающуюся в watchlist для этого item/region.
-    # margin=0, без отсечения по amount — независимо от персональных настроек пользователей.
-    # У разных качеств/заточек разные цены, поэтому ref считается отдельно для каждой
-    # комбинации (а не один общий "средний по больнице" ref).
-    seen_combos: set[tuple] = set()
-    combo_entries: list = []
-    for entry in entries:
-        combo = (entry.quality_filter, entry.enchant_filter)
-        if combo not in seen_combos:
-            seen_combos.add(combo)
-            combo_entries.append(entry)
-
-    # Более специфичные фильтры — первыми: если один и тот же лот попадёт под
-    # несколько комбинаций (например (3, 0) и (None, None)), ON CONFLICT DO NOTHING
-    # оставит запись с более точным (не "средним по больнице") ref.
-    combo_entries.sort(key=lambda e: (e.quality_filter is None, e.enchant_filter is None))
-
-    for entry in combo_entries:
-        try:
-            # survival обязателен и здесь: signal_outcomes логирует ПРОГНОЗ,
-            # который был показан пользователю. Без таблицы сюда ложился срок
-            # из старой эвристики, и калибровка сравнивала бы факт с прогнозом,
-            # которого продукт не делал.
-            baseline = await compute_signals_for_entry(
-                db, entry, master, stats, snap,
-                min_profit_margin_pct=0.0,
-                exclude_less_than_amount=1,
-                survival=await load_survival(db),
-            )
-            if baseline and baseline["lots"]:
-                await _log_signal_outcomes(
-                    db, item_id, region, baseline,
-                    quality_filter=entry.quality_filter,
-                    enchant_filter=entry.enchant_filter,
-                )
-        except Exception as e:
-            logger.error(
-                f"_publish_signals: log outcomes {item_id}/{region} "
-                f"qlt={entry.quality_filter} ptn={entry.enchant_filter}: {e}"
-            )
+    # ЛОГИРОВАНИЕ signal_outcomes ОТКЛЮЧЕНО (2026-08-19).
+    #
+    # Таблица задумывалась петлёй калибровки, но не работала ни одним концом.
+    # Исход считался по ЛЮБОЙ продаже предмета в полосе +-15 % от предсказанной
+    # цены, а не по судьбе конкретного лота, — отсюда 99.6 % «продано» на
+    # 110 688 строках, то есть метрика измеряла ликвидность рынка, а не
+    # качество прогноза. И читать её было некому: ни одного потребителя в API
+    # и в UI за всё время существования.
+    #
+    # Расчёт baseline здесь стоил полного прохода compute_signals_for_entry по
+    # каждой комбинации фильтров на каждом тике — ради 3 500 строк в сутки,
+    # которые никто не открывал.
+    #
+    # Замена — survival_calibration: она сверяет ровно ту величину, которую
+    # видит пользователь (p_sold_lo своей страты), на данных, которых кривая не
+    # видела. Таблица signal_outcomes и её данные сохранены как есть.
 
 
 async def _log_signal_outcomes(

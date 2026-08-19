@@ -59,7 +59,13 @@ from app.core.config import settings
 from app.models.models import UserWatchlist, MasterItem, MarketStatistics, SalesHistory, CollectedData
 from app.services.analytics.pricing import (
     _build_sales_filter, _lot_quality_enchant, _is_artefact, _is_liquid,
-    make_sell_options, evaluate_lot_profit, weighted_reference,
+    make_sell_options, evaluate_lot_profit, weighted_reference, classify_risk,
+)
+# Волатильность берём общей функцией, а не копией формулы: разъехавшиеся копии
+# означали бы, что радар и лента считают риск по-разному — то есть ровно ту
+# рассогласованность, которую эта правка и устраняет.
+from app.services.analytics.variant_stats import (  # noqa: E402
+    _volatility,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,6 +93,7 @@ async def _count_profitable_offers(
     enchant_filter: int | None,
     master: MasterItem | None,
     sell_options: list[dict],
+    risk: str,
 ) -> int:
     """
     Считает число выгодных физических лотов в текущем снэпшоте аукциона для
@@ -144,9 +151,13 @@ async def _count_profitable_offers(
 
             buyout_per_unit = buyout // amount
 
+            # Риск — настоящий, а не захардкоженный. Он умножает требуемую
+            # маржу (RISK_MARGIN_MULT: 1.0 / 1.3 / 1.6), поэтому «low» на всех
+            # предметах считал выгодными и те лоты, которые лента с их реальным
+            # риском отвергает: счётчик радара расходился с выдачей ленты.
             evaluated = evaluate_lot_profit(
                 buyout_per_unit, amount, sell_options,
-                risk="low", min_margin_pct=0.0,
+                risk=risk, min_margin_pct=0.0,
             )
             if evaluated is not None:
                 count += 1
@@ -344,6 +355,7 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
             avg_price = float(stats.avg_price_24h) if stats and stats.avg_price_24h is not None else None
             ref_price = float(stats.reference_price) if stats and stats.reference_price else avg_price
             sales_volume = stats.sales_volume_24h if stats else None
+            volatility = float(stats.volatility_7d) if stats and stats.volatility_7d is not None else None
             bulk_spike = (stats.demand_signals or {}).get("bulk_spike") if stats and stats.demand_signals else None
             price_window = "24h"
         else:
@@ -360,6 +372,7 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
             wr = weighted_reference([(s.sale_time, s.price_per_unit) for s in sales], now)
             ref_price = wr["ref"] if wr else avg_price
             sales_volume = len(prices) if prices else None
+            volatility = _volatility(prices)
             bulk_spike = None
             price_window = "7d"
 
@@ -369,7 +382,7 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
             sell_options = make_sell_options(int(ref_price), sales_volume)
             profitable_offers_count = await _count_profitable_offers(
                 db, row.item_id, row.quality_filter, row.enchant_filter,
-                master, sell_options,
+                master, sell_options, classify_risk(volatility),
             )
 
         top_items.append({

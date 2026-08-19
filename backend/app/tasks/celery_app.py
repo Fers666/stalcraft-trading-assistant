@@ -64,10 +64,10 @@ celery_app.conf.update(
             "schedule": crontab(minute="12-59/5"),
         },
         # Сверка предсказаний signal_outcomes с фактическими продажами — раз в сутки
-        "evaluate-signal-outcomes": {
-            "task": "app.tasks.analyzers.evaluate_signal_outcomes",
-            "schedule": crontab(hour=4, minute=30),
-        },
+        # evaluate-signal-outcomes СНЯТА С РАСПИСАНИЯ (2026-08-19): исход
+        # считался по любой продаже предмета в полосе +-15 %, а не по судьбе
+        # конкретного лота (99.6 % «продано»), и таблицу никто не читал.
+        # Замена — сверка survival_calibration внутри recalc_sale_survival.
         # Понижение тарифов с истёкшим tier_expires_at — после cleanup (3:00),
         # до ночного force-круга статистики (04:12+). Не обращается к Stalcraft API.
         "sweep-expired-tiers": {
