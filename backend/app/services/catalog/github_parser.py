@@ -1,5 +1,5 @@
 """
-Парсер каталога предметов из репозитория EXBO-Studio/stalcraft-database.
+Парсер каталога предметов из репозитория EXBO-Studio/stalzone-database.
 
 Использует listing.json — один файл со всеми 2000+ предметами.
 Формат каждой записи:
@@ -27,8 +27,8 @@ from app.models.models import MasterItem
 
 logger = logging.getLogger(__name__)
 
-LISTING_URL = "https://raw.githubusercontent.com/EXBO-Studio/stalcraft-database/main/ru/listing.json"
-ITEM_BASE_URL = "https://raw.githubusercontent.com/EXBO-Studio/stalcraft-database/main/ru"
+LISTING_URL = "https://raw.githubusercontent.com/EXBO-Studio/stalzone-database/main/ru/listing.json"
+ITEM_BASE_URL = "https://raw.githubusercontent.com/EXBO-Studio/stalzone-database/main/ru"
 
 # Предметы этих категорий продаются поштучно — batch trading не имеет смысла
 _SINGLE_CATEGORIES = {"weapon", "armor", "attachment", "weapon_modules", "backpacks"}

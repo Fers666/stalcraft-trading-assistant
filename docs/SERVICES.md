@@ -132,9 +132,9 @@ OAuth2 Client Credentials flow для Stalcraft API.
 
 ## app/services/catalog/github_parser.py — sync_catalog
 
-Синхронизирует каталог предметов с GitHub репозиторием EXBO-Studio/stalcraft-database.
+Синхронизирует каталог предметов с GitHub репозиторием EXBO-Studio/stalzone-database.
 
-**Источник:** `https://raw.githubusercontent.com/EXBO-Studio/stalcraft-database/main/ru/listing.json`
+**Источник:** `https://raw.githubusercontent.com/EXBO-Studio/stalzone-database/main/ru/listing.json`
 
 **Логика:**
 - Скачивает listing.json (~2236 предметов)

@@ -34,10 +34,14 @@
   `developers.stalcraft.net` — официальный API EXBO Studio, ключи
   `stalcraft_client_id`/`stalcraft_client_secret`/`stalcraft_region` в
   `backend/app/core/config.py` — **не трогать**.
-- GitHub-репозиторий `EXBO-Studio/stalcraft-database` (источник иконок и
-  каталога предметов, `frontend/src/utils/i18n.ts:100`,
-  `backend/app/services/catalog/github_parser.py:30-31`) — **не трогать**,
-  это чужой репозиторий с собственным именем, не зависит от ребрендинга.
+- GitHub-репозиторий (источник иконок и каталога предметов,
+  `frontend/src/utils/i18n.ts:134`,
+  `backend/app/services/catalog/github_parser.py:30-31`) —
+  **UPD 2026-08-20: EXBO переименовал его вместе с игрой**,
+  `EXBO-Studio/stalcraft-database` → `EXBO-Studio/stalzone-database`.
+  Ссылки в коде и docs уже переведены на новое имя. Старое работает
+  только через redirect GitHub, который исчезнет, если освободившееся
+  имя кто-то займёт — откатывать обратно нельзя.
 - Внутренние технические идентификаторы: Redis-ключи `stalcraft:cache:...`,
   `stalcraft:rate_limit`, `stalcraft:access_token`, класс `StalcraftClient`,
   переменная `stalcraft_client`, имя Celery-приложения `"stalcraft"`,
@@ -484,9 +488,9 @@ FAQ-вопрос 8 (черновик выше) уже написан в пред
 - [ ] `telegram_bot/bot.py` и `backend/app/api/v1/endpoints/telegram.py`
   тексты приветствия `/start` синхронно обновлены, не содержат "Stalcraft"
 - [ ] Технические идентификаторы (Redis-ключи, `StalcraftClient`,
-  `stalcraft_client_id`, домены `*.stalcraft.net`, репозиторий
-  `EXBO-Studio/stalcraft-database`, Celery app name, Postgres user/db) —
-  **не изменены** (контрольная проверка: `grep -rn "stalcraft" backend/app
+  `stalcraft_client_id`, домены `*.stalcraft.net`, Celery app name,
+  Postgres user/db) — **не изменены** (репозиторий каталога — исключение,
+  см. UPD выше: он переименован в `EXBO-Studio/stalzone-database`) (контрольная проверка: `grep -rn "stalcraft" backend/app
   frontend/src` после правок должен показывать только технические
   идентификаторы и комментарии про внешний API, не пользовательский текст)
 

@@ -131,7 +131,7 @@ export function formatLastUpdate(iso: string | null | undefined): string | null 
   return `${date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}, ${time}`
 }
 
-const ICON_BASE = 'https://raw.githubusercontent.com/EXBO-Studio/stalcraft-database/main/ru'
+const ICON_BASE = 'https://raw.githubusercontent.com/EXBO-Studio/stalzone-database/main/ru'
 
 /** Возвращает полный URL иконки предмета */
 export function iconUrl(iconPath: string | null | undefined): string | null {

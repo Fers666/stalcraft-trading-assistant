@@ -18,7 +18,7 @@ _UNTRADABLE_BIND_STATES = {"PERSONAL_ON_GET", "PERSONAL_DROP_ON_GET"}
 
 # Маппинг color → человекочитаемое название качества
 _COLOR_TO_QUALITY: dict[str, str] = {
-    # Актуальный формат из stalcraft-database
+    # Актуальный формат из stalzone-database
     "default":      "Обычный",
     "rank_newbie":  "Необычный",
     "rank_stalker": "Особый",

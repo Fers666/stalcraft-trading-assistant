@@ -86,7 +86,7 @@ ORM: SQLAlchemy 2.0 async. Миграции: Alembic.
 
 ### `master_items` — каталог предметов игры
 
-Источник: [EXBO-Studio/stalcraft-database](https://github.com/EXBO-Studio/stalcraft-database).  
+Источник: [EXBO-Studio/stalzone-database](https://github.com/EXBO-Studio/stalzone-database).  
 Синхронизируется через `POST /api/v1/items/refresh-catalog` (только для admin).
 
 | Поле | Тип | Описание |
