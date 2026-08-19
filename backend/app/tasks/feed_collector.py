@@ -157,6 +157,12 @@ MARKET_DARK_MINUTES = 15
 # 14 463 лота были закрыты как withdrawn, потому что на рынок они уже не
 # вернулись. Отсрочка на семь часов, а не решение.
 LOT_OBS_OUTCOME_BLACKOUT = "blackout"
+
+# Полный круг обхода: 383 предмета по 30-100 за проход, проход раз в минуту.
+# Лот, виденный в любой момент этого круга перед тишиной, мог просто не попасть
+# в следующий проход — его отсутствие НЕ доказывает исчезновения. Поэтому окно
+# неопределённости отсчитывается назад от момента, когда рынок замолчал.
+FEED_FULL_CYCLE_MINUTES = 15
 LOT_OBS_RESOLVE_BATCH       = 5000  # строк за один прогон резолвера
 # Допуск «дожил до конца аукциона»: последний раз лот видели за один обход до
 # end_time. Полный круг ~5 мин, холодные предметы — раз в FEED_COLD_EVERY_N_CYCLES
@@ -1704,7 +1710,7 @@ def resolve_lot_observations(self):
     return run_async(_run())
 
 
-async def blackout_orphans(db, ids: list[int]) -> set[int]:
+async def blackout_orphans(db, ids: list[int], now: datetime) -> set[int]:
     """
     Из переданных наблюдений — те, что пропали вместе со всем рынком.
 
@@ -1720,18 +1726,47 @@ async def blackout_orphans(db, ids: list[int]) -> set[int]:
 
     result = await db.execute(
         text("""
+            WITH act AS (
+                -- Активность рынка по минутам. Округление обязательно: строки
+                -- ОДНОГО прохода различаются секундами и без него ссылались бы
+                -- друг на друга («лот в 06:22:10 видит активность в 06:22:50»),
+                -- из-за чего осиротевшим не признавался никто.
+                SELECT DISTINCT date_trunc('minute', last_seen_at) AS m
+                FROM lot_observations
+                WHERE source = :live
+                  AND last_seen_at >= CAST(:since AS timestamptz)
+            ), silence AS (
+                -- Минуты, после которых рынок молчал MARKET_DARK_MINUTES.
+                -- Хвост исключён: у самой свежей минуты «ничего после» всегда,
+                -- и без этого условия живой рынок считался бы погасшим.
+                SELECT a.m AS quiet_from
+                FROM act a
+                WHERE a.m < CAST(:now AS timestamptz)
+                            - make_interval(mins => CAST(:dark AS int))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM act b
+                      WHERE b.m >  a.m
+                        AND b.m <= a.m + make_interval(mins => CAST(:dark AS int))
+                  )
+            )
             SELECT o.id
             FROM lot_observations o
             WHERE o.id = ANY(:ids)
-              AND NOT EXISTS (
-                  SELECT 1 FROM lot_observations x
-                  WHERE x.source = :live
-                    AND x.last_seen_at >  o.last_seen_at
-                    AND x.last_seen_at <= o.last_seen_at
-                                          + make_interval(mins => CAST(:dark AS int))
+              AND EXISTS (
+                  SELECT 1 FROM silence s
+                  WHERE o.last_seen_at <= s.quiet_from + interval '1 minute'
+                    AND o.last_seen_at >= s.quiet_from
+                                          - make_interval(mins => CAST(:cycle AS int))
               )
         """),
-        {"ids": ids, "live": LOT_OBS_SOURCE_LIVE, "dark": MARKET_DARK_MINUTES},
+        {
+            "ids": ids,
+            "live": LOT_OBS_SOURCE_LIVE,
+            "dark": MARKET_DARK_MINUTES,
+            "cycle": FEED_FULL_CYCLE_MINUTES,
+            "now": now,
+            "since": now - timedelta(days=LOT_OBS_RETENTION_DAYS),
+        },
     )
     return {row.id for row in result}
 
@@ -1800,7 +1835,7 @@ async def _resolve_observations(db, now: datetime) -> dict[str, int]:
     # Лоты, пропавшие вместе со всем рынком, отделяем ДО классификации: их
     # исчезновение вызвано недоступностью аукциона, а не поведением рынка, и
     # любая метка (withdrawn/expired) была бы враньём.
-    orphans = await blackout_orphans(db, [row.id for row in rows])
+    orphans = await blackout_orphans(db, [row.id for row in rows], now)
     if orphans:
         await db.execute(
             update(LotObservation)

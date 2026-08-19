@@ -145,5 +145,18 @@ def test_blackout_detection_needs_no_stored_intervals():
 
     src = inspect.getsource(feed_collector.blackout_orphans)
     assert "NOT EXISTS" in src
-    assert "x.last_seen_at >  o.last_seen_at" in src
     assert "make_interval(mins => CAST(:dark AS int))" in src
+
+    # Округление до минуты обязательно: строки ОДНОГО прохода различаются
+    # секундами. Без него они ссылались бы друг на друга («лот в 06:22:10 видит
+    # активность в 06:22:50»), и осиротевшим не признавался бы никто — ровно
+    # так первая версия правила вернула 0 совпадений на реальной аварии.
+    assert "date_trunc('minute', last_seen_at)" in src
+
+    # Хвост нельзя считать тишиной: у самой свежей минуты «ничего после» всегда.
+    assert "CAST(:now AS timestamptz)" in src
+
+    # Окно неопределённости — полный круг обхода назад от момента тишины: лот
+    # мог просто не попасть в последний проход перед остановкой.
+    assert "CAST(:cycle AS int)" in src
+    assert feed_collector.FEED_FULL_CYCLE_MINUTES >= 13
