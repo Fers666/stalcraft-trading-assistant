@@ -18,6 +18,7 @@ from app.tasks.feed_collector import (
     FEED_HISTORY_WINDOW_END_MIN,
     FEED_HOT_MIN_LOTS_TOTAL,
     FEED_HOT_SALES_PER_DAY,
+    FEED_YIELD_WINDOW_HOURS,
     FEED_ITEM_FAIL_MAX,
     FEED_ITEM_FAIL_PREFIX,
     FEED_ITEM_PARK_TTL,
@@ -35,6 +36,7 @@ from app.tasks.feed_collector import (
     fetch_all_lots,
     in_history_window,
     is_hot,
+    observed_yield,
     order_queue,
     pages_for_total,
     plan_run,
@@ -469,3 +471,68 @@ def test_broken_redis_does_not_break_failure_handling():
 ])
 def test_sale_values_rejects_broken_records(record):
     assert sale_values("art1", "RU", record) is None
+
+
+# ─── Отдача предмета: не тратить бюджет на пустые ────────────────────────────
+
+def test_item_with_sales_but_no_bargains_is_cold():
+    """
+    Предмет, который обходили сутки и который не дал НИ ОДНОГО выгодного лота,
+    холодный, что бы ни говорили продажи и каталог.
+
+    Замер 2026-08-19: после расширения набора со 103 предметов до 383
+    снаряжение попало в горячие 143 предметами (порог по продажам у него
+    срабатывает), но выгоду дают почти только артефакты — за сутки 1 312
+    выгодных лотов против 71, то есть 95 % против 5 %. Больше половины каждого
+    прогона уходило туда, где искать почти нечего.
+
+    Признак именно «не даёт ВЫГОДЫ», а не «мало лотов»: снаряжение с выгодой
+    существует (24 предмета), и терять его нельзя.
+    """
+    # Продаж хватает с запасом, но лотов не видели
+    assert is_hot(None, FEED_HOT_SALES_PER_DAY * 10, observed_bargains=0) is False
+    # И даже большой lots_total из каталога не спасает: он мог устареть
+    assert is_hot(FEED_HOT_MIN_LOTS_TOTAL * 10, None, observed_bargains=0) is False
+
+
+def test_never_scanned_item_is_not_demoted():
+    """
+    None (ни разу не обходился) понижать нельзя, иначе новый предмет застрял бы
+    в холодных, так и не будучи проверенным.
+    """
+    assert is_hot(None, FEED_HOT_SALES_PER_DAY, observed_bargains=None) is True
+    assert is_hot(FEED_HOT_MIN_LOTS_TOTAL, None, observed_bargains=None) is True
+
+
+def test_single_bargain_returns_item_to_hot():
+    """Первая же выгода возвращает предмет в горячие — возврат автоматический."""
+    assert is_hot(None, FEED_HOT_SALES_PER_DAY, observed_bargains=1) is True
+
+
+def test_is_hot_without_yield_behaves_as_before():
+    """Умолчание не меняет прежнее поведение: аргумент опциональный."""
+    assert is_hot(FEED_HOT_MIN_LOTS_TOTAL, None) is True
+    assert is_hot(None, FEED_HOT_SALES_PER_DAY) is True
+    assert is_hot(None, None) is False
+
+
+def test_observed_yield_distinguishes_empty_from_unscanned():
+    """
+    Отличить «обходили, выгоды не было» от «ни разу не обходили» по одним
+    наблюдениям нельзя: строк нет в обоих случаях. Ноль засчитывается только
+    при отметке об обходе внутри окна.
+    """
+    from datetime import datetime, timedelta, timezone
+    from app.tasks.feed_collector import observed_yield
+
+    now = datetime(2026, 8, 19, 12, 0, tzinfo=timezone.utc)
+    window_start = now - timedelta(hours=FEED_YIELD_WINDOW_HOURS)
+
+    # Лоты были — берётся их число
+    assert observed_yield("a", {"a": 7}, None, window_start) == 7
+    # Обходили внутри окна, лотов нет — ноль
+    assert observed_yield("b", {}, now - timedelta(hours=1), window_start) == 0
+    # Обходили давно, за окном — неизвестно
+    assert observed_yield("c", {}, window_start - timedelta(hours=1), window_start) is None
+    # Ни разу не обходили — неизвестно
+    assert observed_yield("d", {}, None, window_start) is None

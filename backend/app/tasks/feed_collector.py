@@ -57,6 +57,11 @@ FEED_REQUEST_DELAY        = 0.3     # секунд между страницам
 FEED_COLD_EVERY_N_CYCLES  = 5       # холодные артефакты обходим каждый N-й цикл
 FEED_HOT_SALES_PER_DAY    = 1.0     # горячий, если max(sales_per_day) по вариантам >= порога
 FEED_HOT_MIN_LOTS_TOTAL   = 200     # ...или master_items.lots_total >= порога
+# Окно, за которое считается, приносил ли предмет ВЫГОДНЫЕ лоты.
+# Сутки, а не часы: короткое окно понизило бы добротные предметы на любом
+# затишье — на посттехработном провале 2026-08-19 лоты за 3 ч дали лишь 68
+# артефактов из 103, и по трёхчасовому окну треть из них уехала бы в холодные.
+FEED_YIELD_WINDOW_HOURS   = 24
 FEED_MAX_PROFIT_PCT       = 1000.0  # выше -> глитч, лот не сохраняем (см. «+1671089 %»)
 FEED_LOCK_KEY             = "feed:scan:lock"
 FEED_LOCK_TTL             = 300
@@ -211,15 +216,67 @@ def pages_for_total(lots_total: int | None) -> int:
     return max(1, min(pages, FEED_MAX_PAGES_PER_ITEM))
 
 
-def is_hot(lots_total: int | None, max_sales_per_day: float | None) -> bool:
+def is_hot(
+    lots_total: int | None,
+    max_sales_per_day: float | None,
+    observed_bargains: int | None = None,
+) -> bool:
     """
-    Горячий артефакт: max(sales_per_day) по вариантам >= FEED_HOT_SALES_PER_DAY
+    Горячий предмет: max(sales_per_day) по вариантам >= FEED_HOT_SALES_PER_DAY
     ИЛИ lots_total >= FEED_HOT_MIN_LOTS_TOTAL. Холодные обходим реже — это
     механизм, который удерживает цикл в целевых ~2 минутах.
+
+    observed_bargains — сколько ВЫГОДНЫХ лотов сборщик реально видел у предмета
+    за последние FEED_YIELD_WINDOW_HOURS. Ноль означает, что предмет обходился
+    сутки и не дал ни одной возможности: такой предмет холодный, что бы ни
+    говорили продажи и каталог.
+
+    Зачем это понадобилось (замер 2026-08-19): после расширения набора со 103
+    предметов до 383 снаряжение заняло 73 % набора и попало в горячие 143
+    предметами — порог по продажам у него срабатывает. Но выгоду дают почти
+    только артефакты: за сутки 1 312 выгодных лотов против 71 у снаряжения,
+    то есть 95 % против 5 %, и вчетверо реже в пересчёте на лот (4.3 % против
+    1.5 %). Больше половины каждого прогона уходило на предметы, где искать
+    почти нечего.
+
+    Признак именно «не даёт ВЫГОДЫ», а не «мало лотов»: снаряжение с выгодой
+    существует (24 предмета), и терять его нельзя. На глубокой книге всё это
+    было незаметно — выгодные лоты висели долго и неспешный обход их ловил. На
+    тонком рынке, где привлекательное разбирают за минуты, задержка обхода
+    прямо определяет, сколько выгодных лотов мы увидим.
+
+    None (ещё ни разу не обходился) НЕ понижает: иначе новый предмет застрял бы
+    в холодных, так и не будучи проверенным. Понижение не окончательно —
+    холодные опрашиваются каждый FEED_COLD_EVERY_N_CYCLES-й цикл, и первая же
+    появившаяся выгода возвращает предмет в горячие.
     """
+    if observed_bargains == 0:
+        return False
     if max_sales_per_day is not None and max_sales_per_day >= FEED_HOT_SALES_PER_DAY:
         return True
     return bool(lots_total is not None and lots_total >= FEED_HOT_MIN_LOTS_TOTAL)
+
+
+def observed_yield(
+    item_id: str,
+    bargains: dict[str, int],
+    last_scan: datetime | None,
+    window_start: datetime,
+) -> int | None:
+    """
+    Сколько выгодных лотов видели у предмета: число, 0 или None (неизвестно).
+
+    Отличить «обходили и выгоды не было» от «ни разу не обходили» по одним
+    наблюдениям нельзя — в обоих случаях строк просто нет. Поэтому ноль
+    засчитывается только тем, у кого есть отметка об обходе внутри окна
+    (feed:scan:last). Без этого новый предмет получил бы 0, ушёл в холодные и
+    остался бы там, ни разу не будучи проверенным.
+    """
+    if item_id in bargains:
+        return bargains[item_id]
+    if last_scan is not None and last_scan >= window_start:
+        return 0
+    return None
 
 
 def order_queue(items: list[ItemPlan]) -> list[ItemPlan]:
@@ -1203,6 +1260,42 @@ async def _load_master(db, item_id: str):
     )).scalar_one_or_none()
 
 
+async def _load_observed_yield(db, region: str, now: datetime) -> dict[str, int]:
+    """
+    Сколько ВЫГОДНЫХ лотов сборщик видел у каждого предмета за
+    FEED_YIELD_WINDOW_HOURS.
+
+    Один агрегатный запрос на цикл по уже собираемым наблюдениям — к внешнему
+    API не обращается и бюджет не расходует. Соединение с artifact_variant_stats
+    не нужно: опора варианта записана в саму строку наблюдения
+    (ref_price_at_seen) именно для таких вопросов.
+
+    Порог тот же, что у нижнего тира скоринга (FAST_RATIO с поправкой на
+    комиссию): вторая копия правила разошлась бы с первой, и планировщик стал
+    бы считать выгодным не то, что показывает лента.
+
+    В словаре только предметы, у которых выгода БЫЛА; отсутствие трактуется в
+    observed_yield.
+    """
+    from sqlalchemy import func, select
+    from app.models.models import LotObservation
+    from app.services.analytics.pricing import COMMISSION, FAST_RATIO
+
+    rows = (await db.execute(
+        select(LotObservation.item_id, func.count())
+        .where(
+            LotObservation.source == LOT_OBS_SOURCE_LIVE,
+            LotObservation.region == region,
+            LotObservation.last_seen_at >= now - timedelta(hours=FEED_YIELD_WINDOW_HOURS),
+            LotObservation.ref_price_at_seen > 0,
+            LotObservation.buyout_per_unit
+                < LotObservation.ref_price_at_seen * FAST_RATIO * (1 - COMMISSION),
+        )
+        .group_by(LotObservation.item_id)
+    )).all()
+    return {item_id: count for item_id, count in rows}
+
+
 async def _feed_items(db) -> list[tuple[str, int | None]]:
     """
     Набор ленты: артефакты, снаряжение высоких рангов, части предметов, премиум
@@ -1307,6 +1400,11 @@ def collect_artifact_lots(self):
 
                     item_ids = [item_id for item_id, _ in items]
                     last_scan = await _load_last_scan(redis_client, item_ids)
+                    # Фактическая отдача: сколько ВЫГОДНЫХ лотов у предмета
+                    # видели за сутки. Предмет, который обходился и не дал ни
+                    # одного, уходит в холодные — см. is_hot.
+                    yield_map = await _load_observed_yield(db, region, cycle_started_at)
+                    window_start = cycle_started_at - timedelta(hours=FEED_YIELD_WINDOW_HOURS)
 
                     plans = [
                         ItemPlan(
@@ -1315,6 +1413,9 @@ def collect_artifact_lots(self):
                             hot=is_hot(
                                 lots_total,
                                 float(sales_map[item_id]) if sales_map.get(item_id) is not None else None,
+                                observed_yield(
+                                    item_id, yield_map, last_scan.get(item_id), window_start,
+                                ),
                             ),
                             last_scan=last_scan.get(item_id),
                         )
