@@ -36,8 +36,11 @@ def test_only_determinate_observations_are_counted():
     сутки, — нет. Ровно та ошибка, что уже стоила знаменателя самой кривой.
     """
     assert "outcome IS NOT NULL OR life_h >= h.horizon_h" in _EVALUABLE
-    assert "first_seen_at <= :now - make_interval" in _EVALUABLE
-    assert "hours => h.horizon_h + :maturity" in _EVALUABLE
+    # CAST — не косметика: без него asyncpg не выводит тип параметра и запрос
+    # падает на проде («timestamp with time zone <= interval»). Проверяется
+    # здесь, потому что исполнением в тестах база не поднимается.
+    assert "first_seen_at <= CAST(:now AS timestamptz) - make_interval" in _EVALUABLE
+    assert "hours => h.horizon_h + CAST(:maturity AS int)" in _EVALUABLE
     assert CALIBRATION_MATURITY_HOURS >= 2   # задержка резолвера
 
 

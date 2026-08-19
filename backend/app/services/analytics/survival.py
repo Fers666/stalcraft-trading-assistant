@@ -385,8 +385,11 @@ GROUP BY inc.item_class, inc.bucket, h.horizon_h
 _EVALUABLE = (
     "planned_h >= h.horizon_h "
     "AND (outcome IS NOT NULL OR life_h >= h.horizon_h) "
-    "AND first_seen_at <= :now - make_interval("
-    "hours => h.horizon_h + :maturity)"
+    # CAST обязателен: без него asyncpg не выводит тип параметра в выражении
+    # «:now - make_interval(...)» и валится с «timestamp with time zone <=
+    # interval». Текстовыми тестами это не ловится, только исполнением.
+    "AND first_seen_at <= CAST(:now AS timestamptz) - make_interval("
+    "hours => h.horizon_h + CAST(:maturity AS int))"
 )
 
 _CALIB_SQL = (
