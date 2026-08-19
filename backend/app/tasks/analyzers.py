@@ -335,14 +335,31 @@ def recalc_sale_survival(self):
 
     max_retries=0: задача идемпотентна и дешева, следующий прогон через сутки
     всё равно перестроит таблицу целиком. Ретраить нечего.
+
+    Перед перестройкой ОБЯЗАТЕЛЬНО идёт сверка (evaluate_calibration): она
+    измеряет, как отработала действующая таблица на данных, которых та не
+    видела. Порядок нельзя доверять расписанию — сверка, запущенная после
+    пересчёта, получила бы окно нулевой длины и молча ничего не измерила,
+    поэтому обе операции живут в одной задаче.
     """
 
     async def _run():
         from app.db.session import get_celery_db_session
-        from app.services.analytics.survival import recalculate_survival, reset_cache
+        from app.services.analytics.survival import (
+            evaluate_calibration, recalculate_survival, reset_cache,
+        )
 
         async with get_celery_db_session() as db:
+            # Сначала спросить с прежней таблицы, потом строить новую.
+            try:
+                calib = await evaluate_calibration(db)
+            except Exception:
+                # Сверка — наблюдение, а не часть контура. Её падение не должно
+                # оставить продукт с устаревшей кривой.
+                logger.exception("recalc_sale_survival: сверка калибровки упала")
+                calib = {"rows": 0, "error": True}
             result = await recalculate_survival(db)
+            result["calibration"] = calib
         # Кэш в этом процессе указывает на прежнюю таблицу — сбрасываем, иначе
         # воркер продолжит отдавать вчерашние вероятности до истечения TTL.
         reset_cache()
@@ -353,4 +370,13 @@ def recalc_sale_survival(self):
         "recalc_sale_survival: %s строк (pos=%s, ratio=%s), страт отброшено по объёму: %s",
         result["rows"], result["pos"], result["ratio"], result["skipped_thin_strata"],
     )
+    calib = result.get("calibration") or {}
+    if calib.get("rows"):
+        # Средняя ОШИБКА со знаком важнее средней по модулю: если все страты
+        # врут в одну сторону, это смещение кривой, а не шум выборки.
+        logger.info(
+            "калибровка: %s страт за %s ч, средняя ошибка %s п.п. (по модулю %s, макс %s)",
+            calib["rows"], calib.get("window_hours"), calib.get("mean_error_pp"),
+            calib.get("mean_abs_error_pp"), calib.get("max_abs_error_pp"),
+        )
     return result

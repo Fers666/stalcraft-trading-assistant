@@ -314,6 +314,47 @@ class ApiRequestLog(Base):
     error_message    = Column(Text)
 
 
+class SurvivalCalibration(Base):
+    """
+    Сверка публикуемых вероятностей с фактом. Замыкает петлю, которую
+    signal_outcomes так и не замкнул.
+
+    Проверяется ровно то, что видит пользователь: p_sold_lo своей страты.
+    Обучающий период и проверочный НЕ ПЕРЕСЕКАЮТСЯ во времени — иначе это
+    подгонка, а не калибровка.
+
+    Повод (замер 2026-08-19): кривая, обученная на 16-17 августа, промахнулась
+    на 18-19 августа по ВСЕМ семи стратам в одну сторону, на 4.7-16.4 п.п.
+    Смешивание классов исключено, незрелость окна тоже (её перекос обратный),
+    сокращение окна обучения не помогает (10.3 п.п. против 9.7) — то есть это
+    смена режима, которую прошлое не предсказывает. Порядок страт при этом
+    устойчив, поэтому ранжирование не задето, а проценты задеты.
+    """
+    __tablename__ = "survival_calibration"
+
+    id          = Column(Integer, primary_key=True)
+    item_class  = Column("class", String(8), nullable=False)
+    feature     = Column(String(8), nullable=False)
+    bucket      = Column(String(16), nullable=False)
+    horizon_h   = Column(SmallInteger, nullable=False)
+    # Границы проверочного окна: без них строку нельзя перепроверить руками
+    window_from = Column(DateTime(timezone=True), nullable=False)
+    window_to   = Column(DateTime(timezone=True), nullable=False)
+    n           = Column(Integer, nullable=False)
+    predicted   = Column(Numeric(5, 2), nullable=False)
+    realized    = Column(Numeric(5, 2), nullable=False)
+    # realized - predicted. ОТРИЦАТЕЛЬНОЕ = обещали больше, чем вышло, то есть
+    # ошибка в опасную для пользователя сторону.
+    error_pp    = Column(Numeric(6, 2), nullable=False)
+    computed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("uq_survival_calibration", "class", "feature", "bucket",
+              "horizon_h", "window_from", unique=True),
+        Index("ix_survival_calibration_computed", "computed_at"),
+    )
+
+
 class SignalOutcome(Base):
     """Лог предсказаний по выгодным лотам — для будущей калибровки констант."""
     __tablename__ = "signal_outcomes"

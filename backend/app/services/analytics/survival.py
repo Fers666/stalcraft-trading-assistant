@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.feed.scope import CLASS_ARTEFACT, CLASS_GEAR, class_case_sql
@@ -333,6 +334,167 @@ def _stratum_row(feature: str, row, now: datetime) -> Optional[dict]:
         ),
         "median_hours": round(float(row.median_hours), 2) if row.median_hours is not None else None,
         "computed_at":  now,
+    }
+
+
+# ─── Калибровка: сверка опубликованного с фактом ─────────────────────────────
+
+# Наблюдение годится для проверки горизонта H, только если к моменту сверки его
+# судьба на этом горизонте ОПРЕДЕЛЕНА. Иначе выборка наполняется одними
+# быстрыми: лот, проданный за час, закрывается через LOT_OBS_RESOLVE_DELAY_HOURS
+# и попадает в выборку, а его сосед, всё ещё висящий вторые сутки, — нет.
+# Ровно та же ошибка «метрика по выжившим», что уже стоила знаменателя кривой.
+CALIBRATION_MATURITY_HOURS = 2  # запас на задержку резолвера
+
+# Минимум наблюдений на страту в проверочном окне. Ниже — строка не пишется:
+# ошибка в 10 п.п. на выборке в полсотни лотов неотличима от случайности
+# (полуширина 95%-интервала там ~14 п.п.).
+MIN_CALIBRATION_N = 150
+
+_CALIB_SQL = """
+WITH inc AS (
+    SELECT {class_case} AS item_class,
+           {bucket_case} AS bucket,
+           EXTRACT(epoch FROM end_time   - start_time) / 3600 AS planned_h,
+           EXTRACT(epoch FROM last_seen_at - start_time) / 3600 AS life_h,
+           first_seen_at,
+           outcome
+    FROM lot_observations o
+    JOIN master_items mi ON mi.item_id = o.item_id
+    WHERE source = 'live'
+      AND start_time IS NOT NULL
+      AND end_time IS NOT NULL
+      AND first_seen_at - start_time <= make_interval(mins => :max_delay)
+      AND first_seen_at >= :window_from
+      AND {availability}
+), h AS (
+    SELECT unnest(CAST(:horizons AS int[])) AS horizon_h
+)
+SELECT inc.item_class,
+       inc.bucket,
+       h.horizon_h,
+       count(*) FILTER (WHERE {evaluable}) AS n,
+       count(*) FILTER (WHERE {evaluable}
+                          AND outcome = 'sold' AND life_h <= h.horizon_h) AS n_sold
+FROM inc CROSS JOIN h
+GROUP BY inc.item_class, inc.bucket, h.horizon_h
+"""
+
+# Судьба на горизонте определена: лот дожил у нас на глазах до H либо ушёл с
+# рынка, И при этом прошло достаточно времени, чтобы это стало известно.
+_EVALUABLE = (
+    "planned_h >= h.horizon_h "
+    "AND (outcome IS NOT NULL OR life_h >= h.horizon_h) "
+    "AND first_seen_at <= :now - make_interval("
+    "hours => h.horizon_h + :maturity)"
+)
+
+_CALIB_SQL = (
+    _CALIB_SQL
+    .replace("{evaluable}", _EVALUABLE)
+    .replace("{class_case}", class_case_sql("mi"))
+)
+
+
+async def evaluate_calibration(db: AsyncSession, now: Optional[datetime] = None) -> dict:
+    """
+    Сверяет ОПУБЛИКОВАННЫЕ вероятности с тем, что случилось на самом деле.
+
+    Проверочное окно начинается там, где закончилось обучение: берётся
+    computed_at действующей sale_survival, и в сверку идут только лоты,
+    впервые увиденные ПОСЛЕ него. Пересечения периодов быть не должно — иначе
+    таблица проверяет сама себя.
+
+    Пишет по строке на страту. Отрицательный error_pp означает, что обещали
+    больше, чем вышло, то есть ошибка в опасную для пользователя сторону.
+    """
+    from app.models.models import SaleSurvival, SurvivalCalibration
+
+    now = now or datetime.now(timezone.utc)
+
+    published = (await db.execute(
+        text("""
+            SELECT class AS item_class, feature, bucket, horizon_h,
+                   p_sold_lo, computed_at
+            FROM sale_survival
+        """)
+    )).all()
+    if not published:
+        return {"rows": 0, "reason": "sale_survival пуста — сверять нечего"}
+
+    # Окно проверки открывается моментом обучения. Если таблицу пересчитали
+    # несколько раз, берём САМЫЙ ПОЗДНИЙ: сверять надо то, что показывается.
+    window_from = max(r.computed_at for r in published)
+    if window_from.tzinfo is None:
+        window_from = window_from.replace(tzinfo=timezone.utc)
+
+    predicted = {
+        (r.item_class, r.feature, r.bucket, r.horizon_h): float(r.p_sold_lo)
+        for r in published
+    }
+
+    rows: list[dict] = []
+    for feature, (bucket_case, availability) in _FEATURE_SQL.items():
+        sql = _CALIB_SQL.format(bucket_case=bucket_case, availability=availability)
+        result = await db.execute(
+            text(sql),
+            {
+                "max_delay": INCIDENT_MAX_DELAY_MINUTES,
+                "window_from": window_from,
+                "now": now,
+                "maturity": CALIBRATION_MATURITY_HOURS,
+                "horizons": list(HORIZONS_H),
+            },
+        )
+        for agg in result:
+            n = agg.n or 0
+            if n < MIN_CALIBRATION_N:
+                continue
+            key = (agg.item_class, feature, agg.bucket, agg.horizon_h)
+            if key not in predicted:
+                continue          # страта появилась после обучения — сверять не с чем
+            realized = round(100.0 * (agg.n_sold or 0) / n, 2)
+            rows.append({
+                "class":       agg.item_class,
+                "feature":     feature,
+                "bucket":      agg.bucket,
+                "horizon_h":   agg.horizon_h,
+                "window_from": window_from,
+                "window_to":   now,
+                "n":           n,
+                "predicted":   round(predicted[key], 2),
+                "realized":    realized,
+                "error_pp":    round(realized - predicted[key], 2),
+                "computed_at": now,
+            })
+
+    if rows:
+        stmt = pg_insert(SurvivalCalibration).values(rows)
+        await db.execute(stmt.on_conflict_do_update(
+            index_elements=["class", "feature", "bucket", "horizon_h", "window_from"],
+            set_={
+                "window_to":   stmt.excluded.window_to,
+                "n":           stmt.excluded.n,
+                "predicted":   stmt.excluded.predicted,
+                "realized":    stmt.excluded.realized,
+                "error_pp":    stmt.excluded.error_pp,
+                "computed_at": stmt.excluded.computed_at,
+            },
+        ))
+    await db.commit()
+
+    errors = [abs(float(r["error_pp"])) for r in rows]
+    return {
+        "rows": len(rows),
+        "window_from": window_from.isoformat(),
+        "window_hours": round((now - window_from).total_seconds() / 3600, 1),
+        "mean_abs_error_pp": round(sum(errors) / len(errors), 2) if errors else None,
+        "max_abs_error_pp": round(max(errors), 2) if errors else None,
+        # Систематический перекос важнее средней ошибки: если все страты врут в
+        # одну сторону, это смещение, а не шум.
+        "mean_error_pp": (
+            round(sum(float(r["error_pp"]) for r in rows) / len(rows), 2) if rows else None
+        ),
     }
 
 
