@@ -168,6 +168,27 @@ LOT_OBS_OUTCOME_BLACKOUT = "blackout"
 # в следующий проход — его отсутствие НЕ доказывает исчезновения. Поэтому окно
 # неопределённости отсчитывается назад от момента, когда рынок замолчал.
 FEED_FULL_CYCLE_MINUTES = 15
+
+# Рынок считается ЗАМОРОЖЕННЫМ, если API отвечает нормально и лоты видны, но
+# ни одного НОВОГО лота не появилось дольше этого срока.
+#
+# Повод (2026-08-19, вторая поломка данных за сутки): после техработ /lots стал
+# отдавать снимок, застывший в 13:09 МСК — те же 297 лотов на весь рынок,
+# бесконечно «живые». /history при этом работал: по одному только «Атому»
+# (wg53) прошло 186 сделок за 10.8 часа, а в /lots за то же время не появилось
+# ни одного нового лота. Продажа без лота в книге невозможна — значит книга
+# недостоверна, а не рынок опустел.
+#
+# MARKET_DARK_MINUTES этот случай НЕ ловит принципиально: он смотрит на
+# last_seen_at, а замороженные лоты мы исправно видим каждый цикл. Сторож
+# молчал все 10.8 часа. Признак заморозки — не «лотов не видно», а «новых
+# лотов не видно», то есть max(first_seen_at), а не max(last_seen_at).
+#
+# Порог: в норме по рынку появляется минимум ~4 новых лота в минуту (ночной
+# минимум — 245 лотов за час), полный круг обхода — FEED_FULL_CYCLE_MINUTES.
+# 45 минут это три круга подряд без единого нового лота: случайно не бывает.
+MARKET_FROZEN_MINUTES = 45
+
 LOT_OBS_RESOLVE_BATCH       = 5000  # строк за один прогон резолвера
 # Допуск «дожил до конца аукциона»: последний раз лот видели за один обход до
 # end_time. Полный круг ~5 мин, холодные предметы — раз в FEED_COLD_EVERY_N_CYCLES
@@ -1806,6 +1827,28 @@ def resolve_lot_observations(self):
                     dark_for,
                 )
                 return {"skipped": "market_dark", "dark_minutes": round(dark_for)}
+
+            # Проверяется ПОСЛЕ темноты и только если лоты видны: темнота —
+            # частный случай отсутствия новых лотов, но у неё своя, более
+            # аккуратная обработка (blackout_orphans закрывает точечно, а не
+            # всю открытую когорту).
+            frozen_for = await market_frozen_for(db, now)
+            if frozen_for is not None:
+                # Момент последнего настоящего нового лота — граница доверия.
+                frozen_since = now - timedelta(minutes=frozen_for)
+                marked = await blackout_frozen_cohort(db, now, frozen_since)
+                await db.commit()
+                logger.warning(
+                    "резолв пропущен: лоты видны, но ни одного нового не было "
+                    "%.0f мин — /lots отдаёт застывший снимок; "
+                    "выведено из выборки наблюдений: %s",
+                    frozen_for, marked,
+                )
+                return {
+                    "skipped": "market_frozen",
+                    "frozen_minutes": round(frozen_for),
+                    "blackout": marked,
+                }
             return await _resolve_observations(db, now)
 
     return run_async(_run())
@@ -1893,6 +1936,73 @@ async def market_dark_for(db, now: datetime) -> float | None:
 
     minutes = (now - last_seen).total_seconds() / 60
     return minutes if minutes > MARKET_DARK_MINUTES else None
+
+
+async def market_frozen_for(db, now: datetime) -> float | None:
+    """
+    Сколько минут не появлялось ни одного НОВОГО лота, если рынок заморожен.
+    Иначе None.
+
+    Отличие от market_dark_for: там признак — «лотов не видно», здесь — «видно
+    те же самые». Поломка 2026-08-19 выглядела так, что /lots отдавал валидный
+    снимок 11-часовой давности, и по last_seen_at всё было в полном порядке.
+    Момент появления последнего нового лота — max(first_seen_at) — единственная
+    величина, которая в этой ситуации перестаёт расти.
+    """
+    from sqlalchemy import func, select
+    from app.models.models import LotObservation
+
+    last_new = (await db.execute(
+        select(func.max(LotObservation.first_seen_at))
+        .where(LotObservation.source == LOT_OBS_SOURCE_LIVE)
+    )).scalar()
+    if last_new is None:
+        return None                      # наблюдений ещё нет — не наш случай
+    if last_new.tzinfo is None:
+        last_new = last_new.replace(tzinfo=timezone.utc)
+
+    minutes = (now - last_new).total_seconds() / 60
+    return minutes if minutes > MARKET_FROZEN_MINUTES else None
+
+
+async def blackout_frozen_cohort(db, now: datetime, frozen_since: datetime) -> int:
+    """
+    Вывести из выборки наблюдения, которые кормит застывший снимок.
+
+    Пока /lots отдаёт снимок, про эти лоты неизвестно ничего: в игре они могли
+    быть проданы час назад, а могли и правда висеть. Оба вывода, которые
+    система сделала бы сама, — ложные:
+
+      * пока заморозка длится, наблюдение с outcome IS NULL и растущим life_h
+        попадает в кривую как «не продался за 11 часов» (n_at_risk считает
+        `outcome IS NOT NULL OR life_h >= H`) и занижает вероятности;
+      * когда EXBO починит /lots, весь снимок исчезнет разом, и резолвер
+        закроет его как withdrawn — ровно то, что уже дважды пришлось
+        разгребать вручную (16 238 и 14 490 строк).
+
+    blackout_orphans здесь не поможет: он ищет лоты, пропавшие ПЕРЕД тишиной,
+    а тишины не было. Поэтому когорта помечается заранее, а не по факту пропажи.
+
+    Граница — `frozen_since`, момент появления последнего настоящего нового
+    лота. Всё, что наблюдалось на этой границе или позже, видно только глазами
+    застывшего снимка и недостоверно. Всё, что исчезло РАНЬШЕ, пропало при
+    живом рынке — это нормальные наблюдения, и отбирать их у резолвера незачем:
+    во время заморозки он всё равно не работает, а после починки разберёт их
+    как обычно.
+    """
+    from sqlalchemy import update
+    from app.models.models import LotObservation
+
+    res = await db.execute(
+        update(LotObservation)
+        .where(
+            LotObservation.source == LOT_OBS_SOURCE_LIVE,
+            LotObservation.outcome.is_(None),
+            LotObservation.last_seen_at >= frozen_since,
+        )
+        .values(outcome=LOT_OBS_OUTCOME_BLACKOUT, resolved_at=now)
+    )
+    return res.rowcount or 0
 
 
 async def _resolve_observations(db, now: datetime) -> dict[str, int]:

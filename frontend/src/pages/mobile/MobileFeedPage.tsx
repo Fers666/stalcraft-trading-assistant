@@ -141,6 +141,13 @@ export default function MobileFeedPage() {
 
   const sort = SORTS[sortIndex]
   const showcase = data?.showcase ?? false
+  // Аукцион может отдавать застывший снимок: лоты видны, но новых не появляется
+  // часами, и «срез» при этом остаётся свежим — мы перечитываем тот же снимок
+  // каждый цикл. Одной строки среза тут мало, нужна явная плашка.
+  const frozenSince = data?.market_frozen_since ?? null
+  const frozenHours = frozenSince
+    ? Math.floor((Date.now() - new Date(frozenSince).getTime()) / 3_600_000)
+    : 0
   const rowsLimit = data?.rows_limit ?? null
   const lots = data?.lots ?? []
 
@@ -398,7 +405,11 @@ export default function MobileFeedPage() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', mt: '8px' }}>
           <Box
             aria-hidden
-            sx={{ width: 6, height: 6, background: tokens.success, boxShadow: `0 0 8px ${tokens.success}` }}
+            sx={{
+              width: 6, height: 6,
+              background: frozenSince ? tokens.warning : tokens.success,
+              boxShadow: `0 0 8px ${frozenSince ? tokens.warning : tokens.success}`,
+            }}
           />
           <Box className="mono" sx={{ fontSize: fs.f105, color: tokens.text2 }}>
             срез {hhmm(data?.snapshot_at)} · {fmtN(data?.total_available ?? 0)} выгодных лотов на рынке
@@ -408,6 +419,24 @@ export default function MobileFeedPage() {
           </Box>
         </Box>
       </Box>
+
+      {frozenSince && (
+        <Box sx={{
+          border: `1px solid ${tokens.warningLine}`, background: tokens.warningDim,
+          borderRadius: 1, p: '10px 12px', mb: '12px',
+        }}>
+          <Kick sx={{ color: tokens.warning }}>Данные аукциона заморожены</Kick>
+          <Typography sx={{ fontSize: fs.f12, color: tokens.text0, mt: '4px', lineHeight: 1.5 }}>
+            Игровой API отдаёт снимок от {hhmm(frozenSince)} — новых лотов нет уже{' '}
+            {frozenHours} ч.
+          </Typography>
+          <Typography sx={{ fontSize: fs.f105, color: tokens.text2, mt: '6px', lineHeight: 1.5 }}>
+            Лоты ниже, скорее всего, давно выкуплены: в игре торговля идёт, но до нас она
+            не доходит. Покупать по этой выдаче нельзя, пока сбой не устранят на стороне
+            разработчиков игры.
+          </Typography>
+        </Box>
+      )}
 
       {/* Сводка 24ч — только при полном доступе */}
       {!showcase && summary && (

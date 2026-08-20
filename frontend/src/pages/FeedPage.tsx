@@ -284,6 +284,19 @@ export default function FeedPage() {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   }, [data])
 
+  // Аукцион может отдавать застывший снимок: лоты видны, но новых не появляется
+  // часами. Показывать их как «купить прямо сейчас» нельзя — в игре они давно
+  // выкуплены. Срез при этом остаётся свежим (мы перечитываем снимок каждый
+  // цикл), поэтому одной строки «срез 23:47» тут недостаточно.
+  const frozenSince = useMemo(() => {
+    if (!data?.market_frozen_since) return null
+    const d = new Date(data.market_frozen_since)
+    return {
+      time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+      hours: Math.floor((Date.now() - d.getTime()) / 3_600_000),
+    }
+  }, [data])
+
   // Через navigation state, а не через query: страница лотов инициализируется
   // только из location.state (LotsPage / MobileLotsPage), query-параметры она не
   // читает — по `?item=` открывалась пустая страница. Контракт тот же, что у
@@ -664,8 +677,9 @@ export default function FeedPage() {
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', mt: '6px' }}>
             <Box sx={{
-              width: 6, height: 6, borderRadius: '50%', bgcolor: tokens.success,
-              boxShadow: `0 0 8px ${tokens.success}`,
+              width: 6, height: 6, borderRadius: '50%',
+              bgcolor: frozenSince ? tokens.warning : tokens.success,
+              boxShadow: `0 0 8px ${frozenSince ? tokens.warning : tokens.success}`,
             }} />
             <Box sx={{ fontFamily: tokens.fontMono, fontSize: fs.f105, color: tokens.text2 }}>
               срез {snapshotLabel} · {fmtN(data?.total_available ?? 0)} выгодных лотов на рынке
@@ -682,6 +696,31 @@ export default function FeedPage() {
             </Box>
           </Box>
         </Panel>
+
+        {frozenSince && (
+          <Panel sx={{
+            borderColor: tokens.warningLine,
+            background: tokens.warningDim,
+            // Panel — голый контейнер без внутренних отступов, содержимое
+            // приносит их с собой (ср. соседние панели с таблицей).
+            p: '12px',
+          }}>
+            <Kick sx={{ color: tokens.warning }}>Данные аукциона заморожены</Kick>
+            <Typography sx={{
+              fontFamily: tokens.fontUi, fontSize: fs.f125, color: tokens.text0, mt: '4px',
+            }}>
+              Игровой API отдаёт снимок от {frozenSince.time} — новых лотов нет уже{' '}
+              {frozenSince.hours} ч.
+            </Typography>
+            <Typography sx={{
+              fontFamily: tokens.fontUi, fontSize: fs.f105, color: tokens.text2, mt: '6px',
+            }}>
+              Лоты ниже, скорее всего, давно выкуплены: в игре торговля идёт, но до нас
+              она не доходит. Покупать по этой выдаче нельзя, пока сбой не устранят на
+              стороне разработчиков игры.
+            </Typography>
+          </Panel>
+        )}
 
         {showcase
           ? <TierGate gated tierLabel={TIER_LABELS.advanced_max}

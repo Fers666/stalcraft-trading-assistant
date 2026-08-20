@@ -160,3 +160,111 @@ def test_blackout_detection_needs_no_stored_intervals():
     # мог просто не попасть в последний проход перед остановкой.
     assert "CAST(:cycle AS int)" in src
     assert feed_collector.FEED_FULL_CYCLE_MINUTES >= 13
+
+
+def test_frozen_market_is_detected_by_new_lots_not_by_visible_lots():
+    """
+    Заморозку рынка нельзя поймать по last_seen_at — только по first_seen_at.
+
+    2026-08-19, через несколько часов после техработ, /lots начал отдавать
+    снимок, застывший в 13:09 МСК: те же 297 лотов, бесконечно «живые».
+    /history при этом работал — по одному «Атому» (wg53) прошло 186 сделок за
+    10.8 часа, а новых лотов в /lots не появилось ни одного. Продажа без лота
+    в книге невозможна, значит книга была недостоверна.
+
+    MARKET_DARK_MINUTES смотрит на момент последнего показа ЛЮБОГО лота, а
+    замороженные лоты мы исправно видели каждый цикл: сторож молчал все
+    10.8 часа. Перестаёт расти при заморозке только одна величина — момент появления
+    последнего НОВОГО лота.
+    """
+    import ast, inspect
+    from app.tasks import feed_collector
+
+    # Докстринг разбирает обе величины, поэтому сверяться надо с телом функции.
+    fn = ast.parse(inspect.getsource(feed_collector.market_frozen_for)).body[0]
+    if isinstance(fn.body[0], ast.Expr) and isinstance(fn.body[0].value, ast.Constant):
+        fn.body.pop(0)
+    code = ast.unparse(fn)
+
+    assert "first_seen_at" in code
+    assert "last_seen_at" not in code
+
+
+def test_frozen_threshold_survives_a_slow_night_but_beats_the_resolver():
+    """
+    Порог заморозки: выше трёх полных кругов обхода и ниже задержки резолва.
+
+    Снизу: в норме по рынку появляется минимум ~4 новых лота в минуту (ночной
+    минимум — 245 лотов за час). Три круга подряд без единого нового лота
+    случайно не случаются, а один-два круга — вполне (парковка предметов,
+    перекос очереди).
+
+    Сверху: резолвер закрывает наблюдение через LOT_OBS_RESOLVE_DELAY_HOURS
+    после последнего показа. Сторож обязан сработать раньше, иначе первые
+    строки успеют уйти в withdrawn до того, как защита включится.
+    """
+    from app.tasks.feed_collector import (
+        FEED_FULL_CYCLE_MINUTES, LOT_OBS_RESOLVE_DELAY_HOURS,
+        MARKET_FROZEN_MINUTES,
+    )
+
+    assert MARKET_FROZEN_MINUTES >= 3 * FEED_FULL_CYCLE_MINUTES
+    assert MARKET_FROZEN_MINUTES < LOT_OBS_RESOLVE_DELAY_HOURS * 60
+
+
+def test_frozen_guard_runs_only_when_lots_are_visible():
+    """
+    Заморозка проверяется ПОСЛЕ темноты и только если темноты нет.
+
+    Темнота — частный случай отсутствия новых лотов, но обрабатывается она
+    аккуратнее: blackout_orphans закрывает точечно тех, кто пропал перед
+    тишиной, а не всю открытую когорту. Если бы порядок был обратным, долгий
+    блэкаут выводил бы из выборки все живые наблюдения вместо нескольких сотен.
+    """
+    import inspect
+    from app.tasks import feed_collector
+
+    src = inspect.getsource(feed_collector.resolve_lot_observations)
+    assert src.index("market_dark_for") < src.index("market_frozen_for")
+    # Резолв во время заморозки не идёт: выход раньше _resolve_observations
+    assert src.index("market_frozen_for") < src.index("_resolve_observations")
+    assert '"skipped": "market_frozen"' in src
+
+
+def test_frozen_cohort_never_overwrites_a_decided_outcome():
+    """
+    Пометка когорты трогает только живые и ещё не закрытые наблюдения.
+
+    Без фильтра по outcome заморозка переписала бы уже посчитанные sold /
+    expired задним числом, то есть уничтожила бы ровно те данные, ради
+    сохранности которых сторож и заводится. Строки snapshot трогать нельзя по
+    отдельной причине: их NULL в outcome — намеренное цензурирование.
+    """
+    import inspect
+    from app.tasks import feed_collector
+
+    src = inspect.getsource(feed_collector.blackout_frozen_cohort)
+    assert "outcome.is_(None)" in src
+    assert "LOT_OBS_SOURCE_LIVE" in src
+    assert "LOT_OBS_OUTCOME_BLACKOUT" in src
+
+
+def test_frozen_cohort_spares_lots_that_vanished_before_the_freeze():
+    """
+    Пометка ограничена теми, кого кормит застывший снимок.
+
+    Граница — момент появления последнего настоящего нового лота. Наблюдения,
+    исчезнувшие РАНЬШЕ неё, пропали при живом рынке: это обычные исходы, и
+    отбирать их у резолвера незачем. Без границы заморозка списывала бы в
+    blackout ещё и всё, что накопилось за LOT_OBS_RESOLVE_DELAY_HOURS до неё, —
+    то есть уничтожала бы валидные данные ради защиты от невалидных.
+    """
+    import inspect
+    from app.tasks import feed_collector
+
+    src = inspect.getsource(feed_collector.blackout_frozen_cohort)
+    assert "last_seen_at >= frozen_since" in src
+
+    # Граница обязана вычисляться из самого признака, а не задаваться отдельно
+    task = inspect.getsource(feed_collector.resolve_lot_observations)
+    assert "frozen_since = now - timedelta(minutes=frozen_for)" in task

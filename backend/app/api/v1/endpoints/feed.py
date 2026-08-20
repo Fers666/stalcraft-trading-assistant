@@ -248,6 +248,10 @@ class FeedLotsResponse(BaseModel):
     rows_limit: int | None = None       # None = без ограничений
     total_available: int                # всего выгодных лотов при пороге пользователя
     showcase: bool                      # True = выдача урезана и зафиксирована
+    # Момент последнего настоящего нового лота, если аукцион отдаёт застывший
+    # снимок. None = данные живые. Показывается предупреждением над лентой:
+    # лоты из снимка в игре давно выкуплены, покупать по ним нельзя.
+    market_frozen_since: datetime | None = None
 
 
 class FeedSummaryResponse(BaseModel):
@@ -481,6 +485,21 @@ async def list_feed_lots(
     user_min   = await _user_min_margin(db, current_user)
     rows_limit = effective_feed_rows_limit(current_user)
 
+    # Достоверность входа проверяется тем же правилом, что и у сборщика, а не
+    # второй его копией: разойдись они — лента молчала бы там, где резолвер уже
+    # выбросил данные из выборки.
+    from app.tasks.feed_collector import market_frozen_for
+
+    now = datetime.now(timezone.utc)
+    try:
+        frozen_for = await market_frozen_for(db, now)
+        frozen_since = now - timedelta(minutes=frozen_for) if frozen_for is not None else None
+    except Exception as e:
+        # Плашка — сведения о качестве данных, а не сама выдача. Уронить из-за
+        # неё ленту было бы обменом важного на второстепенное.
+        logger.warning(f"feed: не удалось проверить свежесть данных аукциона: {e}")
+        frozen_since = None
+
     # Витрина: sort / фильтры / page / page_size игнорируются — иначе лимит
     # обходится перебором сортировок.
     if rows_limit is not None:
@@ -491,6 +510,7 @@ async def list_feed_lots(
             lots=lots, total_count=len(lots), page=1, page_size=page_size,
             snapshot_at=snapshot_at, min_profit_pct_applied=threshold,
             rows_limit=rows_limit, total_available=total_available, showcase=True,
+            market_frozen_since=frozen_since,
         )
 
     conds = [FeedLot.region == region, FeedLot.margin_adj_pct >= user_min]
@@ -552,6 +572,7 @@ async def list_feed_lots(
         rows_limit=None,
         total_available=await _total_available(db, region, user_min),
         showcase=False,
+        market_frozen_since=frozen_since,
     )
 
 

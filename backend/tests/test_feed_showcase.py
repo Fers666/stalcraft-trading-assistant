@@ -200,11 +200,20 @@ def test_known_category_groups_pass_validation(monkeypatch):
     """Все группы набора обязаны приниматься ручкой — иначе чип не работает."""
     from app.services.feed.scope import FEED_GROUPS
 
+    import app.tasks.feed_collector as feed_collector
+
     async def _showcase(db, region, user_min, rows_limit):
         return [], 0, None, 0.0
 
+    async def _not_frozen(db, now):
+        return None
+
     monkeypatch.setattr(feed_module, "_user_min_margin", _min_margin)
     monkeypatch.setattr(feed_module, "_cached_showcase", _showcase)
+    # Подменяется явно, а не через заглушку db: ручка глушит ошибки проверки
+    # свежести, и на живом коде тест иначе прошёл бы по except, ничего
+    # фактически не проверив.
+    monkeypatch.setattr(feed_collector, "market_frozen_for", _not_frozen)
     for group in FEED_GROUPS:
         assert _call_lots(category=[group]).total_count == 0
 

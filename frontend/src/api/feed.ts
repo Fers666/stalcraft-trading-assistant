@@ -89,6 +89,12 @@ export interface FeedLotsResponse {
   total_available: number
   /** true = выдача урезана и зафиксирована: sort и фильтры проигнорированы */
   showcase: boolean
+  /**
+   * Момент последнего настоящего нового лота, если аукцион отдаёт застывший
+   * снимок (поломка на стороне EXBO, см. market_frozen_for). null = данные
+   * живые. Лоты из снимка в игре, скорее всего, давно выкуплены.
+   */
+  market_frozen_since: string | null
 }
 
 export interface FeedSummaryResponse {
