@@ -64,6 +64,12 @@ export interface FeedLot {
   p_sold_6h: number | null
   /** Доля страты, продавшаяся когда-либо. Остаток не продаётся вовсе. */
   pct_sold_ever: number | null
+  /**
+   * Тир продажи, которым лот прошёл в ленту — САМЫЙ БЫСТРЫЙ из подошедших
+   * ('fast' | 'normal' | 'premium'). Все profit_* посчитаны по нему, поэтому
+   * подпись «Продать быстро» без этого чипа врала бы на двух тирах из трёх.
+   */
+  tier_used: string
   risk: string
   risk_mult: number
   volatility_7d: number | null
@@ -128,6 +134,7 @@ export interface FeedFiltersResponse {
   qualities: FeedFilterBucket[]
   enchants: FeedFilterBucket[]
   categories: FeedFilterBucket[]
+  tiers: FeedFilterBucket[]
   total_count: number
 }
 
@@ -170,6 +177,34 @@ export function feedGroupOrder(group: string): number {
   return i === -1 ? FEED_GROUPS.length : i
 }
 
+/**
+ * Тиры продажи от быстрого к долгому (pricing.TIER_ORDER).
+ *
+ * Подписи расходятся с карточкой предмета намеренно: там premium называется
+ * «Выгодно» и означает верхнюю цену из трёх, а на строке ленты выгодных лотов
+ * это слово ничего не различает. Чип здесь про СРОК.
+ */
+export const FEED_TIERS = ['fast', 'normal', 'premium'] as const
+export type FeedTier = (typeof FEED_TIERS)[number]
+
+const FEED_TIER_LABELS: Record<FeedTier, string> = {
+  fast: 'Быстро', normal: 'Нормально', premium: 'Долго',
+}
+
+/** Множитель тира к опоре — то, что чип означает в деньгах. */
+export const FEED_TIER_HINT: Record<FeedTier, string> = {
+  fast: 'опора −6 %', normal: 'по опоре', premium: 'опора +6 %',
+}
+
+export function feedTierLabel(tier: string): string {
+  return FEED_TIER_LABELS[tier as FeedTier] ?? tier
+}
+
+export function feedTierOrder(tier: string): number {
+  const i = (FEED_TIERS as readonly string[]).indexOf(tier)
+  return i === -1 ? FEED_TIERS.length : i
+}
+
 /** Ключи сортировки — соответствуют data-k прототипа и sort бэкенда. */
 export type FeedSortKey =
   | 'ev_profit' | 'profit_total' | 'profit_pct' | 'profit_per_hour'
@@ -187,6 +222,8 @@ export interface FeedLotsParams {
   max_buyout?: number
   min_amount?: number
   risk?: string[]
+  /** Тиры продажи (FEED_TIERS). Серверный фильтр чипов. */
+  tier?: string[]
   sort?: FeedSortKey
   order?: 'asc' | 'desc'
 }

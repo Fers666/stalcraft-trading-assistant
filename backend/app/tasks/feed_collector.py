@@ -252,6 +252,11 @@ def is_hot(
     сутки и не дал ни одной возможности: такой предмет холодный, что бы ни
     говорили продажи и каталог.
 
+    Считается по тирам fast и normal, но НЕ premium (см. _load_observed_yield),
+    хотя в ленту с 2026-08-21 допускаются все три. Предмет, дающий только
+    premium-лоты, будет холодным и обойдётся каждый пятый цикл — осознанный
+    размен места в бюджете на вероятность продажи 49 %.
+
     Зачем это понадобилось (замер 2026-08-19): после расширения набора со 103
     предметов до 383 снаряжение заняло 73 % набора и попало в горячие 143
     предметами — порог по продажам у него срабатывает. Но выгоду дают почти
@@ -487,7 +492,7 @@ def score_item_lots(
     возвращается только для убыточных лотов.
     """
     from app.services.analytics.pricing import (
-        COMMISSION, RISK_MARGIN_MULT, _is_liquid, resolve_variant_key,
+        COMMISSION, RISK_MARGIN_MULT, TIER_ORDER, _is_liquid, resolve_variant_key,
         evaluate_lot_profit, tier_prices,
     )
     from app.services.feed.scope import CLASS_ARTEFACT, feed_item_class
@@ -529,12 +534,19 @@ def score_item_lots(
 
         risk = variant.risk or "medium"
         buyout_per_unit = buyout // amount
+        # Все три тира, от быстрого к долгому: лот берётся, если выгоден хотя
+        # бы по одному, и помечается ПЕРВЫМ подошедшим (ТЗ
+        # docs/tasks/feed-multi-tier-admission.md §3.1). До этой задачи допуск
+        # шёл только по fast, и лот дешевле опоры, но дороже ref * 0.893,
+        # отбрасывался вместе со всеми своими premium-колонками.
         evaluated = evaluate_lot_profit(
             buyout_per_unit, amount, variant.sell_options, risk,
             min_margin_pct=0.0, batch_stats=variant.batch_stats,
+            tiers=TIER_ORDER,
         )
         if evaluated is None:
             continue
+        tier_used = evaluated["tier_used"]
 
         profit_pct = float(evaluated["profit_pct"])
         if profit_pct > FEED_MAX_PROFIT_PCT:
@@ -546,7 +558,11 @@ def score_item_lots(
 
         risk_mult = RISK_MARGIN_MULT.get(risk, 1.0)
         sales_per_day = float(variant.sales_per_day) if variant.sales_per_day else None
-        fast = next((o for o in variant.sell_options if o["label"] == "fast"), None)
+        # Опция ВЫБРАННОГО тира, а не всегда fast: срок продажи — свойство той
+        # цены, по которой собираемся продавать.
+        chosen = next(
+            (o for o in variant.sell_options if o["label"] == tier_used), None,
+        )
 
         # ₽/час: в таблице показывается прибыль ВСЕГО лота за час
         # (profit_total / est_sell_hours), а evaluate_lot_profit считает
@@ -554,16 +570,18 @@ def score_item_lots(
         # в amount раз, и сортировка по колонке «на единицу» инвертировала
         # выдачу относительно показанного числа. Показываемую величину
         # материализуем здесь — той же формулой, что печатает UI.
-        hours = (fast or {}).get("estimated_hours")
+        hours = (chosen or {}).get("estimated_hours")
         profit_total = evaluated["profit"] * amount
 
         # Срок и вероятность по позиции ПЛАНОВОЙ цены продажи в стакане
         # (P1-4 фаза B). Считаем от цены, по которой СОБИРАЕМСЯ продать, а не
         # от цены покупки: вопрос «за сколько уйдёт то, что я куплю».
         #
-        # Сценариев два, и это главное, что видит пользователь:
-        #   быстро  — цена тира fast (та, по которой считается profit_total);
-        #   дороже  — цена тира premium, если готов подождать.
+        # Сценариев три — по числу тиров, и это главное, что видит
+        # пользователь:
+        #   выбранный — цена tier_used (та, по которой считается profit_total);
+        #   дороже    — цена следующего тира вверх, если готов подождать;
+        #   остальные — участвуют только в ev_profit.
         # Замер на проде: верхняя цена даёт в среднем +451 % прибыли, потому
         # что прибыль — это РАЗНОСТЬ «продажа минус закупка», и при тонкой
         # марже +12.8 % к цене умножают её в разы. Платится ~17 п.п.
@@ -587,15 +605,38 @@ def score_item_lots(
                 summary.pct_sold_ever,
             )
 
-        fast_hours, p_sold_6h, pct_sold_ever = _scenario(evaluated["sell_price_used"])
-        if fast_hours is not None:
-            hours = fast_hours
+        # Сценарий каждого тира: (прибыль всего лота, часы, P(продан <= 6 ч)).
+        # Купленный лот можно выставить по цене ЛЮБОГО тира, поэтому считаем
+        # все три, а не только выбранный. Цены — из того же tier_prices, что и
+        # везде: вторая копия множителей уже расходилась с первой.
+        #
+        # У выбранного тира берём sell_price_used, а не prices[tier]: в нём
+        # учтена поправка на размер пачки, и подмена ценой тира разошлась бы с
+        # profit_total, который из неё же и посчитан.
+        prices = tier_prices(int(variant.ref_price))
+        scenarios: dict[str, tuple[int, float | None, float | None]] = {}
+        for tier in TIER_ORDER:
+            if tier == tier_used:
+                price, value = evaluated["sell_price_used"], profit_total
+            else:
+                price = prices[tier]
+                value = int(price * amount * (1 - COMMISSION)) - buyout
+            tier_hours, tier_p6, tier_pct_ever = _scenario(price)
+            scenarios[tier] = (value, tier_hours, tier_p6)
+            if tier == tier_used:
+                p_sold_6h, pct_sold_ever = tier_p6, tier_pct_ever
+                if tier_hours is not None:
+                    hours = tier_hours
 
-        # Сценарий ожидания. Цену берём из того же tier_prices, что и везде:
-        # вторая копия множителей уже расходилась с первой.
-        slow_price = tier_prices(int(variant.ref_price))["premium"]
-        profit_total_slow = int(slow_price * amount * (1 - COMMISSION)) - buyout
-        slow_hours, p_sold_6h_slow, _ = _scenario(slow_price)
+        # Сценарий «подождать и продать дороже» — СЛЕДУЮЩИЙ тир вверх от
+        # выбранного, а не всегда premium: у строки тира premium он совпал бы с
+        # ней самой, и колонка «Продать дороже» показывала бы её собственные
+        # числа. Выше premium тира нет — там колонки пустые.
+        next_index = TIER_ORDER.index(tier_used) + 1
+        if next_index < len(TIER_ORDER):
+            profit_total_slow, slow_hours, p_sold_6h_slow = scenarios[TIER_ORDER[next_index]]
+        else:
+            profit_total_slow = slow_hours = p_sold_6h_slow = None
 
         # Ожидаемая прибыль — максимум по сценариям: рациональный игрок выбирает
         # лучшую стратегию для каждого лота, а не одну на всю ленту. Без
@@ -603,7 +644,7 @@ def score_item_lots(
         # значило бы вернуть допущение «продастся обязательно»).
         candidates = [
             int(p / 100.0 * v)
-            for p, v in ((p_sold_6h, profit_total), (p_sold_6h_slow, profit_total_slow))
+            for v, _h, p in scenarios.values()
             if p is not None and v > 0
         ]
         ev_profit = max(candidates) if candidates else None
@@ -620,6 +661,7 @@ def score_item_lots(
             "start_time":         _parse_lot_time(lot.get("startTime")),
             "end_time":           _parse_lot_time(lot.get("endTime")),
             "ref_price":          int(variant.ref_price),
+            "tier_used":          tier_used,
             "sell_price_used":    evaluated["sell_price_used"],
             "breakeven_per_unit": evaluated["breakeven_per_unit"],
             "profit_per_unit":    evaluated["profit"],
@@ -1291,16 +1333,24 @@ async def _load_observed_yield(db, region: str, now: datetime) -> dict[str, int]
     не нужно: опора варианта записана в саму строку наблюдения
     (ref_price_at_seen) именно для таких вопросов.
 
-    Порог тот же, что у нижнего тира скоринга (FAST_RATIO с поправкой на
-    комиссию): вторая копия правила разошлась бы с первой, и планировщик стал
-    бы считать выгодным не то, что показывает лента.
+    Порог — NORMAL_RATIO с поправкой на комиссию, то есть тиры fast и normal,
+    но НЕ premium. Асимметрия с допуском в ленту (там все три тира,
+    docs/tasks/feed-multi-tier-admission.md) намеренная: замер §2.2 ТЗ —
+    цена normal продаётся в 74.5 % случаев против 81.3 % у fast, это настоящая
+    выгода и она оправдывает опрос предмета каждую минуту; premium продаётся в
+    49.0 %, и ради такого лота держать предмет в горячих слишком дорого.
+    Учёт premium поднял бы горячих со ~112 до ~202 из 383 и растянул круг
+    обхода — ровно то, что чинила правка 2026-08-19.
+
+    Порог берётся из констант тиров, а не второй копией числа: разъедься они,
+    планировщик стал бы считать выгодным не то, что показывает лента.
 
     В словаре только предметы, у которых выгода БЫЛА; отсутствие трактуется в
     observed_yield.
     """
     from sqlalchemy import func, select
     from app.models.models import LotObservation
-    from app.services.analytics.pricing import COMMISSION, FAST_RATIO
+    from app.services.analytics.pricing import COMMISSION, NORMAL_RATIO
 
     rows = (await db.execute(
         select(LotObservation.item_id, func.count())
@@ -1310,7 +1360,7 @@ async def _load_observed_yield(db, region: str, now: datetime) -> dict[str, int]
             LotObservation.last_seen_at >= now - timedelta(hours=FEED_YIELD_WINDOW_HOURS),
             LotObservation.ref_price_at_seen > 0,
             LotObservation.buyout_per_unit
-                < LotObservation.ref_price_at_seen * FAST_RATIO * (1 - COMMISSION),
+                < LotObservation.ref_price_at_seen * NORMAL_RATIO * (1 - COMMISSION),
         )
         .group_by(LotObservation.item_id)
     )).all()

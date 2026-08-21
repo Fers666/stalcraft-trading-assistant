@@ -166,7 +166,8 @@ def test_feed_endpoints_never_trigger_heavy_recalculation(forbidden):
 def _call_lots(**kwargs):
     """Прямой вызов ручки: значения по умолчанию у FastAPI — объекты Query."""
     params = {
-        "item_id": None, "category": None, "qlt": None, "ptn": None, "risk": None, **kwargs,
+        "item_id": None, "category": None, "qlt": None, "ptn": None, "risk": None,
+        "tier": None, **kwargs,
     }
     return asyncio.run(feed_module.list_feed_lots(
         page=1, page_size=25, sort="profit_total", order="desc",
@@ -174,11 +175,12 @@ def _call_lots(**kwargs):
     ))
 
 
-@pytest.mark.parametrize("param", ["item_id", "category", "qlt", "ptn", "risk"])
+@pytest.mark.parametrize("param", ["item_id", "category", "qlt", "ptn", "risk", "tier"])
 def test_list_filters_are_capped(param):
     """L9: IN (...) без верхней границы принимает сколько угодно значений."""
     values = {
         "item_id": "a", "category": "weapon", "qlt": 1, "ptn": 1, "risk": "low",
+        "tier": "fast",
     }[param]
     with pytest.raises(HTTPException) as exc:
         _call_lots(**{param: [values] * (FEED_MAX_LIST_VALUES + 1)})

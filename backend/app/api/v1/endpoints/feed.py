@@ -45,7 +45,15 @@ from app.db.session import get_db
 from app.models.models import (
     ArtifactVariantStats, FeedLot, MasterItem, SalesHistory, User, UserSettings,
 )
-from app.services.analytics.pricing import _QLT_NAMES
+from app.services.analytics.pricing import _QLT_NAMES, TIER_ORDER
+
+# Подписи тиров В ЛЕНТЕ. Отдельно от pricing.make_sell_options (label_ru:
+# «Быстро» / «Нормально» / «Выгодно») намеренно: в карточке предмета «Выгодно»
+# означает верхнюю цену из трёх, а на строке ленты выгодных лотов это слово
+# ничего не различает. Чип здесь про СРОК, поэтому premium — «Долго».
+FEED_TIER_LABELS: dict[str, str] = {
+    "fast": "Быстро", "normal": "Нормально", "premium": "Долго",
+}
 from app.services.feed.scope import (
     FEED_GROUPS, FEED_GROUP_LABELS, feed_groups_clause, feed_item_group, feed_scope_clause,
 )
@@ -190,6 +198,12 @@ class FeedLotOut(BaseModel):
     first_seen_at: datetime
     seen_at: datetime
     ref_price: int
+    # Тир, по которому лот прошёл в ленту — самый быстрый из подошедших.
+    # Все profit_* посчитаны по нему, подпись рисует фронт.
+    # Умолчание — ради строк из Redis-кэша витрины, записанных ДО выкатки:
+    # они переживают деплой на SHOWCASE_CACHE_TTL и ревалидируются этой
+    # моделью (та же причина, что у profit_per_hour_total ниже).
+    tier_used: str = "fast"
     sell_price_used: int
     breakeven_per_unit: int
     profit_per_unit: int
@@ -285,6 +299,7 @@ class FeedFiltersResponse(BaseModel):
     qualities: list[FeedFilterBucket]
     enchants: list[FeedFilterBucket]
     categories: list[FeedFilterBucket]
+    tiers: list[FeedFilterBucket]
     total_count: int
 
 
@@ -311,6 +326,7 @@ def _to_out(lot: FeedLot, master: MasterItem | None) -> FeedLotOut:
         first_seen_at=lot.first_seen_at,
         seen_at=lot.seen_at,
         ref_price=lot.ref_price,
+        tier_used=lot.tier_used,
         sell_price_used=lot.sell_price_used,
         breakeven_per_unit=lot.breakeven_per_unit,
         profit_per_unit=lot.profit_per_unit,
@@ -456,6 +472,7 @@ async def list_feed_lots(
     max_buyout: int | None = Query(None),
     min_amount: int | None = Query(None),
     risk: list[str] | None = Query(None),
+    tier: list[str] | None = Query(None),
     sort: str = Query("ev_profit"),
     order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: User = Depends(get_current_user),
@@ -467,7 +484,7 @@ async def list_feed_lots(
         raise HTTPException(status_code=422, detail=f"sort должен быть одним из {list(_SORT_COLUMNS)}")
     for name, values in (
         ("item_id", item_id), ("category", category),
-        ("qlt", qlt), ("ptn", ptn), ("risk", risk),
+        ("qlt", qlt), ("ptn", ptn), ("risk", risk), ("tier", tier),
     ):
         if values is not None and len(values) > FEED_MAX_LIST_VALUES:
             raise HTTPException(
@@ -479,6 +496,12 @@ async def list_feed_lots(
         raise HTTPException(
             status_code=422,
             detail=f"category: неизвестные группы {sorted(unknown)}; допустимы {list(FEED_GROUPS)}",
+        )
+    unknown_tiers = set(tier or ()) - set(TIER_ORDER)
+    if unknown_tiers:
+        raise HTTPException(
+            status_code=422,
+            detail=f"tier: неизвестные тиры {sorted(unknown_tiers)}; допустимы {list(TIER_ORDER)}",
         )
 
     region     = app_settings.stalcraft_region
@@ -539,6 +562,8 @@ async def list_feed_lots(
         conds.append(FeedLot.amount >= min_amount)
     if risk:
         conds.append(FeedLot.risk.in_(risk))
+    if tier:
+        conds.append(FeedLot.tier_used.in_(tier))
 
     agg = (await db.execute(
         select(func.count(), func.max(FeedLot.seen_at)).where(*conds)
@@ -784,6 +809,9 @@ async def feed_filters(
     ptn_rows = (await db.execute(
         select(FeedLot.ptn, func.count()).where(*conds).group_by(FeedLot.ptn).order_by(FeedLot.ptn)
     )).all()
+    tier_rows = dict((await db.execute(
+        select(FeedLot.tier_used, func.count()).where(*conds).group_by(FeedLot.tier_used)
+    )).all())
 
     # Счётчики по группам набора. Ключ чипа — group, он же уходит обратно
     # параметром category в /feed/lots: подпись и фильтр обязаны считаться по
@@ -823,6 +851,16 @@ async def feed_filters(
                 value=group, label=FEED_GROUP_LABELS.get(group, group), count=count,
             )
             for group, count in sorted(categories.items(), key=lambda kv: -kv[1])
+        ],
+        # Порядок TIER_ORDER, а не по убыванию счётчика: тиры — шкала «быстро →
+        # долго», и переставлять её местами по наполнению значит ломать чтение.
+        # Пустые тиры показываем нулём, иначе чип «Долго» то появлялся бы, то
+        # исчезал между циклами.
+        tiers=[
+            FeedFilterBucket(
+                value=name, label=FEED_TIER_LABELS[name], count=tier_rows.get(name, 0),
+            )
+            for name in TIER_ORDER
         ],
         total_count=sum(row.lots_count for row in item_rows),
     )

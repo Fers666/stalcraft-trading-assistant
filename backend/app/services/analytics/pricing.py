@@ -15,7 +15,7 @@
 
 import statistics
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
 from sqlalchemy import or_
 
@@ -69,6 +69,11 @@ FILL_PROBABILITY: dict[str, int] = {"fast": 75, "normal": 50, "premium": 25}
 TIER_RATIOS: dict[str, float] = {
     "fast": FAST_RATIO, "normal": NORMAL_RATIO, "premium": PREMIUM_RATIO,
 }
+
+# Тиры от быстрого к долгому. Порядок содержательный, а не косметический: по
+# нему evaluate_lot_profit выбирает ПЕРВЫЙ подошедший, и он же определяет
+# смысл tier_used — «самый быстрый способ перепродать этот лот с прибылью».
+TIER_ORDER: tuple[str, ...] = ("fast", "normal", "premium")
 
 HIGH_VOLATILITY  = 30.0
 MED_VOLATILITY   = 15.0
@@ -676,10 +681,21 @@ def evaluate_lot_profit(
     risk: str,
     min_margin_pct: float = 0.0,
     batch_stats: Optional[dict] = None,
+    tiers: Sequence[str] = ("fast",),
 ) -> Optional[dict]:
     """
-    Оценивает выгодность лота. Базовый сценарий продажи — tier "fast"
-    (консервативнее "normal": продать быстрее, не упираясь в рыночную медиану).
+    Оценивает выгодность лота по первому подошедшему тиру из `tiers`.
+
+    tiers — сценарии продажи в порядке ПРИОРИТЕТА, возвращается первый, который
+    даёт прибыль. Умолчание ("fast",) сохраняет прежнее поведение для watchlist
+    (profitable_lots) и Радара: там вопрос «продать быстро», и тир один.
+
+    Лента передаёт все три (fast, normal, premium) — ТЗ
+    docs/tasks/feed-multi-tier-admission.md. Порядок = от быстрого к долгому,
+    поэтому tier_used означает «самый быстрый способ перепродать этот лот с
+    прибылью». Замер §2.2 ТЗ: цена fast продаётся в 81.3 % случаев, normal в
+    74.5 %, premium в 49.0 % — тир это срок и вероятность, а не только цена,
+    и строка обязана его нести.
 
     Если для размера пачки `amount` есть статистика реальных продаж
     (batch_stats.by_size[bucket]) — корректирует ожидаемую цену продажи
@@ -688,16 +704,45 @@ def evaluate_lot_profit(
     required_margin = min_margin_pct * RISK_MARGIN_MULT[risk] — чем выше
     волатильность, тем больший запас прибыли требуется.
 
-    Возвращает None если невыгодно, иначе словарь с метриками.
+    Возвращает None если невыгодно НИ ПО ОДНОМУ тиру, иначе словарь с метриками.
     """
     if not sell_options:
         return None
-    fast   = next((o for o in sell_options if o["label"] == "fast"), None)
     normal = next((o for o in sell_options if o["label"] == "normal"), None)
-    if not fast or not normal:
+    if not normal:
         return None
 
-    sell_price = fast["price_per_unit"]
+    for tier in tiers:
+        option = next((o for o in sell_options if o["label"] == tier), None)
+        if option is None:
+            continue
+        result = _evaluate_at_tier(
+            option, normal, buyout_per_unit, amount, risk, min_margin_pct, batch_stats,
+        )
+        if result is not None:
+            return result
+    return None
+
+
+def _evaluate_at_tier(
+    option: dict,
+    normal: dict,
+    buyout_per_unit: int,
+    amount: int,
+    risk: str,
+    min_margin_pct: float,
+    batch_stats: Optional[dict],
+) -> Optional[dict]:
+    """
+    Расчёт для ОДНОГО тира. Выделен из evaluate_lot_profit, чтобы перебор тиров
+    не форкал формулу: разъехавшиеся копии дали бы ленте одну прибыль, а
+    карточке предмета другую.
+
+    `normal` нужен отдельным аргументом даже когда считаем не по нему: поправка
+    на размер пачки берётся как отношение медианы пачки к "normal"-цене —
+    это свойство ПАЧКИ, а не выбранного сценария продажи.
+    """
+    sell_price = option["price_per_unit"]
 
     if amount > 1 and batch_stats:
         bucket = batch_bucket_for_amount(amount)
@@ -720,14 +765,16 @@ def evaluate_lot_profit(
     if profit_pct < required_margin:
         return None
 
-    hours = fast["estimated_hours"] or 0
+    # Срок — выбранного тира, а не всегда fast: цена и срок это одна пара, и
+    # часы от fast при продаже по premium дали бы ₽/час втрое завышенным.
+    hours = option["estimated_hours"] or 0
     profit_per_hour = profit / hours if hours > 0 else None
 
     return {
         "profit":          int(profit),
         "profit_pct":      round(profit_pct, 1),
         "profit_per_hour": round(profit_per_hour, 2) if profit_per_hour is not None else None,
-        "tier_used":       "fast",
+        "tier_used":       option["label"],
         "sell_price_used": int(sell_price),
         # Цена продажи, при которой прибыль после комиссии равна нулю.
         # Единственное место расчёта: ключ растекается в signals -> Redis -> API -> UI.

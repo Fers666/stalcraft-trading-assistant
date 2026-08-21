@@ -492,6 +492,13 @@ class FeedLot(Base):
     end_time             = Column(DateTime(timezone=True), nullable=True)
     # Скоринг: всё из pricing.evaluate_lot_profit + artifact_variant_stats
     ref_price            = Column(BigInteger, nullable=False)
+    # Тир, по которому лот прошёл в ленту — САМЫЙ БЫСТРЫЙ из подошедших
+    # (pricing.TIER_ORDER: fast -> normal -> premium). Отвечает на вопрос «как
+    # быстро это можно перепродать с прибылью», поэтому лот, выгодный и по
+    # fast, и по premium, помечен fast. Все остальные колонки прибыли
+    # (profit_*, sell_price_used, est_sell_hours) посчитаны по ЭТОМУ тиру.
+    # До 2026-08-21 допуск шёл только по fast, и колонка была бы константой.
+    tier_used            = Column(String(10), nullable=False, server_default="fast")
     sell_price_used      = Column(BigInteger, nullable=False)
     breakeven_per_unit   = Column(BigInteger, nullable=False)
     profit_per_unit      = Column(BigInteger, nullable=False)
@@ -525,8 +532,10 @@ class FeedLot(Base):
     # не набрала MIN_STRATUM_N: отсутствие честнее выдуманного числа.
     p_sold_6h            = Column(Numeric(5, 2))   # P(продан <= 6 ч), нижняя граница
     pct_sold_ever        = Column(Numeric(5, 2))   # доля страты, продавшаяся когда-либо
-    # Сценарий «подождать и продать дороже»: цена тира premium (ref * 1.06),
-    # своя позиция в стакане и потому свои срок и вероятность. Замер на проде:
+    # Сценарий «подождать и продать дороже»: цена СЛЕДУЮЩЕГО тира вверх от
+    # tier_used, своя позиция в стакане и потому свои срок и вероятность.
+    # NULL у строк тира premium — выше него тира нет, и сценарий ожидания
+    # совпал бы с самой строкой. Замер на проде:
     # верхняя цена даёт в среднем +451 % прибыли (у 139 строк из 188 — больше
     # чем вдвое) ценой ~17 п.п. вероятности. Прибыль — это РАЗНОСТЬ «продажа
     # минус закупка», поэтому при тонкой марже +12.8 % к цене умножают её в

@@ -500,3 +500,107 @@ def test_patient_scenario_beats_fast_when_margin_is_thin():
         "art1", "RU", [_lot(88_000, amount=1)], {(4, 15): _variant()}, NOW,
     )[0]
     assert row["profit_total_slow"] > row["profit_total"] * 2
+
+
+# ─── Допуск по трём тирам (ТЗ feed-multi-tier-admission.md) ───────────────────
+#
+# Пороги при опоре 100 000: fast 89 300, normal 95 000, premium ~100 700.
+# Между ними и лежат лоты, которые до этой задачи отбрасывались целиком.
+
+@pytest.mark.parametrize("price,expected_tier", [
+    (85_000, "fast"),      # дешевле всех порогов — берётся самый быстрый
+    (92_000, "normal"),    # дороже fast-порога, дешевле normal
+    (98_000, "premium"),   # дороже normal-порога, дешевле premium
+])
+def test_score_item_lots_admits_every_tier(price, expected_tier):
+    """
+    Лот попадает в ленту, если выгоден ХОТЯ БЫ ПО ОДНОМУ тиру, и помечается
+    первым подошедшим. До задачи допуск шёл только по fast, и две последние
+    строки не существовали бы.
+    """
+    rows = score_item_lots("art1", "RU", [_lot(price)], {(4, 15): _variant()}, NOW)
+    assert len(rows) == 1
+    assert rows[0]["tier_used"] == expected_tier
+    assert rows[0]["profit_per_unit"] > 0
+
+
+def test_score_item_lots_still_skips_lot_above_every_tier():
+    """Дороже премиального порога — прибыли нет ни по одному сценарию."""
+    assert score_item_lots("art1", "RU", [_lot(120_000)], {(4, 15): _variant()}, NOW) == []
+
+
+def test_tier_used_prefers_speed_over_profit():
+    """
+    Лот, выгодный и по fast, и по premium, помечается fast, хотя по premium
+    прибыль больше: чип отвечает на вопрос «как быстро перепродать», а не
+    «где больше денег». На последний отвечает ev_profit.
+    """
+    row = score_item_lots(
+        "art1", "RU", [_lot(50_000)], {(4, 15): _variant()}, NOW,
+    )[0]
+    assert row["tier_used"] == "fast"
+
+
+def test_premium_row_has_no_slow_scenario():
+    """
+    «Продать дороже» — следующий тир вверх. У строки тира premium его нет, и
+    колонка обязана быть пустой, а не повторять числа самой строки.
+    """
+    row = score_item_lots("art1", "RU", [_lot(98_000)], {(4, 15): _variant()}, NOW)[0]
+    assert row["tier_used"] == "premium"
+    assert row["profit_total_slow"] is None
+    assert row["est_sell_hours_slow"] is None
+    assert row["p_sold_6h_slow"] is None
+
+
+def test_slow_scenario_is_next_tier_not_always_premium():
+    """У строки тира normal сценарий ожидания — premium, и он заполнен."""
+    row = score_item_lots("art1", "RU", [_lot(92_000)], {(4, 15): _variant()}, NOW)[0]
+    assert row["tier_used"] == "normal"
+    assert row["profit_total_slow"] is not None
+    # Ожидание дороже продажи по опоре — иначе ждать незачем.
+    assert row["profit_total_slow"] > row["profit_total"]
+
+
+# ─── evaluate_lot_profit: умолчание не задето ────────────────────────────────
+
+def test_evaluate_lot_profit_defaults_to_fast_only():
+    """
+    Watchlist (profitable_lots) и Радар вызывают без tiers и обязаны получить
+    прежнее поведение: лот, выгодный только по premium, для них невыгоден.
+    """
+    from app.services.analytics.pricing import evaluate_lot_profit
+
+    options = make_sell_options(100_000, 70)
+    assert evaluate_lot_profit(98_000, 1, options, "low") is None
+    assert evaluate_lot_profit(85_000, 1, options, "low")["tier_used"] == "fast"
+
+
+def test_evaluate_lot_profit_respects_tier_order():
+    """Порядок в tiers — это приоритет: возвращается ПЕРВЫЙ подошедший."""
+    from app.services.analytics.pricing import TIER_ORDER, evaluate_lot_profit
+
+    options = make_sell_options(100_000, 70)
+    assert evaluate_lot_profit(
+        85_000, 1, options, "low", tiers=TIER_ORDER,
+    )["tier_used"] == "fast"
+    assert evaluate_lot_profit(
+        85_000, 1, options, "low", tiers=("premium", "fast"),
+    )["tier_used"] == "premium"
+
+
+def test_hot_signal_counts_normal_but_not_premium():
+    """
+    Асимметрия из §3.2 ТЗ: в ленту допускаются три тира, а горячим предмет
+    делают только fast и normal. Учёт premium поднял бы горячих со ~112 до
+    ~202 из 383 и растянул круг обхода.
+    """
+    import inspect
+
+    from app.services.analytics.pricing import FAST_RATIO, NORMAL_RATIO
+    from app.tasks.feed_collector import _load_observed_yield
+
+    source = inspect.getsource(_load_observed_yield)
+    assert "NORMAL_RATIO" in source
+    assert "FAST_RATIO" not in source
+    assert NORMAL_RATIO > FAST_RATIO

@@ -12,7 +12,7 @@ import { fmtN, fmtP, fmtCompact } from '../../utils/format'
 import { iconUrl, qualityKeyByValue } from '../../utils/i18n'
 import {
   fetchFeedLots, fetchFeedSummary, fetchFeedFilters, fmtSellTime,
-  feedGroupLabel, feedGroupOrder,
+  feedGroupLabel, feedGroupOrder, feedTierLabel, feedTierOrder,
   type FeedLot, type FeedLotsResponse, type FeedSummaryResponse,
   type FeedFiltersResponse, type FeedSortKey,
 } from '../../api/feed'
@@ -135,6 +135,7 @@ export default function MobileFeedPage() {
   const [minProfit, setMinProfit]   = useState(0)
   // Группы набора (чипы .fchip десктопной панели). Пустой набор = «Все».
   const [cats, setCats]             = useState<string[]>([])
+  const [tiers, setTiers]           = useState<string[]>([])
 
   const [filtOpen, setFiltOpen] = useState(false)
   const [modalLot, setModalLot] = useState<FeedLot | null>(null)
@@ -167,6 +168,14 @@ export default function MobileFeedPage() {
 
   const catsLabel = useMemo(() => cats.map(feedGroupLabel).join(' · '), [cats])
 
+  // Порядок канонический (быстро → долго), как и на десктопе: тиры — шкала.
+  const tierChips = useMemo(
+    () => [...(filters?.tiers ?? [])].sort(
+      (a, b) => feedTierOrder(String(a.value)) - feedTierOrder(String(b.value)),
+    ),
+    [filters],
+  )
+
   const load = useCallback(async () => {
     try {
       const res = await fetchFeedLots({
@@ -175,6 +184,7 @@ export default function MobileFeedPage() {
         // Серверный фильтр групп: список item_id[] капнут 50 значениями, а в
         // группе «Части» предметов больше.
         category: !item && cats.length > 0 ? cats : undefined,
+        tier: tiers.length > 0 ? tiers : undefined,
         qlt: qltFilter !== 'all' ? [Number(qltFilter)] : undefined,
         ptn: ptnFilter !== 'all' ? [Number(ptnFilter)] : undefined,
         min_profit_pct: minProfit > 0 ? minProfit : undefined,
@@ -185,7 +195,7 @@ export default function MobileFeedPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, sort, item, cats, qltFilter, ptnFilter, minProfit])
+  }, [page, sort, item, cats, tiers, qltFilter, ptnFilter, minProfit])
 
   useEffect(() => {
     setLoading(true)
@@ -232,6 +242,11 @@ export default function MobileFeedPage() {
   // раздела ленты. Предмет и группы взаимоисключающи (сервер соединяет их
   // через AND: предмет не из выбранной группы дал бы пустой список при двух
   // горящих фильтрах).
+  const toggleTier = (tier: string) => {
+    setTiers(prev => (prev.includes(tier) ? prev.filter(x => x !== tier) : [...prev, tier]))
+    setPage(1)
+  }
+
   const toggleCat = (group: string) => {
     setCats(prev => (prev.includes(group) ? prev.filter(x => x !== group) : [...prev, group]))
     setItem(null)
@@ -308,6 +323,21 @@ export default function MobileFeedPage() {
         chips={
           <>
             <QualityChip color={qKey} label={qName} />
+            {/* Тир, по которому посчитана прибыль справа. Без него «+12 %» на
+                строке тира «Долго» неотличимо от такого же на «Быстро», а
+                сбывается оно вдвое реже. */}
+            <Box
+              component="span"
+              sx={{
+                fontFamily: tokens.fontHead, fontWeight: 600, fontSize: fs.f10,
+                letterSpacing: '.06em', textTransform: 'uppercase',
+                color: lot.tier_used === 'premium' ? tokens.goldHighlight
+                  : lot.tier_used === 'normal' ? tokens.goldAccent : tokens.text2,
+                border: `1px solid ${lot.tier_used === 'premium' ? tokens.goldHighlight
+                  : lot.tier_used === 'normal' ? tokens.goldAccent : tokens.text2}`,
+                borderRadius: '2px', px: '4px', lineHeight: 1.5, opacity: 0.9,
+              }}
+            >{feedTierLabel(lot.tier_used)}</Box>
             {/* Окно риска подписано (7Д) — в карточке артефакта рядом живёт чип 30Д.
                 Без волатильности бэкенд отдаёт risk='medium' по умолчанию: такой
                 «средний» не показываем, это не измерение. */}
@@ -340,7 +370,7 @@ export default function MobileFeedPage() {
           // как «undefined %», если поле пропадёт из ответа.
           ...(lot.p_sold_6h != null
             ? [{
-                label: 'Продать быстро',
+                label: `Продать · ${feedTierLabel(lot.tier_used).toLowerCase()}`,
                 value: `+${fmtP(lot.profit_total)} · ${fmtSellTime(lot.est_sell_hours)} · ${lot.p_sold_6h} %`,
                 ...(lot.p_sold_6h < 50 ? { tone: 'neg' as const } : { tone: 'pos' as const }),
               }]
@@ -479,6 +509,32 @@ export default function MobileFeedPage() {
               key={String(c.value)} label={c.label} count={c.count}
               on={cats.includes(String(c.value))}
               onToggle={() => toggleCat(String(c.value))}
+            />
+          ))}
+        </Box>
+      )}
+
+      {/* Тиры — отдельный ряд: ось «как быстро перепродать» ортогональна оси
+          «что за предмет», и в общем ряду они читались бы как один список. */}
+      {!showcase && tierChips.length > 0 && (
+        <Box
+          role="group" aria-label="Срок продажи"
+          sx={{
+            display: 'flex', gap: '6px', mb: '10px', pb: '2px',
+            overflowX: 'auto', scrollbarWidth: 'none',
+            '&::-webkit-scrollbar': { display: 'none' },
+          }}
+        >
+          <MobileCatChip
+            label="Любой" count={filters?.total_count ?? 0}
+            on={tiers.length === 0}
+            onToggle={() => { setTiers([]); setPage(1) }}
+          />
+          {tierChips.map(t => (
+            <MobileCatChip
+              key={String(t.value)} label={t.label} count={t.count}
+              on={tiers.includes(String(t.value))}
+              onToggle={() => toggleTier(String(t.value))}
             />
           ))}
         </Box>

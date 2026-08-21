@@ -25,7 +25,8 @@ import { fmtN, fmtP, fmtCompact } from '../utils/format'
 import { qualityKeyByValue, iconUrl } from '../utils/i18n'
 import {
   fetchFeedLots, fetchFeedSummary, fetchFeedFilters, fmtSellTime,
-  feedGroupLabel, feedGroupOrder,
+  feedGroupLabel, feedGroupOrder, feedTierLabel, feedTierOrder, FEED_TIER_HINT,
+  type FeedTier,
   type FeedLot, type FeedLotsResponse, type FeedSummaryResponse,
   type FeedFiltersResponse, type FeedSortKey,
 } from '../api/feed'
@@ -67,8 +68,8 @@ const COLUMNS: { key: FeedSortKey | 'name'; label: string; tip: string; align: '
   { key: 'name', label: 'Предмет', tip: 'Предмет, качество и заточка — один вариант товара', align: 'left' },
   { key: 'buyout_per_unit', label: 'Лот', tip: 'Цена за штуку · количество · итог к оплате', align: 'right' },
   { key: 'profit_pct', label: 'Опора', tip: 'Опорная цена — медиана реальных сделок за 7 дней, взвешенная по свежести', align: 'right' },
-  { key: 'profit_total', label: 'Продать быстро', tip: 'Прибыль со всего лота по нижней цене (опора −6 %), за вычетом комиссии 5 %. Рядом — сколько лот будет продаваться и с какой вероятностью уйдёт за 6 часов', align: 'right' },
-  { key: 'ev_profit', label: 'Продать дороже', tip: 'Та же сделка по верхней цене (опора +6 %), если готов подождать. Прибыль это разность «продажа минус закупка», поэтому +12 % к цене часто умножают её в разы — платится вероятностью', align: 'right' },
+  { key: 'profit_total', label: 'Продать', tip: 'Прибыль со всего лота за вычетом комиссии 5 %, посчитанная по цене того тира, которым лот прошёл в ленту, — чип рядом («Быстро» опора −6 %, «Нормально» по опоре, «Долго» опора +6 %). Ниже — сколько лот будет продаваться и с какой вероятностью уйдёт за 6 часов', align: 'right' },
+  { key: 'ev_profit', label: 'Продать дороже', tip: 'Та же сделка по цене следующего тира вверх, если готов подождать. Прибыль это разность «продажа минус закупка», поэтому даже +6 % к цене часто умножают её в разы — платится вероятностью. У строк тира «Долго» тира выше нет, и колонка пустая', align: 'right' },
   { key: 'volatility', label: 'Рынок', tip: 'Волатильность 7 д, риск и тренд. Тренд — метка, а не поправка к цене', align: 'right' },
   { key: 'sales_per_day', label: 'Ликвидность', tip: 'Сделок в день и за сколько дней рынок переварит нынешнее предложение', align: 'right' },
   { key: 'time_left', label: 'Время', tip: 'Сколько лоту осталось жить (максимум 48 ч) и когда его заметила лента', align: 'right' },
@@ -119,6 +120,49 @@ function Cell({ value, sub, tone, subTone }: {
   )
 }
 
+/**
+ * Чип тира на строке: по какой из трёх цен посчитана прибыль слева.
+ *
+ * Цвета — те же, что у ценовых точек карточки предмета (LotStatCard): чем
+ * дороже тир, тем ярче золото. Единая шкала важнее, чем свободный подбор:
+ * пользователь читает те же три уровня в двух местах приложения.
+ */
+/**
+ * Слоты чипов таблицы. Ширина фиксированная, а не по содержимому: подписи
+ * разной длины («Долго» против «Нормально», «Обычный» против «Легендарный»),
+ * и чип по содержимому даёт в колонке рваный край, а соседний элемент уезжает
+ * вслед за ним. Каждое значение — под самую длинную подпись своего набора.
+ *
+ * CHIP_H общая: чипы стоят в соседних колонках одной строки, и разнобой по
+ * высоте читается как сбой вёрстки даже там, где ширины совпали.
+ */
+const TIER_CHIP_W = 78    // Быстро / Нормально / Долго
+const QLT_CHIP_W  = 100   // Обычный … Легендарный
+const PTN_CHIP_W  = 34    // +0 … +15
+const RISK_CHIP_W = 88    // 7Д низкий / средний / высокий
+const CHIP_H      = 18
+
+function TierChip({ tier }: { tier: string }) {
+  const color =
+    tier === 'premium' ? tokens.goldHighlight
+    : tier === 'normal' ? tokens.goldAccent
+    : tokens.text2
+  return (
+    <Box
+      component="span"
+      title={`Прибыль посчитана по цене «${feedTierLabel(tier)}» — ${FEED_TIER_HINT[tier as FeedTier] ?? ''}`}
+      sx={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: '100%', height: CHIP_H, boxSizing: 'border-box',
+        fontFamily: tokens.fontHead, fontWeight: 600, fontSize: fs.f10,
+        letterSpacing: '.06em', textTransform: 'uppercase',
+        color, border: `1px solid ${color}`, borderRadius: '2px',
+        px: '4px', lineHeight: 1, whiteSpace: 'nowrap', opacity: 0.9,
+      }}
+    >{feedTierLabel(tier)}</Box>
+  )
+}
+
 function TrendMark({ trend, pct }: { trend: string | null; pct: number | null }) {
   if (!trend || trend === 'unknown') return null
   const up = trend === 'rising'
@@ -126,7 +170,7 @@ function TrendMark({ trend, pct }: { trend: string | null; pct: number | null })
   const color = flat ? tokens.text2 : up ? tokens.success : tokens.danger
   const sign = flat ? '·' : up ? '▲' : '▼'
   return (
-    <Box component="span" sx={{ color, fontSize: fs.f105, ml: '6px', fontFamily: tokens.fontMono }}>
+    <Box component="span" sx={{ color, fontSize: fs.f105, fontFamily: tokens.fontMono }}>
       {sign}{pct !== null && !flat ? ` ${Math.abs(pct).toFixed(1)} %` : ''}
     </Box>
   )
@@ -191,6 +235,9 @@ export default function FeedPage() {
   // Группы (чипы .fchip прототипа). Пустой набор = «Все»: так чип «Все» и
   // сброс фильтров — одно и то же состояние.
   const [cats, setCats] = useState<string[]>([])
+  // Тиры продажи. Пустой набор = «Все», как и у групп: два фильтра рядом
+  // обязаны вести себя одинаково.
+  const [tiers, setTiers] = useState<string[]>([])
 
   const [modalLot, setModalLot] = useState<FeedLot | null>(null)
 
@@ -212,6 +259,15 @@ export default function FeedPage() {
     [filters],
   )
 
+  // Порядок канонический (FEED_TIERS: быстро → долго), а не по счётчику:
+  // тиры это шкала срока, и перестановка её ломает чтение.
+  const tierChips = useMemo(
+    () => [...(filters?.tiers ?? [])].sort(
+      (a, b) => feedTierOrder(String(a.value)) - feedTierOrder(String(b.value)),
+    ),
+    [filters],
+  )
+
   const catsLabel = useMemo(
     () => cats.map(feedGroupLabel).join(' · '),
     [cats],
@@ -223,6 +279,11 @@ export default function FeedPage() {
   const pickItem = (next: SearchItem | null) => {
     setItem(next)
     if (next) setCats([])
+    setPage(1)
+  }
+
+  const toggleTier = (tier: string) => {
+    setTiers(prev => (prev.includes(tier) ? prev.filter(x => x !== tier) : [...prev, tier]))
     setPage(1)
   }
 
@@ -243,6 +304,7 @@ export default function FeedPage() {
         category: !item && cats.length > 0 ? cats : undefined,
         qlt: qltFilter !== '' ? [qltFilter] : undefined,
         ptn: ptnFilter !== '' ? [ptnFilter] : undefined,
+        tier: tiers.length > 0 ? tiers : undefined,
         min_profit_pct: minProfit > 0 ? minProfit : undefined,
       })
       setData(res)
@@ -251,7 +313,7 @@ export default function FeedPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, pageSize, sort, order, item, cats, qltFilter, ptnFilter, minProfit])
+  }, [page, pageSize, sort, order, item, cats, tiers, qltFilter, ptnFilter, minProfit])
 
   // Срез ленты живёт минуты — таблица переспрашивает сервер раз в 30 с.
   useEffect(() => {
@@ -354,12 +416,28 @@ export default function FeedPage() {
                 fontSize: fs.f125, fontWeight: 600, color: tokens.text0,
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}>{name}</Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <QualityChip color={qKey} label={QLT_NAMES[lot.qlt] ?? `кач. ${lot.qlt}`} />
+              {/* Сетка, а не flex: ширина подписи качества гуляет от «Обычный»
+                  до «Легендарный», и на flex чип заточки уезжал бы вслед за
+                  ней — в столбце получалась лесенка. */}
+              <Box sx={{
+                display: 'grid', gridTemplateColumns: `${QLT_CHIP_W}px ${PTN_CHIP_W}px`,
+                alignItems: 'center', gap: '5px',
+              }}>
+                <QualityChip
+                  color={qKey}
+                  label={QLT_NAMES[lot.qlt] ?? `кач. ${lot.qlt}`}
+                  sx={{
+                    height: CHIP_H, boxSizing: 'border-box', px: '6px',
+                    justifyContent: 'flex-start', overflow: 'hidden',
+                    whiteSpace: 'nowrap', lineHeight: 1,
+                  }}
+                />
                 <Box component="span" sx={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  height: CHIP_H, boxSizing: 'border-box',
                   fontFamily: tokens.fontMono, fontSize: fs.f105,
                   color: lot.ptn ? tokens.text1 : tokens.text2,
-                  border: `1px solid ${tokens.border}`, borderRadius: '2px', px: '4px',
+                  border: `1px solid ${tokens.border}`, borderRadius: '2px',
                 }}>+{lot.ptn}</Box>
               </Box>
             </Box>
@@ -372,15 +450,25 @@ export default function FeedPage() {
               est_sell_hours приходит эвристикой (pricing.base_option), и
               показывать её рядом с измеренными сроками нельзя. Фолбэк — процент
               прибыли, величина посчитанная, а не предсказанная. */}
-          <Cell
-            tone="g" subTone="g"
-            value={`+${fmtP(lot.profit_total)}`}
-            sub={
-              lot.p_sold_6h != null
-                ? `${fmtSellTime(lot.est_sell_hours)} · ${lot.p_sold_6h} % за 6 ч`
-                : `+${d1(lot.profit_pct)} %`
-            }
-          />
+          {/* Сетка, а не flex с justify-end: ширина суммы у каждого лота своя,
+              и в правом выравнивании чип уезжал бы вслед за ней. Фиксированная
+              первая колонка держит все чипы на одной вертикали, вторая отдаёт
+              сумме остаток и прижимает её вправо. */}
+          <Box sx={{
+            display: 'grid', gridTemplateColumns: `${TIER_CHIP_W}px 1fr`,
+            alignItems: 'center', gap: '10px',
+          }}>
+            <TierChip tier={lot.tier_used} />
+            <Cell
+              tone="g" subTone="g"
+              value={`+${fmtP(lot.profit_total)}`}
+              sub={
+                lot.p_sold_6h != null
+                  ? `${fmtSellTime(lot.est_sell_hours)} · ${lot.p_sold_6h} % за 6 ч`
+                  : `+${d1(lot.profit_pct)} %`
+              }
+            />
+          </Box>
         </td>
         <td>
           {/* Прибыль верхнего сценария — арифметика (цена × количество минус
@@ -401,18 +489,35 @@ export default function FeedPage() {
         </td>
         <td>
           <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            {/* Слот под чип держится и когда чипа нет: у строки без измеренной
+                волатильности стрелка тренда иначе прыгала бы на его место. */}
+            <Box sx={{
+              display: 'grid', gridTemplateColumns: `${RISK_CHIP_W}px auto`,
+              alignItems: 'center', gap: '6px',
+            }}>
               {/* Окно риска подписано (7Д): в карточке артефакта рядом живёт чип
                   30Д, и без окна «средний» против «низкий» читается как ошибка.
                   Без волатильности бэкенд отдаёт risk='medium' по умолчанию —
                   такой «средний» не показываем, это не измерение. */}
-              {lot.volatility_7d !== null && (
-                <RiskChip
-                  level={RISK_LEVEL[lot.risk] ?? 'md'}
-                  label={<>7Д {RISK_LABEL[lot.risk] ?? lot.risk}</>}
-                />
-              )}
-              <TrendMark trend={lot.trend_24h} pct={lot.trend_24h_pct} />
+              <Box sx={{ display: 'flex' }}>
+                {lot.volatility_7d !== null && (
+                  <RiskChip
+                    level={RISK_LEVEL[lot.risk] ?? 'md'}
+                    label={<>7Д {RISK_LABEL[lot.risk] ?? lot.risk}</>}
+                    sx={{
+                      width: '100%', height: CHIP_H, boxSizing: 'border-box',
+                      px: '6px', justifyContent: 'center',
+                      whiteSpace: 'nowrap', lineHeight: 1,
+                    }}
+                  />
+                )}
+              </Box>
+              {/* Слот фиксирован: тренд бывает и «·», и «▲ 24.3 %», а на
+                  переменной ширине он сдвигал бы чип риска — вся колонка
+                  выравнена по правому краю. */}
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <TrendMark trend={lot.trend_24h} pct={lot.trend_24h_pct} />
+              </Box>
             </Box>
             <Box sx={{ fontFamily: tokens.fontMono, fontSize: fs.f105, color: tokens.text2 }}>
               vol {d1(lot.volatility_7d)} %
@@ -490,6 +595,33 @@ export default function FeedPage() {
               <CatChip
                 key={group} label={c.label} count={c.count} on={cats.includes(group)}
                 onToggle={() => toggleCat(group)}
+              />
+            )
+          })}
+        </Box>
+      )}
+
+      {/* .fchips — тиры продажи. Отдельной строкой от групп: это ортогональные
+          оси (что за предмет / как быстро его перепродать), и смешивать их в
+          один ряд значит предлагать пользователю выбрать между ними.
+          Пустые тиры показываем нулём, а не прячем: исчезающий чип «Долго»
+          читался бы как сбой, а не как «таких лотов сейчас нет». */}
+      {tierChips.length > 0 && (
+        <Box sx={{
+          flexBasis: '100%', display: 'flex', alignItems: 'center', gap: '6px',
+          flexWrap: 'wrap', mb: '2px', pb: '8px', borderBottom: `1px solid ${tokens.border}`,
+        }}>
+          <Kick>Срок</Kick>
+          <CatChip
+            label="Любой" count={filters?.total_count ?? 0} on={tiers.length === 0}
+            onToggle={() => { setTiers([]); setPage(1) }}
+          />
+          {tierChips.map(t => {
+            const tier = String(t.value)
+            return (
+              <CatChip
+                key={tier} label={t.label} count={t.count} on={tiers.includes(tier)}
+                onToggle={() => toggleTier(tier)}
               />
             )
           })}
