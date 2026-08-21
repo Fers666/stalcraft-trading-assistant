@@ -14,7 +14,7 @@
 | `sweep_expired_tiers` | ежедневно 03:30 | `app.tasks.tiers` | Понижение до `base` пользователей с истёкшим `tier_expires_at` + деактивация лишних карточек watchlist сверх нового лимита |
 | `collect_emission` | каждые 2 мин | `app.tasks.collectors` | Опрос `GET /RU/emission`, детект start/end выброса, Redis-дедупликация (`emission:current_fingerprint`), запись событий в `emission_events` (старт → `notified=False`; конец → `ended_at`; seed первого запуска → `notified=True, end_notified=True`). С 2026-07-08 worker сам НЕ рассылает Telegram — рассылку делает `telegram_bot::notify_emission_events` (см. раздел Telegram) |
 | `audit_auction_status` | — (только вручную, beat НЕТ) | `app.tasks.audit` | Разовый бэкфилл `master_items.on_auction` — реальная торгуемость через Stalcraft API. Запуск через `POST /admin/audit-auction-status` (см. ниже) после обновления каталога |
-| `collect_artifact_lots` | `crontab(minute="*")` + джиттер старта до 10 с | `app.tasks.feed_collector` | «Лента артефактов»: обход всех артефактов каталога (`category LIKE 'artefact%' AND on_auction IS NOT FALSE`, ~103 предмета) с **полной** пагинацией `/lots` по `data["total"]`, скоринг и перезапись `feed_lots` + апсерт наблюдений в `lot_observations` (все лоты среза, не только выгодные). Бюджет `FEED_BUDGET_UNITS_PER_MIN=200` ед/прогон, Redis-лок `feed:scan:lock` (NX EX 300) против наложения, резумируемый курсор, два темпа «горячие/холодные». Расписание по **стенным часам**, а не `timedelta(60)`: у `timedelta` фаза привязана к старту beat, и при рестарте контейнеров цикл ленты выпускался в ту же секунду, что watchlist-тик и `collect_emission` (реальные 429 при среднем расходе ~42 % лимита) |
+| `collect_artifact_lots` | `crontab(minute="*")` + джиттер старта до 10 с | `app.tasks.feed_collector` | «Лента»: обход набора (`services/feed/scope.feed_scope_clause()` — единственный источник правила, 383 предмета: артефакты, снаряжение рангов veteran/master/legend, части, премиум, пропуска) с **полной** пагинацией `/lots` по `data["total"]`, скоринг по трём тирам продажи и перезапись `feed_lots` + апсерт наблюдений в `lot_observations` (все лоты среза, не только выгодные). Бюджет `FEED_BUDGET_UNITS_PER_MIN=200` ед/прогон, Redis-лок `feed:scan:lock` (NX EX 300) против наложения, резумируемый курсор, два темпа «горячие/холодные». Расписание по **стенным часам**, а не `timedelta(60)`: у `timedelta` фаза привязана к старту beat, и при рестарте контейнеров цикл ленты выпускался в ту же секунду, что watchlist-тик и `collect_emission` (реальные 429 при среднем расходе ~42 % лимита) |
 | `collect_artifact_history` | раз в час (мин. 15) + джиттер до 30 с | `app.tasks.feed_collector` | История продаж по всем артефактам — опора расчёта прибыли ленты. Пишет `sales_history` с `user_id = NULL`. ~3.4 ед/мин в часовом среднем. Минута :15 выбрана вне окна `collect_all_history` (:00–:11); обход растянут паузой `HISTORY_ITEM_DELAY = 2.0` с между предметами примерно на 4 минуты (~52 ед/мин вместо 206 ед за одну минуту) |
 | `resolve_lot_observations` | `crontab(minute="13,28,43,58")` | `app.tasks.feed_collector` | Закрывает наблюдения за исчезнувшими лотами: `sold` / `expired` / `withdrawn`. К внешнему API **не обращается** — читает только `lot_observations` и `sales_history`. Строка берётся не раньше чем через `LOT_OBS_RESOLVE_DELAY_HOURS = 2` после `last_seen_at`: история артефактов приезжает раз в час, на свежих строках сделки в `sales_history` ещё нет и резолвер пометил бы их `withdrawn`. Порция — `LOT_OBS_RESOLVE_BATCH = 5000`. Минуты выбраны вне окна `collect_all_history` (:00–:11) и вне слотов `calculate_market_stats_batch` / `calculate_artifact_variant_stats` / `collect_artifact_history` |
 | `recalc_sale_survival` | `crontab(hour="4", minute="7")` | `app.tasks.analyzers` | Пересчитывает кривую дожития `sale_survival` из `lot_observations` (P1-4 фаза B, ТЗ `docs/tasks/sale-survival-curve.md`). К внешнему API **не обращается**. Раз в сутки: окно выборки `SURVIVAL_WINDOW_DAYS = 14`, и за час оно не меняется настолько, чтобы это было видно в стратах по 200+ наблюдений. Таблица перестраивается целиком (`DELETE` + `INSERT`) — страта, переставшая набирать `MIN_STRATUM_N`, обязана **исчезнуть**: устаревшая строка хуже отсутствующей, потребители умеют деградировать. Идемпотентна, `max_retries=0`. Только `source = 'live'` |
@@ -137,7 +137,7 @@ OAuth2 Client Credentials flow для Stalcraft API.
 **Источник:** `https://raw.githubusercontent.com/EXBO-Studio/stalzone-database/main/ru/listing.json`
 
 **Логика:**
-- Скачивает listing.json (~2236 предметов)
+- Скачивает listing.json (**2329** предметов, замер 2026-08-20; из них 2250 видимых в `/items`)
 - Парсит item_id из пути (`/items/artefact/biochemical/04yr.json` → `04yr`)
 - Определяет category из пути (`artefact/biochemical`)
 - `can_be_batch_traded = False` для weapon, armor, attachment, weapon_modules, backpacks
@@ -611,8 +611,22 @@ FEED_ITEM_PARK_TTL        = 900   # на сколько припаркованн
 - **Предохранитель по фактическому расходу:** перед каждым предметом читается
   `max(текущая минута, предыдущая полная минута)` из `stalcraft:requests:minute:*`;
   превышение `FEED_RATE_GUARD_UNITS` → `break`. Ядро `rate_limiter.py` не менялось.
+- **Допуск по трём тирам** (с 2026-08-21, ТЗ `docs/tasks/feed-multi-tier-admission.md`):
+  `evaluate_lot_profit` вызывается с `tiers=TIER_ORDER` и берёт лот, выгодный **хотя бы по
+  одному** сценарию продажи, помечая его первым подошедшим (`feed_lots.tier_used`). До этого
+  допуск решал один тир `fast`, и лот дешевле опоры, но дороже `ref × 0.893`, отбрасывался
+  целиком. Замер на проде: лента 225 → 799 строк, впервые появились оружие, обвесы и броня
+  (65 строк, из них 62 — тира `premium`: на рынке снаряжения дисконта нет, прибыль возникает
+  только при продаже выше опоры).
 - **Два темпа:** горячие обходятся каждый цикл, холодные — каждый `FEED_COLD_EVERY_N_CYCLES`-й.
   Порядок очереди — по `feed:scan:last` ASC, NULL первыми.
+- **Асимметрия допуска и обхода — намеренная.** В ленту допускаются три тира, а горячим
+  предмет делают только `fast` и `normal`: порог `_load_observed_yield` — `NORMAL_RATIO`
+  (не `FAST_RATIO` и не `PREMIUM_RATIO`). Причина в вероятности: цена `normal` продаётся в
+  74.5 % случаев и оправдывает опрос каждую минуту, `premium` — в 49.0 % и места в бюджете
+  обхода не окупает. Учёт `premium` поднял бы горячих со ~112 до ~202 из 383 и растянул
+  круг — ровно то, что чинила правка 2026-08-19. Предмет, дающий только `premium`-лоты,
+  остаётся холодным и обходится каждый пятый цикл.
 - **Общий кэш:** после обхода предмета вызывается `api_cache.set_lots(...)` — `GET /lots/{id}`
   по артефакту не порождает своего запроса к внешнему API.
 - **Идентичность лота:** `lot_key = lot_identity_key(lot)` = `startTime|qlt|ptn|buyoutPrice|amount`.

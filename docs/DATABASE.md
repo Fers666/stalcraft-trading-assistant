@@ -515,7 +515,7 @@ P&L/медиан никогда не реализовывалась).
 
 ### `feed_lots` — живой срез выгодных лотов «Ленты артефактов»
 
-Миграция `0038`. **Только выгодные лоты** (`evaluate_lot_profit` вернул не-`None`), переписывается каждым циклом `collect_artifact_lots` (~раз в минуту): upsert по `(item_id, region, lot_key)`, затем `DELETE ... WHERE seen_at < cycle_started_at` по обойдённому предмету и уборка строк старше `FEED_STALE_ROW_HOURS = 1`. Единственный писатель — `backend/app/tasks/feed_collector.py`. Формулы — `docs/BUSINESS_LOGIC.md` §18.
+Миграция `0038`. **Только выгодные лоты** (`evaluate_lot_profit` вернул не-`None`) — с 2026-08-21 выгодность проверяется по **всем трём тирам** продажи, а не только по `fast`, и тир записывается в `tier_used` (ТЗ `docs/tasks/feed-multi-tier-admission.md`). Переписывается каждым циклом `collect_artifact_lots` (~раз в минуту): upsert по `(item_id, region, lot_key)`, затем `DELETE ... WHERE seen_at < cycle_started_at` по обойдённому предмету и уборка строк старше `FEED_STALE_ROW_HOURS = 1`. Единственный писатель — `backend/app/tasks/feed_collector.py`. Формулы — `docs/BUSINESS_LOGIC.md` §18.
 
 | Поле | Тип | Nullable | Описание |
 |------|-----|----------|----------|
@@ -531,6 +531,7 @@ P&L/медиан никогда не реализовывалась).
 | `start_time` | timestamptz | да | Из `lot["startTime"]` (отдельным полем: `lot_key` составной) |
 | `end_time` | timestamptz | да | Из `lot["endTime"]`. **Длительность аукциона переменная**, см. врезку ниже |
 | `ref_price` | bigint | нет | Опорная цена варианта из `artifact_variant_stats.ref_price` |
+| `tier_used` | varchar(10) | нет | Тир продажи, которым лот прошёл в ленту: `fast` / `normal` / `premium`. **Самый быстрый из подошедших** (`pricing.TIER_ORDER`) — отвечает на «как быстро это перепродать с прибылью», а не «где больше денег»; на второе отвечает `ev_profit`. **Все колонки прибыли посчитаны по этому тиру**, поэтому сравнивать `profit_pct` строк разных тиров напрямую нельзя: цена тира — это ещё и вероятность продажи (замер за 7 дней: `fast` 81.3 %, `normal` 74.5 %, `premium` 49.0 %). Миграция `0048`, `server_default='fast'` |
 | `sell_price_used` | bigint | нет | Из `evaluate_lot_profit` |
 | `breakeven_per_unit` | bigint | нет | Из `evaluate_lot_profit` (единственное место расчёта безубытка) |
 | `profit_per_unit` | bigint | нет | Прибыль на единицу |
@@ -539,7 +540,13 @@ P&L/медиан никогда не реализовывалась).
 | `margin_adj_pct` | numeric(8,2) | нет | `profit_pct / risk_mult` — sargable-форма фильтра `profit_pct >= порог × risk_mult`; **основной фильтр видимости ленты** |
 | `profit_per_hour` | numeric(14,2) | да | ₽/час **на единицу** (как считает `evaluate_lot_profit`) |
 | `profit_per_hour_total` | numeric(14,2) | да | `profit_total / est_sell_hours` — ₽/час **со всего лота**, ровно та величина, которую печатает колонка «₽/час», и ключ её сортировки (`?sort=profit_per_hour`). Материализована, потому что сортировать надо по показанному числу: при `amount > 1` две величины расходятся в `amount` раз и выдача переворачивалась |
-| `est_sell_hours` | numeric(8,2) | да | `estimated_hours` тира `fast` |
+| `est_sell_hours` | numeric(8,2) | да | `estimated_hours` тира `tier_used` (до 2026-08-21 — всегда `fast`; часы `fast` у строки тира `premium` завышали ₽/час втрое) |
+| `ev_profit` | bigint | да | **Ключ сортировки ленты по умолчанию.** Ожидаемая прибыль в рублях = максимум по сценариям всех трёх тиров, каждый взвешен своей `p_sold_6h`. `NULL` = вероятность не измерена, строка уходит в конец выдачи (`nulls_last`); подставлять `p = 1` нельзя — это вернуло бы допущение «продастся обязательно». В рублях, а не в ₽/час: часовая ставка подразумевает поток одинаковых лотов, которого на этом рынке нет |
+| `p_sold_6h` | numeric(5,2) | да | P(продан ≤ 6 ч) для плановой цены продажи, **нижняя граница** (снятый лот считается непроданным). Из `sale_survival` по позиции цены в стакане варианта. `NULL`, пока страта не набрала `MIN_STRATUM_N` — отсутствие честнее выдуманного числа |
+| `pct_sold_ever` | numeric(5,2) | да | Доля страты, продавшаяся когда-либо |
+| `profit_total_slow` | bigint | да | Сценарий «подождать и продать дороже» — цена **следующего тира вверх** от `tier_used` (до 2026-08-21 — всегда `premium`). `NULL` у строк тира `premium`: выше тира нет, и сценарий совпал бы с самой строкой |
+| `est_sell_hours_slow` | numeric(8,2) | да | Срок сценария ожидания |
+| `p_sold_6h_slow` | numeric(5,2) | да | Вероятность сценария ожидания |
 | `risk` | varchar(10) | нет | low / medium / high (`classify_risk` варианта) |
 | `risk_mult` | numeric(3,2) | нет | 1.00 / 1.30 / 1.60 из `pricing.RISK_MARGIN_MULT` |
 | `volatility_7d` | numeric(6,2) | да | |
@@ -889,7 +896,8 @@ NULL` (без предиката индекс распух бы на всех ж
 | `0040_lot_observations.py` | Новая таблица `lot_observations` — наблюдения за жизнью лота (P1-4, фаза A): 3 индекса (`uq_lot_obs_lot` UNIQUE, `ix_lot_obs_pending`, `ix_lot_obs_variant`). Бэкфилла нет и быть не может: наблюдение — событие, а не расчёт; таблица наполняется свипом ленты с первого цикла. **На проде применена 2026-08-16** |
 | `0041_lot_obs_match_and_queue.py` | `lot_observations`: `matched_sale_id` (bigint FK→`sales_history.id` `ON DELETE SET NULL`) + **частичный** уникальный индекс `uq_lot_obs_matched_sale` (`WHERE matched_sale_id IS NOT NULL`) — одна сделка закрывает максимум одно наблюдение; и три колонки состояния стакана `queue_rank` / `cheaper_units` / `variant_live_lots`. Бэкфилла нет: у старых строк `NULL`, обе величины — снимок момента. **На проде применена 2026-08-16** (`alembic current` = `0041`) |
 
-| `0046_sale_survival_class.py` | `sale_survival.class` (varchar(8), NOT NULL) — измерение «класс предмета» (`artefact` / `gear`) после расширения набора ленты на снаряжение; уникальный индекс `uq_sale_survival` пересоздан как `(class, feature, bucket, horizon_h)`. Бэкфилла нет: существующие строки посчитаны по артефактам и получают `'artefact'` через временный `server_default`, снимаемый в той же миграции. `downgrade` **удаляет** строки `class <> 'artefact'` — без измерения они неотличимы от артефактных. На проде **не применена** |
+| `0046_sale_survival_class.py` | `sale_survival.class` (varchar(8), NOT NULL) — измерение «класс предмета» (`artefact` / `gear`) после расширения набора ленты на снаряжение; уникальный индекс `uq_sale_survival` пересоздан как `(class, feature, bucket, horizon_h)`. Бэкфилла нет: существующие строки посчитаны по артефактам и получают `'artefact'` через временный `server_default`, снимаемый в той же миграции. `downgrade` **удаляет** строки `class <> 'artefact'` — без измерения они неотличимы от артефактных. **На проде применена** (проверено 2026-08-21: до выкатки `0048` `alembic current` показывал `0047`) |
+| `0048_feed_tier_used.py` | `feed_lots.tier_used` (varchar(10), NOT NULL, `server_default='fast'`) — тир продажи, которым лот прошёл в ленту. Бэкфилл не нужен: `feed_lots` — снимок, полностью перезаписываемый каждую минуту; умолчание стоит только ради окна между миграцией и запуском нового образа. ⚠ **Применять строго ДО запуска нового образа** (то же правило, что у `0039`): модель `FeedLot` объявляет колонку, без неё падает любой ORM-SELECT ленты. **На проде применена 2026-08-21** |
 
 > Орфанная пара `c7bfc1ffa62c_add_feed_watchlist.py` / `e8a3d1f5c920_drop_feed_watchlist.py` — добавлена и откатана в тот же день (2026-06-11, вторая попытка "Ленты", таблица `feed_watchlist`), без следа в текущей схеме.
 
