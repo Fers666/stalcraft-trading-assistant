@@ -589,11 +589,16 @@ def test_evaluate_lot_profit_respects_tier_order():
     )["tier_used"] == "premium"
 
 
-def test_hot_signal_counts_normal_but_not_premium():
+def test_hot_signal_counts_fast_tier_only():
     """
-    Асимметрия из §3.2 ТЗ: в ленту допускаются три тира, а горячим предмет
-    делают только fast и normal. Учёт premium поднял бы горячих со ~112 до
-    ~202 из 383 и растянул круг обхода.
+    Асимметрия §3.2 ТЗ: в ленту допускаются три тира, а горячим предмет делает
+    ТОЛЬКО fast. Порог поднимали до NORMAL_RATIO при выкатке и вернули по
+    замеру прода (§6 ТЗ): горячих стало ~143 из 383, deferred вырос с 6 до 70,
+    круг растянулся до ~13 минут при неизменном бюджете.
+
+    Тест сторожит именно эту асимметрию: допуск в ленту и частота обхода —
+    разные решения, и «привести их к одному тиру» выглядит соблазнительной
+    уборкой, которая молча вернёт растянутый круг.
     """
     import inspect
 
@@ -601,6 +606,6 @@ def test_hot_signal_counts_normal_but_not_premium():
     from app.tasks.feed_collector import _load_observed_yield
 
     source = inspect.getsource(_load_observed_yield)
-    assert "NORMAL_RATIO" in source
-    assert "FAST_RATIO" not in source
-    assert NORMAL_RATIO > FAST_RATIO
+    assert "FAST_RATIO" in source
+    assert "NORMAL_RATIO" not in source.split('"""')[-1]
+    assert FAST_RATIO < NORMAL_RATIO

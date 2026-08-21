@@ -252,10 +252,10 @@ def is_hot(
     сутки и не дал ни одной возможности: такой предмет холодный, что бы ни
     говорили продажи и каталог.
 
-    Считается по тирам fast и normal, но НЕ premium (см. _load_observed_yield),
-    хотя в ленту с 2026-08-21 допускаются все три. Предмет, дающий только
-    premium-лоты, будет холодным и обойдётся каждый пятый цикл — осознанный
-    размен места в бюджете на вероятность продажи 49 %.
+    Считается ТОЛЬКО по тиру fast (см. _load_observed_yield), хотя в ленту с
+    2026-08-21 допускаются все три. Предмет, дающий только normal- или
+    premium-лоты, будет холодным и обойдётся каждый пятый цикл — размен
+    частоты опроса на длину круга, подтверждённый замером прода 2026-08-21.
 
     Зачем это понадобилось (замер 2026-08-19): после расширения набора со 103
     предметов до 383 снаряжение заняло 73 % набора и попало в горячие 143
@@ -1319,14 +1319,25 @@ async def _load_observed_yield(db, region: str, now: datetime) -> dict[str, int]
     не нужно: опора варианта записана в саму строку наблюдения
     (ref_price_at_seen) именно для таких вопросов.
 
-    Порог — NORMAL_RATIO с поправкой на комиссию, то есть тиры fast и normal,
-    но НЕ premium. Асимметрия с допуском в ленту (там все три тира,
-    docs/tasks/feed-multi-tier-admission.md) намеренная: замер §2.2 ТЗ —
-    цена normal продаётся в 74.5 % случаев против 81.3 % у fast, это настоящая
-    выгода и она оправдывает опрос предмета каждую минуту; premium продаётся в
-    49.0 %, и ради такого лота держать предмет в горячих слишком дорого.
-    Учёт premium поднял бы горячих со ~112 до ~202 из 383 и растянул круг
-    обхода — ровно то, что чинила правка 2026-08-19.
+    Порог — FAST_RATIO с поправкой на комиссию, то есть ТОЛЬКО тир fast.
+    Асимметрия с допуском в ленту (там все три тира,
+    docs/tasks/feed-multi-tier-admission.md) намеренная и проверена замером.
+
+    История решения. При выкатке допуска по трём тирам порог подняли до
+    NORMAL_RATIO: цена normal продаётся в 74.5 % случаев против 81.3 % у fast,
+    и это выглядело настоящей выгодой, ради которой стоит опрашивать предмет
+    каждую минуту. Замер на проде через 40 минут (§6 ТЗ) решение отменил:
+    горячих стало ~143 из 383, и при неизменном бюджете очередь перестала
+    разгребаться за цикл — deferred вырос с 6 до 70, круг растянулся до ~13
+    минут. Порог возвращён на FAST_RATIO.
+
+    Что этот порог НЕ делает: он не убирает предметы из ленты и не отменяет
+    допуск по трём тирам. Строки холодного предмета живут до его следующего
+    обхода (delete_stale_rows удаляет строки предмета только когда сам предмет
+    обходят заново), поэтому холодный предмет виден в ленте всеми тремя тирами
+    — просто его данные обновляются раз в FEED_COLD_EVERY_N_CYCLES циклов, а не
+    каждый. Цена отката — часть выгодных лотов тира normal мы не застаём: лот
+    живёт минуты.
 
     Порог берётся из констант тиров, а не второй копией числа: разъедься они,
     планировщик стал бы считать выгодным не то, что показывает лента.
@@ -1336,7 +1347,7 @@ async def _load_observed_yield(db, region: str, now: datetime) -> dict[str, int]
     """
     from sqlalchemy import func, select
     from app.models.models import LotObservation
-    from app.services.analytics.pricing import COMMISSION, NORMAL_RATIO
+    from app.services.analytics.pricing import COMMISSION, FAST_RATIO
 
     rows = (await db.execute(
         select(LotObservation.item_id, func.count())
@@ -1346,7 +1357,7 @@ async def _load_observed_yield(db, region: str, now: datetime) -> dict[str, int]
             LotObservation.last_seen_at >= now - timedelta(hours=FEED_YIELD_WINDOW_HOURS),
             LotObservation.ref_price_at_seen > 0,
             LotObservation.buyout_per_unit
-                < LotObservation.ref_price_at_seen * NORMAL_RATIO * (1 - COMMISSION),
+                < LotObservation.ref_price_at_seen * FAST_RATIO * (1 - COMMISSION),
         )
         .group_by(LotObservation.item_id)
     )).all()
