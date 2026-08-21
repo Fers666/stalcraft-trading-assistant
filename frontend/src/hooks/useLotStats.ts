@@ -226,7 +226,10 @@ function feedToSignals(data: any): SignalsData | null {
       profit:             l.profit_per_unit ?? null,
       profit_pct:         l.profit_pct ?? null,
       profit_per_hour:    l.profit_per_hour ?? null,
-      tier_used:          'fast',
+      // Тир, которым лот прошёл в ленту. Был захардкожен 'fast' — до
+      // e497dda бэкенд иначе и не умел. С трёхтировым допуском константа
+      // печатала прибыль тира premium под этикеткой «Быстро».
+      tier_used:          l.tier_used ?? 'fast',
       sell_price_used:    l.sell_price_used ?? null,
       breakeven_per_unit: l.breakeven_per_unit ?? null,
     })),
@@ -394,25 +397,38 @@ export function useLotStats({
     if (signals?.lots?.length) {
       const opts = sellPrices ?? []
       // Поправка на размер пачки. Бэкенд оценивал лот по цене sell_price_used,
-      // которая при amount > 1 отличается от тира «Быстро»
+      // которая при amount > 1 отличается от цены его тира
       // (pricing.evaluate_lot_profit + batch_stats), — без неё строка таблицы и
       // карточка расходились вплоть до смены знака. Множитель восстанавливаем
       // из самой оценки, второй формулы не заводим.
       // Только для «Ленты»: там stats и лоты приходят из ОДНОГО варианта
       // (artifact_variant_stats), поэтому базы сопоставимы; у watchlist-сигналов
       // опции карточки и оценка сигналов считаются на разных выборках.
-      const fastPrice = stats?.sell_options?.find(o => o.label === 'fast')?.price_per_unit ?? null
+      const tierPrice = (label: string | null | undefined) =>
+        stats?.sell_options?.find(o => o.label === label)?.price_per_unit ?? null
       const isFeed = signalsSource === 'feed'
 
-      // Бэкенд уже отобрал лоты по min_profit_margin_pct × риск-множитель от тира
-      // «быстро» — это строго жёстче клиентского порога, повторно не фильтруем.
+      // Бэкенд уже отобрал лоты по min_profit_margin_pct × риск-множитель от
+      // цены их тира — это строго жёстче клиентского порога, повторно не
+      // фильтруем.
       // Порядок бэкенда (profit_per_hour desc) значим: режем ДО пересортировки,
       // иначе из выдачи вылетают самые прибыльные лоты.
       return signals.lots
         .slice(0, MAX_PROFITABLE_LOTS)
         .map(l => {
-          const factor = isFeed && fastPrice && l.sell_price_used
-            ? l.sell_price_used / fastPrice
+          // Делим на цену ТОГО ЖЕ тира, которым бэкенд оценил лот. С делением на
+          // fast у строки тира premium выходило PREMIUM_RATIO / FAST_RATIO =
+          // 1.12766 — чистое отношение тиров, к пачке отношения не имеющее: все
+          // три цены завышались на 12.8 %, а подпись обещала «пачками дороже»
+          // при amount = 1 и batch_stats = NULL.
+          // Корректность деления: _evaluate_at_tier считает sell_price =
+          // price_per_unit(тир) × (медиана_пачки / normal_price), и второй
+          // сомножитель от тира НЕ зависит (знаменатель всегда normal). Значит
+          // частное — ровно поправка на пачку, и применять её ко всем трём
+          // ценам по-прежнему верно. При amount = 1 множитель равен 1.
+          const basePrice = tierPrice(l.tier_used)
+          const factor = isFeed && basePrice && l.sell_price_used
+            ? l.sell_price_used / basePrice
             : 1
           // Отклонение цены пачки от штучной для подписи в UI — то же число,
           // формулы не прибавилось. Меньше 0.1% — округлилось бы в «0 %».

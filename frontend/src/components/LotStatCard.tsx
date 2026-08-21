@@ -390,8 +390,27 @@ export default function LotStatCard({
                               <Box component="span" sx={{ color: tokens.text2 }}>—</Box>
                             )}
                           </TableCell>
-                          {lot.profits.map(p => (
-                            <TableCell key={p.label} sx={{ color: p.perUnit > 0 ? tokens.success : tokens.danger }}>
+                          {lot.profits.map(p => {
+                            // Тир, которым лот прошёл в ленту: именно его число
+                            // посчитал бэкенд, остальные два — клиентский what-if.
+                            // До e497dda это всегда была «Быстро», и метка была не
+                            // нужна; теперь без неё прибыль тира «Выгодно» неотличима
+                            // от такой же по «Быстро», а сбывается вдвое реже.
+                            const isBackendTier = lot.tierUsed === p.label
+                            return (
+                            <TableCell
+                              key={p.label}
+                              title={isBackendTier
+                                ? `Лот прошёл в ленту по этому тиру — прибыль посчитана бэкендом от цены «${p.label_ru}»`
+                                : undefined}
+                              sx={{
+                                color: p.perUnit > 0 ? tokens.success : tokens.danger,
+                                ...(isBackendTier && {
+                                  background: tokens.goldDim,
+                                  boxShadow: `inset 2px 0 0 ${tokens.goldAccent}`,
+                                }),
+                              }}
+                            >
                               {p.perUnit > 0 ? '+' : '−'}{fmtP(Math.abs(p.perUnit))}
                               {lot.amount > 1 && (
                                 <Box component="span" sx={{ display: 'block', color: tokens.text2, fontSize: fs.f11 }}>
@@ -399,7 +418,8 @@ export default function LotStatCard({
                                 </Box>
                               )}
                             </TableCell>
-                          ))}
+                            )
+                          })}
                         </TableRow>
                       )
                     })}

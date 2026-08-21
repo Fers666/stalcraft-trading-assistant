@@ -226,6 +226,14 @@ export default function MobileLotStatCard({
                     const fastWhatIf = lot.profits.find(p => p.label === 'fast')?.perUnit ?? 0
                     const fromBackend = lotMode === 'median' && lot.profit != null
                     const value = fromBackend ? lot.profit! : fastWhatIf
+                    // Подпись называет тир, по которому посчитано ЭТО число. В
+                    // «Неделе» это тир бэкенда (с e497dda он не обязан быть
+                    // «Быстро»), в «Сейчас» — клиентский what-if от «Быстро».
+                    // Берём label_ru из самой строки, чтобы подпись указывала на
+                    // существующую колонку «Вариантов продажи», а не на чип ленты.
+                    const valueTier = fromBackend
+                      ? lot.profits.find(p => p.label === lot.tierUsed)?.label_ru ?? 'быстро'
+                      : 'быстро'
                     return (
                       <DCard
                         key={i}
@@ -238,7 +246,7 @@ export default function MobileLotStatCard({
                             <Box className="mono" sx={{ fontSize: fs.f14, fontWeight: 700, color: value > 0 ? tokens.success : tokens.danger }}>
                               {value > 0 ? '+' : '−'}{fmtP(Math.abs(value))}
                             </Box>
-                            <Box sx={{ fontSize: fs.f105, color: tokens.text2 }}>прибыль / шт (быстро)</Box>
+                            <Box sx={{ fontSize: fs.f105, color: tokens.text2 }}>прибыль / шт ({valueTier.toLowerCase()})</Box>
                           </Box>
                         }
                       />
