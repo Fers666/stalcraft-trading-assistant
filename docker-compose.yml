@@ -80,7 +80,10 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    command: celery -A app.tasks.celery_app worker --loglevel=info -Q collector -c 2
+    # Число слотов задаёт worker_concurrency в app/tasks/celery_app.py — единый
+    # источник. Флаг -c здесь перекрывал конфиг, из-за чего concurrency 2 -> 3
+    # из a6829d6 (2026-08-06) фактически не применялся.
+    command: celery -A app.tasks.celery_app worker --loglevel=info -Q collector
 
   scheduler:
     build: ./backend
