@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -205,6 +205,48 @@ async def get_admin_stats(
         total_watchlist_entries=total_watchlist_entries,
         rate_limit=rate_limit,
     )
+
+
+# ─── История расхода лимита за сутки ──────────────────────────────────────────
+# Отдельная ручка, а не расширение /admin/stats: у /stats другая частота вызова
+# (каждое открытие страницы) и другой смысл — «сейчас», а не «за сутки».
+# ТЗ docs/tasks/watchlist-parallel-fetch.md §4.4.
+
+class RateLimitHourResponse(BaseModel):
+    hour_msk: str
+    peak_units: int
+    avg_units: int
+    errors_429: int
+    limiter_timeouts: int
+    guard_trips: int
+
+
+class RateLimitHistoryResponse(BaseModel):
+    window_hours: int
+    capacity_per_minute: int
+    source: str                     # redis | fallback (Redis недоступен — нули, не 500)
+    minutes_observed: int           # из скольких минут окна есть данные
+    peak_units_per_minute: int
+    peak_minute_msk: str | None
+    median_units_per_minute: int
+    errors_429_total: int
+    last_429_at_msk: str | None
+    limiter_timeouts_total: int
+    guard_trips_total: int
+    # Признак того, что цифра — НИЖНЯЯ граница нагрузки на ключ: прод и
+    # локальный/стейдж-стек ходят под одним STALCRAFT_CLIENT_ID, но с разными
+    # Redis, поэтому чужой расход в этот счётчик не попадает. UI обязан
+    # подписать это честно, иначе половина картины выдаётся за полную.
+    shared_key_warning: bool
+    hours: list[RateLimitHourResponse]
+
+
+@router.get("/rate-limit/history", response_model=RateLimitHistoryResponse)
+async def get_rate_limit_history(
+    hours: int = Query(24, ge=1, le=24),
+    _: User = Depends(get_current_admin),
+):
+    return RateLimitHistoryResponse(**await rate_limiter.get_history(hours=hours))
 
 
 # ─── Тарифы ───────────────────────────────────────────────────────────────────

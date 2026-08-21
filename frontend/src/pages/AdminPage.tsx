@@ -123,6 +123,31 @@ interface AdminStats {
   }
 }
 
+interface RateLimitHour {
+  hour_msk: string
+  peak_units: number
+  avg_units: number
+  errors_429: number
+  limiter_timeouts: number
+  guard_trips: number
+}
+
+interface RateLimitHistory {
+  window_hours: number
+  capacity_per_minute: number
+  source: 'redis' | 'fallback'
+  minutes_observed: number
+  peak_units_per_minute: number
+  peak_minute_msk: string | null
+  median_units_per_minute: number
+  errors_429_total: number
+  last_429_at_msk: string | null
+  limiter_timeouts_total: number
+  guard_trips_total: number
+  shared_key_warning: boolean
+  hours: RateLimitHour[]
+}
+
 type FilterType = 'all' | 'pending' | 'approved'
 
 export default function AdminPage() {
@@ -158,6 +183,8 @@ export default function AdminPage() {
   // Stats card (snapshot — без поллинга, обновляется при заходе на страницу)
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [rateHist, setRateHist] = useState<RateLimitHistory | null>(null)
+  const [rateHistLoading, setRateHistLoading] = useState(false)
 
   useEffect(() => {
     if (user && !user.is_admin) {
@@ -170,6 +197,7 @@ export default function AdminPage() {
     loadUsers()
     loadRegistrationSettings()
     loadStats()
+    loadRateHistory()
   }, [user])
 
   const loadUsers = async () => {
@@ -207,6 +235,18 @@ export default function AdminPage() {
       // тихо игнорируем — блок статистики просто не покажет значения
     } finally {
       setStatsLoading(false)
+    }
+  }
+
+  const loadRateHistory = async () => {
+    setRateHistLoading(true)
+    try {
+      const { data } = await api.get('/admin/rate-limit/history')
+      setRateHist(data)
+    } catch {
+      // операционная метрика не должна ломать страницу — блок просто не покажется
+    } finally {
+      setRateHistLoading(false)
     }
   }
 
@@ -480,6 +520,95 @@ export default function AdminPage() {
           })()}
         </Box>
       </CompartmentGrid>
+
+      {/* Расход лимита за сутки: 429 приходят на пике, а не на среднем, поэтому
+          рядом с числом отказов идут пиковая минута и почасовой профиль. */}
+      <Panel title="Лимит Stalcraft API за сутки">
+        {rateHistLoading || !rateHist ? (
+          <Skeleton variant="rounded" width="100%" height={96} />
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <StatusLine
+              metrics={[
+                {
+                  label: 'Отказы 429',
+                  value: fmtN(rateHist.errors_429_total),
+                  unit: rateHist.last_429_at_msk ?? undefined,
+                  tone: rateHist.errors_429_total > 0 ? 'r' : 'g',
+                },
+                {
+                  label: 'Пик за минуту',
+                  value: fmtN(rateHist.peak_units_per_minute),
+                  unit: `/ ${fmtN(rateHist.capacity_per_minute)}`,
+                  tone: rateHist.peak_units_per_minute > rateHist.capacity_per_minute * 0.85
+                    ? 'r'
+                    : rateHist.peak_units_per_minute > rateHist.capacity_per_minute * 0.6
+                      ? 'a'
+                      : 'g',
+                },
+                { label: 'Медиана за минуту', value: fmtN(rateHist.median_units_per_minute) },
+                {
+                  label: 'Предохранители',
+                  value: fmtN(rateHist.guard_trips_total),
+                  unit: rateHist.limiter_timeouts_total > 0
+                    ? `+ ${fmtN(rateHist.limiter_timeouts_total)} ожид.`
+                    : undefined,
+                  tone: rateHist.guard_trips_total > 0 ? 'a' : 'default',
+                },
+              ]}
+            />
+
+            {/* Столбик часа = пиковая минута этого часа. Часы с 429 подсвечены. */}
+            <Box>
+              <Kick sx={{ display: 'block', mb: '8px' }}>Пик по часам, ед/мин</Kick>
+              <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: 64 }}>
+                {rateHist.hours.map((h, i) => {
+                  const pct = rateHist.capacity_per_minute > 0
+                    ? Math.min((h.peak_units / rateHist.capacity_per_minute) * 100, 100)
+                    : 0
+                  const color = h.errors_429 > 0
+                    ? tokens.danger
+                    : pct > 85 ? tokens.danger : pct > 60 ? tokens.warning : tokens.success
+                  return (
+                    <Box
+                      key={`${h.hour_msk}-${i}`}
+                      title={`${h.hour_msk} — пик ${h.peak_units}, среднее ${h.avg_units}, 429: ${h.errors_429}`}
+                      sx={{
+                        flex: 1, minWidth: 0, height: '100%',
+                        display: 'flex', alignItems: 'flex-end',
+                        background: tokens.bg2,
+                      }}
+                    >
+                      <Box sx={{
+                        width: '100%',
+                        height: `${Math.max(pct, h.peak_units > 0 ? 3 : 0)}%`,
+                        background: color,
+                      }} />
+                    </Box>
+                  )
+                })}
+              </Box>
+              <Box className="mono" sx={{
+                display: 'flex', justifyContent: 'space-between',
+                fontSize: fs.f11, color: tokens.text2, mt: '4px',
+              }}>
+                <span>{rateHist.hours[0]?.hour_msk ?? ''}</span>
+                <span>{rateHist.hours[rateHist.hours.length - 1]?.hour_msk ?? ''}</span>
+              </Box>
+            </Box>
+
+            {/* Честная подпись: счётчик живёт в Redis этого окружения, а ключ
+                Stalcraft общий с локальным стеком — значит это нижняя граница. */}
+            <Typography className="mono" sx={{ fontSize: fs.f11, color: tokens.text2 }}>
+              {rateHist.source === 'fallback'
+                ? 'Redis недоступен — история за сутки не собрана.'
+                : `Данные за ${fmtN(rateHist.minutes_observed)} мин из ${fmtN(rateHist.window_hours * 60)}.`}
+              {rateHist.shared_key_warning
+                && ' Учтён расход только этого окружения: ключ Stalcraft общий с локальным стеком, поэтому это нижняя граница нагрузки.'}
+            </Typography>
+          </Box>
+        )}
+      </Panel>
 
       {/* Задача пересборки истории */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>

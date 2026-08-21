@@ -3,7 +3,7 @@ import logging
 import httpx
 
 from app.core.config import settings
-from app.core.rate_limiter import rate_limiter, TokenCost
+from app.core.rate_limiter import ERROR_429, incr_error, rate_limiter, TokenCost
 from app.services.auth.token_manager import token_manager
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,11 @@ class StalcraftClient:
 
         if response.status_code == 429:
             logger.error("429 received despite token bucket")
+            # Единственный внешний отказ, который вообще бывает. До Части B ТЗ
+            # watchlist-parallel-fetch.md он жил только в логе, поэтому вопрос
+            # «сколько их было за сутки» был неотвечаем. Счётчик best-effort:
+            # ронять сбор из-за неудачной записи метрики нельзя.
+            await incr_error(ERROR_429, redis_client=redis_client, path=path)
             raise RuntimeError("Rate limit exceeded (429)")
 
         response.raise_for_status()

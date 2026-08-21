@@ -1018,25 +1018,11 @@ async def release_lock(redis_client) -> None:
     await redis_client.delete(FEED_LOCK_KEY)
 
 
-async def recent_consumption(redis_client) -> int:
-    """
-    Фактический расход лимитера: max(текущая неполная минута, предыдущая полная).
-
-    rate_limiter.get_consumption_stats() отдаёт счётчик ТЕКУЩЕЙ минуты — в её
-    первые секунды он около нуля и как одиночный сигнал бесполезен. Ключ
-    предыдущей минуты жив (EXPIRE 120), поэтому читаем оба. Ядро
-    rate_limiter.py при этом не трогаем.
-    """
-    from app.core.rate_limiter import rate_limiter
-
-    minute = int(time.time() // 60)
-    prefix = rate_limiter.REQUESTS_MINUTE_KEY_PREFIX
-    try:
-        values = await redis_client.mget([f"{prefix}{minute}", f"{prefix}{minute - 1}"])
-    except Exception as e:
-        logger.warning(f"feed: не удалось прочитать расход лимитера: {e}")
-        return 0
-    return max((int(v) if v else 0) for v in values)
+# recent_consumption переехал в app/core/rate_limiter.py: предохранители ленты
+# и watchlist обязаны читать расход из одного источника (ТЗ
+# watchlist-parallel-fetch.md, шаг B2). Имя оставлено в модуле — на него
+# ссылаются тесты и вызовы ниже.
+from app.core.rate_limiter import ERROR_GUARD_TRIPS, incr_error, recent_consumption  # noqa: E402,F401
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -1512,6 +1498,13 @@ def collect_artifact_lots(self):
                         consumed = await recent_consumption(redis_client)
                         if consumed > guard:
                             guard_trips += 1
+                            # Почасовой счётчик для админ-панели: срабатывание
+                            # предохранителя означает, что данные не собраны,
+                            # хотя лимит API не нарушен — отдельный сорт события,
+                            # смешивать его с 429 нельзя (ТЗ §4.3).
+                            await incr_error(
+                                ERROR_GUARD_TRIPS, redis_client=redis_client,
+                            )
                             logger.warning(
                                 "feed: расход системы %s ед/мин > %s — цикл прерван, "
                                 "остаток предметов доберётся следующим",
