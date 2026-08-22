@@ -103,6 +103,7 @@ def build_lot_message(
     volatility_7d: Optional[float],
     trend: Optional[str] = None,
     saturation_ratio: Optional[float] = None,
+    tier_used: Optional[str] = None,
 ) -> str:
     prefix = "[STAGE] " if IS_STAGE else ""
 
@@ -131,11 +132,15 @@ def build_lot_message(
         sign   = "+" if profit >= 0 else ""
         marker = "✅" if profit > 0 else "❌"
         label  = label_map.get(opt.get("label", ""), opt.get("label_ru", ""))
+        # Лот допускается по любому из трёх тиров, поэтому у прошедшего по
+        # normal строка fast будет ❌ — без пометки сообщение выглядит
+        # противоречиво («невыгодно», а уведомление пришло).
+        chosen = " ◀ по этому тиру лот прошёл" if opt.get("label") == tier_used else ""
         lines.append(
             f"{marker} <code>{label}</code>"
             f" → выставить <b>{fmt(opt['price_per_unit'])} ₽</b>"
             f" · получишь {fmt(net)} ₽"
-            f" · <b>{sign}{fmt(profit)} ₽</b>"
+            f" · <b>{sign}{fmt(profit)} ₽</b>{chosen}"
         )
 
     footer: list[str] = []
@@ -246,8 +251,15 @@ async def handle_profitable_lot(db, r, app: Application, event: dict) -> None:
         return
 
     signal = event.get("signal", {})
-    sell_options = signal.get("sell_options", [])
+    # Цены варианта ЭТОГО лота, а не предмета целиком: «предмет целиком»
+    # смешивает разные товары (у Магмы 145 тыс. против 9.5 млн для «Особый»),
+    # и сообщение показывало бы цены чужого качества. Фоллбек на предметные
+    # sell_options нужен для событий старого формата, ещё лежащих в очереди.
+    variants = signal.get("variants") or {}
+    item_sell_options = signal.get("sell_options", [])
     for lot in signal.get("lots", []):
+        variant = variants.get(lot.get("variant_key")) or {}
+        sell_options = variant.get("sell_options") or item_sell_options
         start_time = lot.get("start_time", "")
         dedup = (
             f"tg_sent:{user.id}:{event['item_id']}:{event['region']}"
@@ -266,6 +278,7 @@ async def handle_profitable_lot(db, r, app: Application, event: dict) -> None:
             volatility_7d    = signal.get("volatility_7d"),
             trend            = signal.get("trend"),
             saturation_ratio = signal.get("saturation_ratio"),
+            tier_used        = lot.get("tier_used"),
         )
         try:
             await app.bot.send_message(

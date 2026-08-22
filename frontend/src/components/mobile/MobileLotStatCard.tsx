@@ -219,21 +219,22 @@ export default function MobileLotStatCard({
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {profitableLots.map((lot, i) => {
-                    // В «Неделе» бэкендовая оценка и колонка «Быстро» считаются от одной
-                    // опорной цены — берём бэкендовую, в ней ещё поправка на размер пачки.
+                    // В «Неделе» бэкендовая оценка и колонка его тира считаются от
+                    // одной опорной цены — берём бэкендовую, в ней ещё поправка на пачку.
                     // В «Сейчас» — клиентский what-if, иначе знак разойдётся с десктопом:
                     // мобайл показывал бы плюс там, где в таблице минус.
-                    const fastWhatIf = lot.profits.find(p => p.label === 'fast')?.perUnit ?? 0
+                    // Тир лота: с e497dda он не обязан быть «Быстро». Число и
+                    // подпись обязаны называть ОДИН тир, иначе мобайл печатает
+                    // прибыль premium со словом «быстро». Фолбэк 'fast' — для
+                    // watchlist и фоллбека по /lots, где tierUsed === null.
+                    const tier = lot.tierUsed ?? 'fast'
+                    const tierWhatIf = lot.profits.find(p => p.label === tier)?.perUnit ?? 0
                     const fromBackend = lotMode === 'median' && lot.profit != null
-                    const value = fromBackend ? lot.profit! : fastWhatIf
-                    // Подпись называет тир, по которому посчитано ЭТО число. В
-                    // «Неделе» это тир бэкенда (с e497dda он не обязан быть
-                    // «Быстро»), в «Сейчас» — клиентский what-if от «Быстро».
-                    // Берём label_ru из самой строки, чтобы подпись указывала на
-                    // существующую колонку «Вариантов продажи», а не на чип ленты.
-                    const valueTier = fromBackend
-                      ? lot.profits.find(p => p.label === lot.tierUsed)?.label_ru ?? 'быстро'
-                      : 'быстро'
+                    const value = fromBackend ? lot.profit! : tierWhatIf
+                    // label_ru из самой строки — словарь карточки, а не чипов
+                    // ленты («Долго» vs «Выгодно»): два словаря в одном экране
+                    // смешивать нельзя.
+                    const tierLabel = (lot.profits.find(p => p.label === tier)?.label_ru ?? 'быстро').toLowerCase()
                     return (
                       <DCard
                         key={i}
@@ -246,7 +247,7 @@ export default function MobileLotStatCard({
                             <Box className="mono" sx={{ fontSize: fs.f14, fontWeight: 700, color: value > 0 ? tokens.success : tokens.danger }}>
                               {value > 0 ? '+' : '−'}{fmtP(Math.abs(value))}
                             </Box>
-                            <Box sx={{ fontSize: fs.f105, color: tokens.text2 }}>прибыль / шт ({valueTier.toLowerCase()})</Box>
+                            <Box sx={{ fontSize: fs.f105, color: tokens.text2 }}>прибыль / шт ({tierLabel})</Box>
                           </Box>
                         }
                       />

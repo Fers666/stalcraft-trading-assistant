@@ -608,11 +608,29 @@ class SignalLot(BaseModel):
     # Цена продажи, при которой прибыль после комиссии = 0 (pricing.evaluate_lot_profit)
     breakeven_per_unit: int | None = None
     ref_used: int | None = None
+    # Ожидаемая прибыль всего лота (pricing.expected_value) и вероятность
+    # продажи за 6 ч у тира, которым лот прошёл: по ev_profit идёт порядок
+    # списка, p_sold_6h объясняет его пользователю. Маскированию по тарифу не
+    # подлежат — это величины уровня ЛОТА, а маскируется 7-дневная статистика
+    # уровня предмета.
+    ev_profit: int | None = None
+    p_sold_6h: float | None = None
+    # Ключ записи в SignalsResponse.variants — вариант (qlt, ptn), по опоре
+    # которого посчитан ИМЕННО этот лот (profitable_lots.variant_signal_key).
+    variant_key: str | None = None
 
 
 class SignalsResponse(BaseModel):
     lots: list[SignalLot]
     sell_options: list | None
+    # Опоры и цены продажи по вариантам «качество × заточка»: {"4:0": {...}}.
+    # Верхнеуровневые ref/sell_options/risk остаются ПРЕДМЕТНЫМИ (их читают
+    # графики), а расчёт лота идёт по его варианту — «предмет целиком» смешивает
+    # разные товары (у Магмы 145 тыс. против 9.5 млн). ref_scope внутри записи
+    # различает честную вариантную опору ("variant") и вынужденный фоллбек на
+    # предметную ("item"), когда у варианта не набралось сделок.
+    # None — сигнал старого формата, ещё лежащий в Redis (TTL 5 мин).
+    variants: dict | None = None
     volume_7d: int | None
     volatility_7d: float | None
     ref: int | None
@@ -661,6 +679,10 @@ async def get_signals(
             masked = (lambda v: v if allows_7d else None)
             return SignalsResponse(
                 lots         = data.get("lots", []),
+                # Карта вариантов маскируется целиком: внутри неё те же опоры и
+                # цены 7-дневного окна, что и на верхнем уровне, — иначе тариф
+                # без «7д» получал бы закрытую статистику через неё.
+                variants     = masked(data.get("variants")),
                 sell_options = masked(data.get("sell_options")),
                 volume_7d    = masked(data.get("volume_7d")),
                 volatility_7d= masked(data.get("volatility_7d")),

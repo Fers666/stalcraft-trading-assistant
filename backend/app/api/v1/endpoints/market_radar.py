@@ -29,6 +29,11 @@ class MarketRadarItem(BaseModel):
     bulk_spike: bool | None = None
     price_window: str
     profitable_offers_count: int | None = None
+    # Ожидаемые рубли бакета (Σ pricing.expected_value по выгодным лотам) —
+    # ключ порядка страницы. profitable_offers_count остаётся отображаемым
+    # числом, но порядком быть перестал: с допуском по трём тирам он растёт
+    # почти на всех бакетах и перестаёт различать их по существу.
+    ev_offers_total: int | None = None
 
 
 class MarketRadarResponse(BaseModel):

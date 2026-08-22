@@ -493,7 +493,7 @@ def score_item_lots(
     """
     from app.services.analytics.pricing import (
         COMMISSION, RISK_MARGIN_MULT, TIER_ORDER, _is_liquid, resolve_variant_key,
-        evaluate_lot_profit, tier_prices,
+        evaluate_lot_profit, expected_value, tier_prices,
     )
     from app.services.feed.scope import CLASS_ARTEFACT, feed_item_class
 
@@ -638,16 +638,12 @@ def score_item_lots(
         else:
             profit_total_slow = slow_hours = p_sold_6h_slow = None
 
-        # Ожидаемая прибыль — максимум по сценариям: рациональный игрок выбирает
-        # лучшую стратегию для каждого лота, а не одну на всю ленту. Без
-        # измеренной вероятности величины не существует (подставлять p = 1
-        # значило бы вернуть допущение «продастся обязательно»).
-        candidates = [
-            int(p / 100.0 * v)
-            for v, _h, p in scenarios.values()
-            if p is not None and v > 0
-        ]
-        ev_profit = max(candidates) if candidates else None
+        # Ожидаемая прибыль — максимум по сценариям. Формула общая с сигналами
+        # Избранного (pricing.expected_value), часы в неё не входят: вторая
+        # копия разошлась бы с первой (ТЗ profitability-criteria-unification §1.2).
+        ev_profit = expected_value({
+            tier: (value, p) for tier, (value, _h, p) in scenarios.items()
+        })
 
         rows.append({
             "item_id":            item_id,

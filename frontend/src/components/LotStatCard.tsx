@@ -358,6 +358,16 @@ export default function LotStatCard({
                   <TableBody>
                     {displayLots.map((lot, i) => {
                       const isSelected = profitableLots[selectedLotIdx] === lot
+                      // Тир, по цене которого лот прошёл отбор: его число
+                      // посчитал бэкенд, два других — клиентский what-if.
+                      // Гейта на «Ленту» больше нет: с допуском по трём тирам
+                      // (profitable_lots, ТЗ profitability-criteria-unification
+                      // §1.1) тир перестал быть константой и в «Избранном».
+                      // Подпись берём из словаря карточки (sellPrices), а не из
+                      // feedTierLabel ленты: два словаря в одном экране
+                      // смешивать нельзя.
+                      const feedTier = lot.tierUsed
+                      const feedTierLabel = sellPrices?.find(p => p.label === feedTier)?.label_ru ?? null
                       return (
                         <TableRow
                           key={i}
@@ -381,6 +391,23 @@ export default function LotStatCard({
                                 </Box>
                               </Tooltip>
                             )}
+                            {feedTierLabel && (
+                              <Tooltip title="Тир, по цене которого лот прошёл отбор; в его колонке — прибыль, посчитанная сервисом">
+                                <Box component="span" sx={{ display: 'block', color: tokens.text2, fontSize: fs.f11, cursor: 'help' }}>
+                                  тир · {feedTierLabel}
+                                </Box>
+                              </Tooltip>
+                            )}
+                            {/* Вариантная опора — норма и не подписывается; подписи
+                                заслуживает только вынужденный фоллбек, иначе
+                                приближение неотличимо от расчёта по своему товару. */}
+                            {lot.refScope === 'item' && (
+                              <Tooltip title="У этого качества/заточки не набралось сделок для своей опоры — расчёт идёт по предмету целиком и приблизителен">
+                                <Box component="span" sx={{ display: 'block', color: tokens.text2, fontSize: fs.f11, cursor: 'help' }}>
+                                  опора по предмету
+                                </Box>
+                              </Tooltip>
+                            )}
                           </TableCell>
                           <TableCell className="mono" sx={{ textAlign: 'right', color: tokens.text1 }}>{fmtN(lot.amount)}</TableCell>
                           <TableCell sx={{ textAlign: 'right' }}>
@@ -391,12 +418,11 @@ export default function LotStatCard({
                             )}
                           </TableCell>
                           {lot.profits.map(p => {
-                            // Тир, которым лот прошёл в ленту: именно его число
-                            // посчитал бэкенд, остальные два — клиентский what-if.
-                            // До e497dda это всегда была «Быстро», и метка была не
-                            // нужна; теперь без неё прибыль тира «Выгодно» неотличима
-                            // от такой же по «Быстро», а сбывается вдвое реже.
-                            const isBackendTier = lot.tierUsed === p.label
+                            // До e497dda тиром всегда была «Быстро», и подсветка
+                            // была не нужна; теперь без неё прибыль тира «Выгодно»
+                            // неотличима от такой же по «Быстро», а сбывается
+                            // вдвое реже.
+                            const isBackendTier = feedTier === p.label
                             return (
                             <TableCell
                               key={p.label}

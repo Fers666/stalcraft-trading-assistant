@@ -37,13 +37,22 @@ Phase 1 не вводит порог анонимности — топ-20 пок
 
 Ревизия 3 (пагинация + сортировка по выгодным лотам, см.
 docs/tasks/market-radar-sort-pagination.md): список бакетов больше не
-обрезается топ-20 по watchers_count на уровне SQL — считается
-profitable_offers_count для ВСЕХ активных бакетов (с safety-cap
-MAX_BUCKETS на исходном запросе, страховка от аномального роста watchlist,
-сейчас 18 бакетов), затем весь список сортируется по profitable_offers_count
-убыв. (None трактуется как 0). Кэшируется в Redis весь отсортированный
-список (TTL не изменился), пагинация (page/page_size, по 20) — срез уже
-закэшированного списка, без SQL LIMIT/OFFSET.
+обрезается топ-20 по watchers_count на уровне SQL — метрики считаются для
+ВСЕХ активных бакетов (с safety-cap MAX_BUCKETS на исходном запросе,
+страховка от аномального роста watchlist, сейчас 18 бакетов). Кэшируется в
+Redis весь отсортированный список (TTL не изменился), пагинация
+(page/page_size, по 20) — срез уже закэшированного списка, без SQL
+LIMIT/OFFSET.
+
+Ревизия 4 (единый критерий выгодности, docs/tasks/
+profitability-criteria-unification.md §3): лот допускается по ЛЮБОМУ из трёх
+тиров продажи, как в ленте и в сигналах Избранного, а ключом порядка стали
+ожидаемые рубли ev_offers_total = Σ pricing.expected_value по выгодным лотам
+бакета (None трактуется как 0). profitable_offers_count остался
+ОТОБРАЖАЕМЫМ числом, но сортировкой быть перестал: с тремя тирами порог
+допуска смягчается с «дешевле ref * 0.893» до «дешевле ref * 1.007», счётчик
+растёт почти у каждого бакета и различать их перестаёт. По той же причине на
+ev_offers_total переведён и флаг has_profitable в подсказках онбординга.
 """
 
 import json
@@ -60,6 +69,7 @@ from app.models.models import UserWatchlist, MasterItem, MarketStatistics, Sales
 from app.services.analytics.pricing import (
     _build_sales_filter, _lot_quality_enchant, _is_artefact, _is_liquid,
     make_sell_options, evaluate_lot_profit, weighted_reference, classify_risk,
+    expected_value, COMMISSION, TIER_ORDER,
 )
 # Волатильность берём общей функцией, а не копией формулы: разъехавшиеся копии
 # означали бы, что радар и лента считают риск по-разному — то есть ровно ту
@@ -94,9 +104,9 @@ async def _count_profitable_offers(
     master: MasterItem | None,
     sell_options: list[dict],
     risk: str,
-) -> int:
+) -> tuple[int, int]:
     """
-    Считает число выгодных физических лотов в текущем снэпшоте аукциона для
+    (число выгодных лотов, ожидаемые рубли) в текущем снэпшоте аукциона для
     бакета (item_id, quality_filter, enchant_filter), суммируя across все
     регионы, где есть активные watcher'ы item_id (без фильтра quality/enchant
     самого watcher'а — снэпшот общий для item_id, см. ревизию 2 п.2 ТЗ).
@@ -105,7 +115,7 @@ async def _count_profitable_offers(
     независимо от того, сколько пользователей отслеживает бакет.
     """
     if master is None:
-        return 0
+        return 0, 0
 
     region_rows = (await db.execute(
         select(UserWatchlist.region)
@@ -114,11 +124,12 @@ async def _count_profitable_offers(
     )).scalars().all()
 
     if not region_rows:
-        return 0
+        return 0, 0
 
     now = datetime.now(timezone.utc)
     is_art = _is_artefact(master.category)
     count = 0
+    ev_total = 0
 
     for region in region_rows:
         snap = (await db.execute(
@@ -155,14 +166,38 @@ async def _count_profitable_offers(
             # маржу (RISK_MARGIN_MULT: 1.0 / 1.3 / 1.6), поэтому «low» на всех
             # предметах считал выгодными и те лоты, которые лента с их реальным
             # риском отвергает: счётчик радара расходился с выдачей ленты.
+            #
+            # Три тира, как в ленте и в сигналах Избранного (ТЗ
+            # profitability-criteria-unification §3): лот, выгодный только по
+            # normal, — такая же возможность, как выгодный по fast.
             evaluated = evaluate_lot_profit(
                 buyout_per_unit, amount, sell_options,
-                risk=risk, min_margin_pct=0.0,
+                risk=risk, min_margin_pct=0.0, tiers=TIER_ORDER,
             )
-            if evaluated is not None:
-                count += 1
+            if evaluated is None:
+                continue
+            count += 1
 
-    return count
+            # Ожидаемые рубли бакета — ключ порядка страницы. Один счётчик
+            # порядком быть не может: с тремя тирами условие допуска
+            # смягчается с «дешевле ref * 0.893» до «дешевле ref * 1.007», и
+            # сортировка по количеству выродилась бы в «у кого больше лотов на
+            # рынке». Формула та же, что у ленты и сигналов.
+            scenarios: dict[str, tuple[int, float | None]] = {}
+            for option in sell_options:
+                if option["label"] == evaluated["tier_used"]:
+                    value = evaluated["profit"] * amount
+                else:
+                    value = int(
+                        option["price_per_unit"] * amount * (1 - COMMISSION)
+                    ) - buyout
+                scenarios[option["label"]] = (value, option.get("p_sold_6h"))
+
+            ev = expected_value(scenarios)
+            if ev is not None:
+                ev_total += ev
+
+    return count, ev_total
 
 
 async def _read_cached_aggregate() -> dict | None:
@@ -260,7 +295,15 @@ async def get_watchlist_suggestions(
         # Пропускаем предметы без master-записи — их не показать (нет имени/иконки).
         if it.get("name_ru") is None and it.get("name_en") is None:
             continue
-        prof = it.get("profitable_offers_count") or 0
+        # Ожидаемые рубли, а не счётчик выгодных лотов: с допуском по трём
+        # тирам счётчик положителен почти у каждого бакета, и флаг
+        # has_profitable перестал бы различать хоть что-то — «выгодно у всех»
+        # это то же самое, что «выгодно ни у кого». Цена решения: бакет с
+        # выгодными лотами, но без ИЗМЕРЕННОЙ вероятности продажи, флага не
+        # получит и уйдёт ранжироваться по популярности. Это ровно тот путь,
+        # который докстринг уже описывает для случая «выгодных лотов сейчас
+        # нет», и он честнее флага, который горит всегда.
+        prof = it.get("ev_offers_total") or 0
         watchers = it.get("watchers_count") or 0
         cur = by_item.get(iid)
         if cur is None:
@@ -299,6 +342,13 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
     now = datetime.now(timezone.utc)
     cutoff_24h = now - timedelta(hours=24)
     cutoff_7d = now - timedelta(days=SALES_WINDOW_DAYS)
+
+    # Кривая дожития — один раз на весь пересчёт: она общая для всех бакетов
+    # (страты по признакам, а не по предмету) и меняется раз в сутки. До этой
+    # правки Радар звал make_sell_options вообще без неё, поэтому вероятностей
+    # у него не было и ожидаемую прибыль считать было не из чего.
+    from app.services.analytics.survival import load_survival
+    survival = await load_survival(db, now)
 
     # ── 1. Все бакеты (item_id, quality_filter, enchant_filter) активного
     #       watchlist, с safety-cap MAX_BUCKETS (страховка от аномального
@@ -378,9 +428,13 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
 
         if avg_price is None or ref_price is None:
             profitable_offers_count = None
+            ev_offers_total = None
         else:
-            sell_options = make_sell_options(int(ref_price), sales_volume)
-            profitable_offers_count = await _count_profitable_offers(
+            # survival обязателен: без него у опций нет p_sold_6h, и ожидаемые
+            # рубли посчитать не из чего. Таблица читается ОДИН раз на пересчёт
+            # агрегата (кэш 60 с), поэтому на время это не влияет.
+            sell_options = make_sell_options(int(ref_price), sales_volume, None, survival)
+            profitable_offers_count, ev_offers_total = await _count_profitable_offers(
                 db, row.item_id, row.quality_filter, row.enchant_filter,
                 master, sell_options, classify_risk(volatility),
             )
@@ -399,12 +453,18 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
             "bulk_spike": bulk_spike,
             "price_window": price_window,
             "profitable_offers_count": profitable_offers_count,
+            "ev_offers_total": ev_offers_total,
         })
 
-    # ── 3b. Финальная сортировка по profitable_offers_count убыв.
-    #        (None трактуется как 0, см. docs/tasks/market-radar-sort-pagination.md) ──
+    # ── 3b. Финальная сортировка по ожидаемым рублям убыв. ──────────────────
+    # profitable_offers_count остаётся ОТОБРАЖАЕМЫМ числом («сколько сейчас
+    # можно купить» — метрика понятная), но ключом порядка быть перестал: с
+    # допуском по трём тирам он распухает почти на всех бакетах, и страница
+    # выродилась бы в «у кого больше лотов на рынке». Деньги с поправкой на
+    # вероятность продажи — тот же принцип, что у ленты и Избранного.
+    # None трактуется как 0 (см. docs/tasks/market-radar-sort-pagination.md).
     top_items.sort(
-        key=lambda x: (x["profitable_offers_count"] or 0),
+        key=lambda x: (x["ev_offers_total"] or 0),
         reverse=True,
     )
 

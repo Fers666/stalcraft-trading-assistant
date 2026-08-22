@@ -134,11 +134,28 @@ interface SignalLot {
   tier_used: string | null
   sell_price_used: number | null
   breakeven_per_unit: number | null
+  /** Ключ записи в SignalsData.variants — вариант, по опоре которого посчитан лот. */
+  variant_key?: string | null
+}
+
+/**
+ * Опора и цены продажи одного варианта «качество × заточка».
+ *
+ * ref_scope различает честную вариантную опору ('variant') и вынужденный
+ * фоллбек на предметную ('item'), когда у варианта не набралось сделок:
+ * пользователь обязан видеть разницу, иначе приближение неотличимо от расчёта.
+ */
+interface SignalVariant {
+  ref: number | null
+  ref_scope: 'variant' | 'item'
+  sell_options: SellOption[] | null
 }
 
 interface SignalsData {
   lots: SignalLot[]
   sell_options: SellOption[] | null
+  /** null — «Лента» (там опции приходят по варианту сразу) или сигнал старого формата. */
+  variants?: Record<string, SignalVariant> | null
   volume_7d: number | null
   volatility_7d: number | null
   ref: number | null
@@ -197,12 +214,18 @@ export interface ProfitableLot {
    * нет: amount = 1, нет статистики по пачкам или это не «Лента».
    */
   batchPricePct: number | null
-  /** Оценка бэкенда (тир «быстро»). null — лот из фоллбека /lots, оценки нет. */
+  /** Оценка бэкенда по тиру tierUsed. null — лот из фоллбека /lots, оценки нет. */
   profit: number | null
   profitPct: number | null
   tierUsed: string | null
   /** Цена продажи с нулевой прибылью после комиссии. */
   breakeven: number | null
+  /**
+   * Каким уровнем опоры посчитан лот: 'variant' — по своему качеству/заточке,
+   * 'item' — вынужденный фоллбек на предмет целиком (у варианта не набралось
+   * сделок). null — источник уровня опоры не сообщает («Лента», фоллбек /lots).
+   */
+  refScope: 'variant' | 'item' | null
 }
 
 /**
@@ -226,10 +249,13 @@ function feedToSignals(data: any): SignalsData | null {
       profit:             l.profit_per_unit ?? null,
       profit_pct:         l.profit_pct ?? null,
       profit_per_hour:    l.profit_per_hour ?? null,
-      // Тир, которым лот прошёл в ленту. Был захардкожен 'fast' — до
-      // e497dda бэкенд иначе и не умел. С трёхтировым допуском константа
-      // печатала прибыль тира premium под этикеткой «Быстро».
-      tier_used:          l.tier_used ?? 'fast',
+      // Тир, которым лот прошёл в ленту, — самый быстрый из подошедших
+      // (pricing.TIER_ORDER). Был захардкожен 'fast': до e497dda бэкенд иначе
+      // и не умел, и константа печатала прибыль тира premium под этикеткой
+      // «Быстро». Подменять константой нельзя — на тире завязан выбор колонки
+      // с бэкендовой прибылью. Поля нет (строка старого кэша) → null: колонка
+      // не подсветится, чужое число под этикетку не подставится.
+      tier_used:          l.tier_used ?? null,
       sell_price_used:    l.sell_price_used ?? null,
       breakeven_per_unit: l.breakeven_per_unit ?? null,
     })),
@@ -430,6 +456,24 @@ export function useLotStats({
           const factor = isFeed && basePrice && l.sell_price_used
             ? l.sell_price_used / basePrice
             : 1
+
+          // Цены варианта ЭТОГО лота (ТЗ §2). В «Избранном» бэкенд считает лот
+          // по опоре его качества/заточки, и цены на экране обязаны быть из
+          // того же расчёта — иначе прибыль одной опоры встанет под ценой
+          // другой. Только в «Неделе»: режим «Сейчас» — это what-if от текущего
+          // минимума аска, вариантная недельная опора там не при чём.
+          const variant = l.variant_key ? signals.variants?.[l.variant_key] ?? null : null
+          const variantOpts = lotMode === 'median' && variant?.sell_options
+            ? variant.sell_options.map(o => ({
+                label: o.label, label_ru: o.label_ru, price: o.price_per_unit,
+              }))
+            : null
+          const lotOpts = variantOpts ?? opts
+          // Цены строки посчитаны тем же источником, что и оценка бэкенда:
+          // «Лента» — из artifact_variant_stats, «Избранное» — из карты
+          // вариантов сигнала. Значит число бэкенда можно ставить под его же
+          // ценой, и «получишь» восстанавливается из прибыли без расхождения.
+          const ownPrices = isFeed || variantOpts != null
           // Отклонение цены пачки от штучной для подписи в UI — то же число,
           // формулы не прибавилось. Меньше 0.1% — округлилось бы в «0 %».
           const pct = Math.round((factor - 1) * 1000) / 10
@@ -439,7 +483,7 @@ export function useLotStats({
             quality_name: l.quality_name,
             enchant_level: l.enchant ?? null,
             buyPerUnit: l.buyout_per_unit,
-            profits: opts.map(sp => {
+            profits: lotOpts.map(sp => {
               const net = sp.price * factor * (1 - COMMISSION) - l.buyout_per_unit
               // Тир, по которому лот оценил САМ бэкенд, показываем его числом:
               // клиентское округление иначе даёт расхождение со строкой ленты
@@ -447,7 +491,7 @@ export function useLotStats({
               // бэкенда считана от опорной цены 7д, рядом с ценами «Сейчас» она
               // дала бы «получишь» выше цены выставления и плюс там, где what-if
               // от текущего минимума в минусе.
-              const fromBackend = isFeed && lotMode === 'median' && sp.label === l.tier_used && l.profit != null
+              const fromBackend = ownPrices && lotMode === 'median' && sp.label === l.tier_used && l.profit != null
               const perUnit = fromBackend ? (l.profit as number) : Math.round(net)
               return {
                 label: sp.label, label_ru: sp.label_ru,
@@ -455,15 +499,23 @@ export function useLotStats({
                 // самой прибыли (perUnit + цена покупки): тогда в «Вариантах продажи»
                 // «получишь − цена покупки» даёт ровно показанную прибыль, включая
                 // тир, посчитанный бэкендом.
-                priceUnit: isFeed ? Math.round(sp.price * factor) : null,
-                netUnit:   isFeed ? perUnit + l.buyout_per_unit : null,
+                priceUnit: ownPrices ? Math.round(sp.price * factor) : null,
+                netUnit:   ownPrices ? perUnit + l.buyout_per_unit : null,
                 perUnit,
                 total: fromBackend ? perUnit * l.amount : Math.round(net * l.amount),
               }
             }),
-            batchPricePct: isFeed && Math.abs(pct) >= 0.1 ? pct : null,
+            // Подпись — только для пачек: бэкенд применяет поправку лишь при
+            // amount > 1 и непустой batch_stats. При amount = 1 отклонение
+            // factor от единицы это дрейф между часовым пересчётом
+            // artifact_variant_stats и минутным циклом ленты, а не свойство
+            // пачки, — а подпись начинается словами «Цены — для пачки ×1».
+            // Сам factor не зануляем: на нём держится согласованность
+            // priceUnit / netUnit / perUnit (netUnit = perUnit + buyPerUnit).
+            batchPricePct: isFeed && l.amount > 1 && Math.abs(pct) >= 0.1 ? pct : null,
             profit: l.profit ?? null,
             profitPct: l.profit_pct ?? null,
+            refScope: variant?.ref_scope ?? null,
             tierUsed: l.tier_used ?? null,
             breakeven: l.breakeven_per_unit ?? null,
           }
@@ -500,6 +552,7 @@ export function useLotStats({
           // Фоллбек по /lots: оценки бэкенда нет, есть только клиентский what-if
           profit: null,
           profitPct: null,
+          refScope: null,
           tierUsed: null,
           breakeven: Math.round(buyPerUnit / (1 - COMMISSION)),
         }

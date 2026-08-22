@@ -456,7 +456,7 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
     from app.core.config import settings
     from app.models.models import UserWatchlist, MasterItem, MarketStatistics, UserSettings, BuyAlert
     from app.services.profitable_lots import (
-        compute_signals_for_entry, cheapest_matching_lot,
+        compute_signals_for_entry, cheapest_matching_lot, notifiable_lots,
         signals_key, buymin_key, SIGNALS_TTL,
     )
     from app.services.push_broker import publish_event
@@ -545,7 +545,13 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
                     # Несём весь signal + идентификацию — push_service дедуплицирует
                     # по каждому лоту и рендерит компактный push. dedup там же не
                     # даёт повторов между циклами.
-                    if result.get("lots") and entry.user_id is not None:
+                    #
+                    # Будим только по лотам тиров fast/normal (NOTIFY_TIERS):
+                    # сигнал в Redis выше записан ПОЛНЫМ, со всеми тремя тирами,
+                    # и premium-лот остаётся виден в карточке — он лишь не
+                    # порождает уведомления.
+                    notify = notifiable_lots(result.get("lots") or [])
+                    if notify and entry.user_id is not None:
                         await publish_event(push_exchange, {
                             "type": "profitable_lot",
                             "user_id": entry.user_id,
@@ -554,7 +560,7 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
                             "quality_filter": entry.quality_filter,
                             "enchant_filter": entry.enchant_filter,
                             "item_name": item_name,
-                            "signal": result,
+                            "signal": {**result, "lots": notify},
                         })
 
                 # Buy Sniper: публикуем самый дешёвый подходящий лот всегда —

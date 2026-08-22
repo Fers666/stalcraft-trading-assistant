@@ -674,6 +674,32 @@ def batch_bucket_for_amount(amount: int) -> Optional[str]:
     return None
 
 
+def expected_value(
+    scenarios: dict[str, tuple[int, Optional[float]]],
+) -> Optional[int]:
+    """
+    Ожидаемая прибыль лота — максимум int(p / 100 * value) по сценариям продажи.
+
+    scenarios: {тир: (прибыль всего лота в рублях, P(продан <= 6 ч) в процентах)}.
+    Максимум, а не среднее: рациональный игрок выбирает лучшую стратегию для
+    КАЖДОГО лота, а не одну на всю выдачу.
+
+    Сценарий без измеренной вероятности в максимум не входит, и если её нет ни
+    у одного — величины не существует (None, потребитель ставит такие строки в
+    конец). Подставлять p = 1 нельзя: это вернуло бы допущение «продастся
+    обязательно», ради снятия которого и заводилась кривая дожития.
+
+    Общая для ленты (feed_collector) и сигналов watchlist (profitable_lots):
+    вторая копия формулы неизбежно разошлась бы с первой.
+    """
+    candidates = [
+        int(p / 100.0 * value)
+        for value, p in scenarios.values()
+        if p is not None and value > 0
+    ]
+    return max(candidates) if candidates else None
+
+
 def evaluate_lot_profit(
     buyout_per_unit: int,
     amount: int,
