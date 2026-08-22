@@ -452,11 +452,6 @@ export function useLotStats({
           // сомножитель от тира НЕ зависит (знаменатель всегда normal). Значит
           // частное — ровно поправка на пачку, и применять её ко всем трём
           // ценам по-прежнему верно. При amount = 1 множитель равен 1.
-          const basePrice = tierPrice(l.tier_used)
-          const factor = isFeed && basePrice && l.sell_price_used
-            ? l.sell_price_used / basePrice
-            : 1
-
           // Цены варианта ЭТОГО лота (ТЗ §2). В «Избранном» бэкенд считает лот
           // по опоре его качества/заточки, и цены на экране обязаны быть из
           // того же расчёта — иначе прибыль одной опоры встанет под ценой
@@ -474,6 +469,25 @@ export function useLotStats({
           // вариантов сигнала. Значит число бэкенда можно ставить под его же
           // ценой, и «получишь» восстанавливается из прибыли без расхождения.
           const ownPrices = isFeed || variantOpts != null
+
+          // База деления — цена тира из ТОГО ЖЕ набора опций, которым бэкенд
+          // оценил лот. Раньше здесь стоял item-уровневый stats.sell_options и
+          // гейт isFeed: в «Избранном» factor оставался единицей, priceUnit
+          // печатал цену тира без поправки, а netUnit восстанавливался из
+          // прибыли, посчитанной от sell_price_used с поправкой, — и у пачки
+          // «получишь» выходило БОЛЬШЕ, чем «выставить за» (комиссия 5 % не
+          // может увеличить выручку). Разъезд доходил до +24 %.
+          // Корректность деления: _evaluate_at_tier считает sell_price =
+          // price_per_unit(тир) × (медиана_пачки / normal_price), и второй
+          // сомножитель от тира НЕ зависит (знаменатель всегда normal). Значит
+          // частное — ровно поправка на пачку, и применять её ко всем трём
+          // ценам верно. При amount = 1 множитель равен 1.
+          const basePrice = ownPrices
+            ? lotOpts.find(sp => sp.label === l.tier_used)?.price ?? null
+            : tierPrice(l.tier_used)
+          const factor = ownPrices && basePrice && l.sell_price_used
+            ? l.sell_price_used / basePrice
+            : 1
           // Отклонение цены пачки от штучной для подписи в UI — то же число,
           // формулы не прибавилось. Меньше 0.1% — округлилось бы в «0 %».
           const pct = Math.round((factor - 1) * 1000) / 10
@@ -512,7 +526,7 @@ export function useLotStats({
             // пачки, — а подпись начинается словами «Цены — для пачки ×1».
             // Сам factor не зануляем: на нём держится согласованность
             // priceUnit / netUnit / perUnit (netUnit = perUnit + buyPerUnit).
-            batchPricePct: isFeed && l.amount > 1 && Math.abs(pct) >= 0.1 ? pct : null,
+            batchPricePct: ownPrices && l.amount > 1 && Math.abs(pct) >= 0.1 ? pct : null,
             profit: l.profit ?? null,
             profitPct: l.profit_pct ?? null,
             refScope: variant?.ref_scope ?? null,

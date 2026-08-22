@@ -13,7 +13,9 @@ import statistics as _statistics
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from app.services.analytics.market_stats import COVERAGE_MEDIUM, extract_time_price_pairs
+from app.services.analytics.market_stats import (
+    COVERAGE_MEDIUM, extract_time_price_pairs, _calculate_batch_stats,
+)
 from app.services.analytics.pricing import (
     classify_risk, compute_reference, make_sell_options, evaluate_lot_profit,
     expected_value, weighted_reference, _build_sales_filter, matching_lot_prices,
@@ -117,6 +119,11 @@ def compute_variant_ref(
         "sell_options":   make_sell_options(
             ref_info["ref"], len(prices_7d), pairs_for_options, survival, item_class,
         ),
+        # Статистика пачек ЭТОГО варианта. Обязана быть вариантной: поправка на
+        # размер пачки считается как медиана_пачки / normal_price, и если
+        # числитель предметный, а знаменатель вариантный — это отношение величин
+        # из разных выборок.
+        "batch_stats":    _calculate_batch_stats(sales_variant),
     }
 
 
@@ -392,6 +399,7 @@ async def compute_signals_for_entry(
         "volatility_7d":  msg_volatility,
         "risk":           risk,
         "sell_options":   sell_options,
+        "batch_stats":    batch_stats,
     }
 
     variants: dict[str, dict] = {}
@@ -445,7 +453,8 @@ async def compute_signals_for_entry(
         # тира, меняется только множество цен, против которых он проверяется.
         evaluated = evaluate_lot_profit(
             buyout_per_unit, amount, variant_opts,
-            variant["risk"] or risk, min_profit_margin_pct, batch_stats,
+            variant["risk"] or risk, min_profit_margin_pct,
+            variant.get("batch_stats"),
             tiers=TIER_ORDER,
         )
         if evaluated is None:
@@ -502,6 +511,12 @@ async def compute_signals_for_entry(
     saturation_ratio = (
         round(total_profitable_amount / (volume_7d / 7), 2) if volume_7d else None
     )
+
+    # Карта считается лениво по КАЖДОМУ просмотренному лоту, а в сигнал попадают
+    # только выгодные, — без обрезки в payload уезжают варианты, на которые никто
+    # не ссылается (у «Ветки Калины» 29 записей на 9 лотов, 44 КБ на ключ).
+    referenced = {l["variant_key"] for l in profitable}
+    variants = {k: v for k, v in variants.items() if k in referenced}
 
     return {
         "lots":            profitable,
