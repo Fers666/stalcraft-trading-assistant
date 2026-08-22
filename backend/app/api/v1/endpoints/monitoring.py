@@ -618,6 +618,9 @@ class SignalLot(BaseModel):
     # Ключ записи в SignalsResponse.variants — вариант (qlt, ptn), по опоре
     # которого посчитан ИМЕННО этот лот (profitable_lots.variant_signal_key).
     variant_key: str | None = None
+    # "variant" — опора своего качества/заточки, "item" — вынужденный фоллбек
+    # на предмет целиком. По нему же решается, порождает ли лот уведомление.
+    ref_scope: str | None = None
 
 
 class SignalsResponse(BaseModel):
