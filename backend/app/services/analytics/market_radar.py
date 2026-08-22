@@ -405,7 +405,9 @@ async def _calculate_market_radar_aggregate(db: AsyncSession) -> dict:
             avg_price = float(stats.avg_price_24h) if stats and stats.avg_price_24h is not None else None
             ref_price = float(stats.reference_price) if stats and stats.reference_price else avg_price
             sales_volume = stats.sales_volume_24h if stats else None
-            volatility = float(stats.volatility_7d) if stats and stats.volatility_7d is not None else None
+            # Колонка называется price_volatility_7d: volatility_7d есть у
+            # artifact_variant_stats и feed_lots, но не у market_statistics.
+            volatility = float(stats.price_volatility_7d) if stats and stats.price_volatility_7d is not None else None
             bulk_spike = (stats.demand_signals or {}).get("bulk_spike") if stats and stats.demand_signals else None
             price_window = "24h"
         else:
