@@ -286,6 +286,11 @@ async def compute_signals_for_entry(
         select(
             SalesHistory.sale_time,
             SalesHistory.price_per_unit,
+            # amount нужен _calculate_batch_stats (статистика пачек варианта),
+            # total_price — extract_time_price_pairs. Без них строка Row не
+            # несёт полей, которые обе функции читают по атрибуту.
+            SalesHistory.amount,
+            SalesHistory.total_price,
             SalesHistory.additional_info,
         ).where(
             SalesHistory.item_id   == entry.item_id,
