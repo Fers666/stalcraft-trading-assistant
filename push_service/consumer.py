@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 sys.path.insert(0, "/app")
 from app.models.models import User, UserSettings, PushSubscription
 from app.core.tiers import get_tier_limits
+from app.services.analytics.pricing import COMMISSION
 from app.services.profitable_lots import NOTIF_DEDUP_TTL
 from app.services.push_broker import EXCHANGE_NAME, ROUTING_KEY
 
@@ -90,22 +91,27 @@ def _stage(text: str) -> str:
     return f"[STAGE] {text}" if IS_STAGE else text
 
 
-def _best_sell_net(sell_options: Optional[list]) -> Optional[int]:
-    """Максимальный net_price_per_unit среди вариантов продажи."""
-    if not sell_options:
-        return None
-    nets = [o.get("net_price_per_unit") for o in sell_options if o.get("net_price_per_unit")]
-    return max(nets) if nets else None
+def _sell_net(lot: dict) -> Optional[int]:
+    """
+    Чистая цена ТОГО тира, которым лот отобран (sell_price_used минус комиссия).
+
+    Раньше здесь брался максимальный net_price_per_unit по sell_options — то
+    есть ВСЕГДА premium, независимо от тира лота: push обещал прибыль, которой
+    ни в карточке, ни в сигнале нет. Это та же цена, из которой посчитан
+    lot["profit"], поэтому push и карточка теперь показывают одно число.
+    """
+    sell_price = lot.get("sell_price_used")
+    return int(sell_price * (1 - COMMISSION)) if sell_price else None
 
 
-def render_profitable_lot(item_name: str, lot: dict, sell_options: Optional[list]) -> dict:
+def render_profitable_lot(item_name: str, lot: dict) -> dict:
     buyout = lot["buyout_per_unit"]
     extra = _title_extra(lot.get("quality_name"), lot.get("enchant"))
-    best_net = _best_sell_net(sell_options)
-    if best_net is not None:
-        profit = best_net - buyout
+    net = _sell_net(lot)
+    if net is not None:
+        profit = net - buyout
         sign = "+" if profit >= 0 else ""
-        body = f"Купить {fmt(buyout)} ₽/шт → продать ~{fmt(best_net)} ₽ ({sign}{fmt(profit)} ₽)"
+        body = f"Купить {fmt(buyout)} ₽/шт → продать ~{fmt(net)} ₽ ({sign}{fmt(profit)} ₽)"
     else:
         body = f"Купить {fmt(buyout)} ₽/шт"
     return {
@@ -234,7 +240,6 @@ async def handle_profitable_lot(db, r, event: dict) -> None:
         return
 
     signal = event.get("signal", {})
-    sell_options = signal.get("sell_options")
     for lot in signal.get("lots", []):
         start_time = lot.get("start_time", "")
         dedup = (
@@ -243,7 +248,7 @@ async def handle_profitable_lot(db, r, event: dict) -> None:
         )
         if await r.exists(dedup):
             continue
-        payload = render_profitable_lot(event["item_name"], lot, sell_options)
+        payload = render_profitable_lot(event["item_name"], lot)
         if await send_to_subscriptions(db, subs, payload) > 0:
             await r.setex(dedup, NOTIF_DEDUP_TTL, "1")
             logger.info(f"Push lot user={user.id} item={event['item_id']} price={lot['buyout_per_unit']}")
