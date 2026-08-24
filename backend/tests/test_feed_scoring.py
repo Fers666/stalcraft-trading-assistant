@@ -566,8 +566,9 @@ def test_slow_scenario_is_next_tier_not_always_premium():
 
 def test_evaluate_lot_profit_defaults_to_fast_only():
     """
-    Watchlist (profitable_lots) и Радар вызывают без tiers и обязаны получить
-    прежнее поведение: лот, выгодный только по premium, для них невыгоден.
+    Умолчание ("fast",) не задето перебором тиров: лот, выгодный только по
+    premium, при вызове без tiers невыгоден. Этим же умолчанием живут сигналы
+    Избранного — они передают SIGNAL_TIERS = ("fast",).
     """
     from app.services.analytics.pricing import evaluate_lot_profit
 

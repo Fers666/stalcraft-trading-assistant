@@ -19,7 +19,7 @@ from app.services.analytics.market_stats import (
 from app.services.analytics.pricing import (
     classify_risk, compute_reference, make_sell_options, evaluate_lot_profit,
     expected_value, weighted_reference, _build_sales_filter, matching_lot_prices,
-    COMMISSION, MIN_BATCH_SAMPLES, STALE_SECONDS, TIER_ORDER,
+    COMMISSION, MIN_BATCH_SAMPLES, STALE_SECONDS,
     resolve_variant_key,
     _is_artefact, _lot_quality_enchant, _is_liquid,
 )
@@ -27,14 +27,23 @@ from app.services.analytics.pricing import (
 SIGNALS_TTL = 300       # секунд — TTL ключа сигналов (запас на случай задержки цикла)
 NOTIF_DEDUP_TTL = 48 * 3600  # 48ч — один лот нотифицируется один раз
 
-# Тиры, по которым будим пользователя (Telegram и web push). Сигнал в Redis и
-# карточка остаются полными — асимметрия намеренная и та же, что в ленте
-# (_load_observed_yield учитывает fast + NORMAL_RATIO): premium это цена с 49 %
-# вероятностью продажи за 6 часов, основанием для уведомления она не является.
-# Без этого гейта допуск по трём тирам на умолчании min_profit_margin_percent=0
-# сдвигает порог с «дешевле ref * 0.893» на «дешевле ref * 1.007» и объём
-# сообщений вырастает кратно (ТЗ profitability-criteria-unification §1.4).
-NOTIFY_TIERS: tuple[str, ...] = ("fast", "normal")
+# Тиры, по которым лот вообще ДОПУСКАЕТСЯ в сигнал Избранного.
+# С 2026-08-24 (решение пользователя) это только fast: сигнал имеет смысл
+# тогда, когда лот перепродаётся по самой быстрой цене — 81.3 % вероятности
+# продажи за 6 часов против 74.5 % у normal и 49.0 % у premium. Лот, выгодный
+# только по normal/premium, в поток сигналов не попадает — ни в карточку, ни
+# в уведомление. Этим сигналы Избранного намеренно расходятся с лентой
+# (feed_collector) и Радаром (market_radar): те по-прежнему принимают все три
+# тира по TIER_ORDER, там пользователь сам просматривает выдачу, а сигнал —
+# это адресный поток по своему предмету.
+SIGNAL_TIERS: tuple[str, ...] = ("fast",)
+
+# Тиры, по которым будим пользователя (Telegram и web push). После сужения
+# допуска до SIGNAL_TIERS этот гейт ничего дополнительно не режет и оставлен
+# как страховка на случай возврата многотирового допуска: расширять допуск в
+# карточку, не расширив молча поток уведомлений, должно быть отдельным
+# решением (ТЗ profitability-criteria-unification §1.4).
+NOTIFY_TIERS: tuple[str, ...] = ("fast",)
 
 # Уведомляем только по лотам, посчитанным СВОЕЙ опорой варианта. Фоллбек на
 # предметную опору (ref_scope="item") заведён, чтобы не терять сигнал в
@@ -474,16 +483,15 @@ async def compute_signals_for_entry(
         if not variant_opts:
             continue
 
-        # Все три тира, от быстрого к долгому: лот берётся, если выгоден хотя
-        # бы по одному, и помечается ПЕРВЫМ подошедшим — тот же допуск, что в
-        # ленте (ТЗ profitability-criteria-unification §1.1). Персональный порог
-        # min_profit_margin_pct не ослабляется: он проверяется ВНУТРИ каждого
-        # тира, меняется только множество цен, против которых он проверяется.
+        # Допуск в сигнал — ТОЛЬКО по цене fast (SIGNAL_TIERS): лот, выгодный
+        # лишь при выставлении по normal/premium, в поток сигналов не попадает
+        # вовсе. Персональный порог min_profit_margin_pct проверяется внутри
+        # тира и не ослабляется.
         evaluated = evaluate_lot_profit(
             buyout_per_unit, amount, variant_opts,
             variant["risk"] or risk, min_profit_margin_pct,
             variant.get("batch_stats"),
-            tiers=TIER_ORDER,
+            tiers=SIGNAL_TIERS,
         )
         if evaluated is None:
             continue
