@@ -546,10 +546,10 @@ async def _publish_signals(db, item_id: str, region: str, snap, redis_client=Non
                     # по каждому лоту и рендерит компактный push. dedup там же не
                     # даёт повторов между циклами.
                     #
-                    # Будим только по лотам тира fast (NOTIFY_TIERS): сигнал в
-                    # Redis выше записан ПОЛНЫМ, со всеми тремя тирами, и лоты
-                    # normal/premium остаются видны в карточке — они лишь не
-                    # порождают уведомления.
+                    # Гейт notifiable_lots: по тиру он ничего не режет (в
+                    # сигнал и так допущены только fast, SIGNAL_TIERS), режет
+                    # уровень опоры — лот, посчитанный предметным фоллбеком,
+                    # виден в карточке, но телефон не будит.
                     notify = notifiable_lots(result.get("lots") or [])
                     if notify and entry.user_id is not None:
                         await publish_event(push_exchange, {
