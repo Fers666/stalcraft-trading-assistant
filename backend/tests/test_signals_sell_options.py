@@ -8,8 +8,10 @@
 эвристику по объёму продаж.
 
 Здесь проверяется, что карточка использует те же пары и даёт тот же прогноз,
-что и статистика вариантов Ленты. К БД тесты не ходят: db подменяется заглушкой,
-возвращающей заранее заданные строки продаж.
+что и статистика вариантов Ленты. К БД тесты не ходят: db подменяется общей
+заглушкой tests/fake_db.py, отдающей строки РОВНО с теми колонками, которые
+перечислены в select() — иначе тест остаётся зелёным на коде, который читает у
+строки поле, не попавшее в выборку (так пропустили 50ea7dc).
 """
 
 from datetime import datetime, timedelta, timezone
@@ -20,44 +22,26 @@ import pytest
 from app.services.analytics.pricing import make_sell_options
 from app.services.analytics.variant_stats import compute_variant
 from app.services.profitable_lots import compute_signals_for_entry
+from tests.fake_db import FakeSession
 
 REF_PRICE = 100_000
 SELL_HOURS = 6.0        # реальное время на рынке во всех тестовых продажах
 
 
-class _FakeResult:
-    def __init__(self, rows):
-        self._rows = rows
-
-    def all(self):
-        return self._rows
-
-
-class _FakeDB:
-    """Заглушка сессии: любой execute отдаёт один и тот же набор продаж."""
-
-    def __init__(self, rows):
-        self.rows = rows
-        self.calls = 0
-
-    async def execute(self, statement):
-        self.calls += 1
-        return _FakeResult(self.rows)
-
-
 def _sale(now: datetime, hours_ago: float, price: int = REF_PRICE, with_lot_start: bool = True):
+    """Продажа как строка ТАБЛИЦЫ: какие поля попадут в Row, решает select()."""
     sale_time = now - timedelta(hours=hours_ago)
     additional = {"qlt": 4, "ptn": 15}
     if with_lot_start:
         lot_start = sale_time - timedelta(hours=SELL_HOURS)
         additional["lot_start"] = lot_start.isoformat().replace("+00:00", "Z")
-    return SimpleNamespace(
-        sale_time=sale_time,
-        price_per_unit=price,
-        amount=1,
-        total_price=price,
-        additional_info=additional,
-    )
+    return {
+        "sale_time":       sale_time,
+        "price_per_unit":  price,
+        "amount":          1,
+        "total_price":     price,
+        "additional_info": additional,
+    }
 
 
 def _sales(now: datetime, count: int = 10, with_lot_start: bool = True):
@@ -130,7 +114,7 @@ def _fast(sell_options: list[dict]) -> dict:
 async def _compute(sales, entry, stats=None, buyout: int = 50_000):
     now = datetime.now(timezone.utc)
     return await compute_signals_for_entry(
-        _FakeDB(sales), entry, _master(), stats, _snap(now, buyout),
+        FakeSession({"SalesHistory": sales}), entry, _master(), stats, _snap(now, buyout),
     )
 
 
@@ -202,7 +186,9 @@ async def test_card_and_feed_agree_on_estimated_hours():
     sales = _sales(now)
 
     card = await _compute(sales, _entry(quality_filter=4, enchant_filter=15), _stats())
-    feed = compute_variant(sales, now)
+    # Лента получает свои строки из своего select — здесь важна только парность
+    # чисел, поэтому те же продажи передаются как объекты.
+    feed = compute_variant([SimpleNamespace(**s) for s in sales], now)
 
     assert card["ref"] == feed["ref_price"]
     assert [o["estimated_hours"] for o in card["sell_options"]] == \

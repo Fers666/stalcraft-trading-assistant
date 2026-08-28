@@ -299,11 +299,12 @@ async def compute_signals_for_entry(
         select(
             SalesHistory.sale_time,
             SalesHistory.price_per_unit,
-            # amount нужен _calculate_batch_stats (статистика пачек варианта),
-            # total_price — extract_time_price_pairs. Без них строка Row не
-            # несёт полей, которые обе функции читают по атрибуту.
+            # amount читает _calculate_batch_stats (статистика пачек варианта).
+            # Колонка обязательна: без неё Row не несёт атрибута, и вариантная
+            # batch_stats падает на каждой записи — так и случилось на проде
+            # 2026-08-22. Границу сторожит tests/fake_db.py: он строит Row из
+            # самого select, поэтому удаление колонки роняет тест.
             SalesHistory.amount,
-            SalesHistory.total_price,
             SalesHistory.additional_info,
         ).where(
             SalesHistory.item_id   == entry.item_id,
