@@ -9,8 +9,8 @@ export interface SignalIconProps {
   src?: string
   /** Подпись сигнала — из неё берётся фолбэк-буква. */
   label: string
-  /** Цвет качества для фолбэк-буквы. */
-  color: string
+  /** Цвет качества для фолбэк-буквы. `null` — качество не задано (qualityColor). */
+  color: string | null
   /** Сторона контейнера в px. */
   size: number
 }
