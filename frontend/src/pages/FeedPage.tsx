@@ -25,7 +25,8 @@ import { fmtN, fmtP, fmtCompact } from '../utils/format'
 import { qualityKeyByValue, iconUrl } from '../utils/i18n'
 import {
   fetchFeedLots, fetchFeedSummary, fetchFeedFilters, fmtSellTime,
-  feedGroupLabel, feedGroupOrder, feedTierLabel, feedTierOrder, FEED_TIER_HINT,
+  feedGroupLabel, feedGroupOrder, feedTierLabel, feedTierOrder, isTopFeedTier,
+  FEED_TIER_HINT,
   type FeedTier,
   type FeedLot, type FeedLotsResponse, type FeedSummaryResponse,
   type FeedFiltersResponse, type FeedSortKey,
@@ -475,7 +476,14 @@ export default function FeedPage() {
               комиссия), она есть всегда. А срок и вероятность берутся из кривой
               дожития: у снаряжения страты набирают объём неделями, и до тех пор
               подпись честно пустая. Зелёным её не красим — зелёное здесь
-              означает измеренную величину. */}
+              означает измеренную величину.
+
+              Пустота бывает двух РАЗНЫХ причин, и подпись обязана их различать:
+              у верхнего тира сценария «продать дороже» нет по построению (см.
+              tip колонки и TIER_ORDER на бэкенде), а у прочих строк он есть, но
+              страта ещё не набрала MIN_STRATUM_N. Общее «прогноз не измерен»
+              читалось как «у лота нет прогноза» — хотя собственный прогноз
+              строки стоит в соседней колонке слева. */}
           <Cell
             tone={lot.profit_total_slow != null ? 'g' : undefined}
             subTone={lot.p_sold_6h_slow != null ? 'g' : undefined}
@@ -483,7 +491,9 @@ export default function FeedPage() {
             sub={
               lot.p_sold_6h_slow != null
                 ? `${fmtSellTime(lot.est_sell_hours_slow)} · ${lot.p_sold_6h_slow} % за 6 ч`
-                : 'прогноз не измерен'
+                : isTopFeedTier(lot.tier_used)
+                  ? 'выше тира нет'
+                  : 'прогноз не измерен'
             }
           />
         </td>

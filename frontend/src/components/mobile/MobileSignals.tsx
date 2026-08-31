@@ -4,6 +4,7 @@ import { QLT_NAMES } from '../../store/feedStore'
 import { useFeedPolling } from '../../hooks/useFeedPolling'
 import { iconUrl, qualityColor } from '../../utils/i18n'
 import { tokens, fs } from '../../theme'
+import SignalIcon from '../ui/SignalIcon'
 import { signalsVisible } from '../GlobalFeed'
 
 // Лента сигналов (мобайл) — контракт .msignals (mobile.css). Горизонтальный
@@ -122,26 +123,12 @@ export default function MobileSignals() {
               }}
             >
               {/* .sig-ico */}
-              <Box
-                sx={{
-                  width: 30,
-                  height: 30,
-                  flex: 'none',
-                  position: 'relative',
-                  background: tokens.bg2,
-                  border: `1px solid ${tokens.border}`,
-                  display: 'grid',
-                  placeItems: 'center',
-                }}
-              >
-                {iconUrl(entry.icon_path) ? (
-                  <Box component="img" src={iconUrl(entry.icon_path) ?? undefined} alt="" sx={{ width: 26, height: 26, objectFit: 'contain' }} />
-                ) : (
-                  <Box component="span" sx={{ fontSize: fs.f13, fontWeight: 700, color: qColor }}>
-                    {label[0] ?? '?'}
-                  </Box>
-                )}
-              </Box>
+              <SignalIcon
+                src={iconUrl(entry.icon_path) ?? undefined}
+                label={label}
+                color={qColor}
+                size={30}
+              />
 
               {/* .msig .m */}
               <Box sx={{ flex: 1, minWidth: 0, lineHeight: 1.3 }}>

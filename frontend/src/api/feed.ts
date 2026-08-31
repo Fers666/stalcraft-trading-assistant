@@ -205,6 +205,19 @@ export function feedTierOrder(tier: string): number {
   return i === -1 ? FEED_TIERS.length : i
 }
 
+/**
+ * Верхний тир: выше него сценария «продать дороже» не существует, поэтому у
+ * таких строк колонка пуста ПО ПОСТРОЕНИЮ, а не из-за нехватки данных.
+ *
+ * Граница живёт здесь, рядом с FEED_TIERS, а не в компоненте: сравнение с
+ * литералом 'premium' пришлось бы править вручную при добавлении тира, и до
+ * тех пор строки нового верхнего тира жаловались бы на неизмеренный прогноз.
+ * Неизвестный тир верхним не считается (feedTierOrder вернёт length).
+ */
+export function isTopFeedTier(tier: string): boolean {
+  return feedTierOrder(tier) === FEED_TIERS.length - 1
+}
+
 /** Ключи сортировки — соответствуют data-k прототипа и sort бэкенда. */
 export type FeedSortKey =
   | 'ev_profit' | 'profit_total' | 'profit_pct' | 'profit_per_hour'
