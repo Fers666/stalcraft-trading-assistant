@@ -40,6 +40,15 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        # Ключи .env, не описанные полями, игнорируются, а не роняют старт.
+        # Из ПРОЦЕССНОГО окружения pydantic-settings и так берёт только
+        # совпадающие имена — в Docker лишние POSTGRES_PASSWORD / APP_ENV
+        # никогда не мешали. А dotenv-источник читает файл целиком, поэтому
+        # запуск из корня репозитория (там общий .env для docker compose)
+        # падал валидацией: `pytest` из корня давал ошибку сборки у каждого
+        # теста, импортирующего конфиг. Это выравнивает два источника, а не
+        # ослабляет проверку.
+        extra = "ignore"
 
     @property
     def stalcraft_base_url(self) -> str:

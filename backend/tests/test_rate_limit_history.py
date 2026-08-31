@@ -95,9 +95,16 @@ def test_lua_uses_the_ttl_constant_not_a_literal():
 def _history(values: dict, hours: int = 24, now: float | None = None) -> dict:
     return asyncio.run(
         rate_limiter.get_history(
-            hours=hours, redis_client=FakeRedis(values), now=now or time.time()
+            hours=hours, redis_client=FakeRedis(values), now=now or _NOW
         )
     )
+
+
+# Время в тестах заморожено на СЕРЕДИНЕ часа. Часовые тесты исходят из того,
+# что минутные ключи «1-3 минуты назад» лежат в том же часе, что и now, — на
+# реальных часах это неверно первые пару минут каждого часа, и набор краснел
+# ~3 % запусков без единого изменения в коде (поймано 2026-08-31 в 21:00 UTC).
+_NOW = (int(time.time()) // 3600) * 3600 + 1800
 
 
 def _minute_values(now: float, per_minute: dict[int, int]) -> dict:
@@ -112,7 +119,7 @@ def test_peak_and_median_ignore_missing_minutes():
     Отсутствующий ключ не должен попадать в выборку нулём: иначе медиана
     поедет вниз, и панель покажет запас там, где его нет.
     """
-    now = time.time()
+    now = _NOW
     values = _minute_values(now, {1: 100, 2: 178, 3: 150})
 
     result = _history(values, now=now)
@@ -124,7 +131,7 @@ def test_peak_and_median_ignore_missing_minutes():
 
 def test_empty_history_does_not_crash():
     """Свежий Redis: данных нет — это не ошибка, это ноль наблюдений."""
-    result = _history({}, now=time.time())
+    result = _history({}, now=_NOW)
 
     assert result["minutes_observed"] == 0
     assert result["peak_units_per_minute"] == 0
@@ -134,7 +141,7 @@ def test_empty_history_does_not_crash():
 
 def test_window_is_limited_by_hours():
     """Минуты старше запрошенного окна в выборку не берутся."""
-    now = time.time()
+    now = _NOW
     values = _minute_values(now, {1: 50, 61: 400})   # 61 минуту назад — вне окна в 1 ч
 
     result = _history(values, hours=1, now=now)
@@ -145,14 +152,14 @@ def test_window_is_limited_by_hours():
 
 def test_capacity_is_reported():
     """Потолок нужен рядом с числами, иначе 178 не с чем сравнить."""
-    assert _history({}, now=time.time())["capacity_per_minute"] == rate_limiter.CAPACITY
+    assert _history({}, now=_NOW)["capacity_per_minute"] == rate_limiter.CAPACITY
 
 
 def test_hours_are_grouped_with_peak_and_errors():
     """
     Столбик часа — это пиковая минута часа, а не среднее: 429 приходят на пике.
     """
-    now = time.time()
+    now = _NOW
     current_hour = int(now // 3600)
     values = _minute_values(now, {1: 100, 2: 178})
     values[f"stalcraft:errors:{ERROR_429}:hour:{current_hour}"] = "2"
@@ -170,7 +177,7 @@ def test_hours_are_grouped_with_peak_and_errors():
 
 
 def test_totals_sum_across_hours():
-    now = time.time()
+    now = _NOW
     current_hour = int(now // 3600)
     values = {
         f"stalcraft:errors:{ERROR_429}:hour:{current_hour}": "1",
@@ -187,7 +194,7 @@ def test_totals_sum_across_hours():
 def test_redis_failure_degrades_to_fallback_not_500():
     """Панель админа не должна падать из-за недоступной операционной метрики."""
     result = asyncio.run(
-        rate_limiter.get_history(redis_client=FakeRedis(broken=True), now=time.time())
+        rate_limiter.get_history(redis_client=FakeRedis(broken=True), now=_NOW)
     )
 
     assert result["source"] == "fallback"
@@ -200,7 +207,7 @@ def test_partial_coverage_is_reported_honestly():
     minutes_observed — признак того, насколько картина полна. Без него
     «пик 178» из трёх наблюдений неотличим от пика за полные сутки.
     """
-    now = time.time()
+    now = _NOW
     result = _history(_minute_values(now, {i: 10 for i in range(1, 51)}), now=now)
 
     assert result["minutes_observed"] == 50
@@ -211,7 +218,7 @@ def test_partial_coverage_is_reported_honestly():
 
 def test_incr_error_writes_hourly_key_with_ttl():
     r = FakeRedis()
-    now = time.time()
+    now = _NOW
     key = f"stalcraft:errors:{ERROR_429}:hour:{int(now // 3600)}"
 
     asyncio.run(incr_error(ERROR_429, redis_client=r, now=now))
@@ -225,7 +232,7 @@ def test_incr_error_records_last_429_path():
     r = FakeRedis()
 
     asyncio.run(incr_error(
-        ERROR_429, redis_client=r, path="/RU/auction/wg53/lots", now=time.time(),
+        ERROR_429, redis_client=r, path="/RU/auction/wg53/lots", now=_NOW,
     ))
 
     assert "wg53" in r.values[LAST_429_KEY]
@@ -237,7 +244,7 @@ def test_incr_error_never_raises_when_redis_is_broken():
     молча игнорируется. Иначе падение Redis превратится в падение сборщика.
     """
     asyncio.run(incr_error(
-        ERROR_LIMITER_TIMEOUT, redis_client=FakeRedis(broken=True), now=time.time(),
+        ERROR_LIMITER_TIMEOUT, redis_client=FakeRedis(broken=True), now=_NOW,
     ))
 
 
@@ -247,7 +254,7 @@ def test_guard_trips_use_their_own_key():
     не собраны. Смешивать его с 429 в одном счётчике нельзя.
     """
     r = FakeRedis()
-    now = time.time()
+    now = _NOW
 
     asyncio.run(incr_error("guard_trips", redis_client=r, now=now))
 
@@ -258,8 +265,10 @@ def test_guard_trips_use_their_own_key():
 # Предохранитель ленты читает расход отсюда же — источник правды должен быть один.
 
 def test_recent_consumption_takes_max_of_two_minutes():
-    now = time.time()
-    minute = int(now // 60)
+    # Единственный тест файла, где время НЕ замораживается: recent_consumption
+    # не принимает now и читает часы сама, поэтому ключи обязаны строиться по
+    # тем же настоящим часам. С _NOW (середина часа) они разъезжались.
+    minute = int(time.time() // 60)
     values = {f"{MINUTE_PREFIX}{minute}": "3", f"{MINUTE_PREFIX}{minute - 1}": "350"}
 
     assert asyncio.run(
