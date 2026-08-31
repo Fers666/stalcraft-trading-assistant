@@ -97,6 +97,7 @@ ORM: SQLAlchemy 2.0 async. Миграции: Alembic.
 | `name_en` | varchar(200) | Английское название |
 | `category` | varchar(50) | Категория (напр. `artefact/biochemical`, `weapon/assault_rifle`) |
 | `bind_state` | varchar(30) | `status.state` из GitHub — **привязка**, НЕ торгуемость. Больше не источник статуса «появляется ли на аукционе» (заменён на `on_auction`, миграция 0036). Остаётся как метаданные GitHub и fallback для непроверенных предметов (`on_auction IS NULL`) в фильтре `/items` |
+| `icon_path` | varchar, nullable | Путь к иконке внутри каталога EXBO (напр. `/icons/artefact/electrophysical/9nd0.png`) либо локальный `/arsenal-icons/{item_id}.webp`. Полный URL собирает `iconUrl()` (`frontend/src/utils/i18n.ts`); `NULL` → фолбэк-буква в цвете качества |
 | `can_be_batch_traded` | bool | Можно ли торговать пачками (false для оружия, брони) |
 | `last_updated` | timestamptz | Дата последней синхронизации с GitHub |
 | `on_auction` | bool, nullable | Реальная торгуемость по данным Stalcraft API (миграция 0036). `NULL` = ещё не проверено, `TRUE` = торгуется, `FALSE` = не появляется на аукционе. Заполняется задачей `audit_auction_status` (см. `docs/SERVICES.md`) |
@@ -144,6 +145,15 @@ stalzone-monitor, EXBO global-ветка); эти строки **не содер
 задачу `audit_auction_status`. Поле `icon_path` у 40 из 317 записей указывает на локальные иконки
 в `frontend/public/arsenal-icons/{item_id}.webp` (webp-формат), остальные имеют `icon_path = NULL`
 (фолбэк-отображение буквы на фронте — см. `iconUrl()` в `frontend/src/utils/i18n.ts`).
+
+**Откуда браузер берёт иконки (с 2026-08-31).** Не-локальные `icon_path` дополняются
+базой `https://cdn.jsdelivr.net/gh/EXBO-Studio/stalzone-database@main/ru` — jsDelivr,
+зеркало того же репозитория. Прямой `raw.githubusercontent.com` **заблокирован по SNI**
+у российских провайдеров: DNS резолвится, TCP-коннект проходит, рвётся TLS-хендшейк,
+запрос висит ~5 с и иконка не приезжает. Синк каталога (`github_parser.py`) при этом
+ходит на `raw.githubusercontent.com` **по-прежнему** — он выполняется с прод-сервера,
+у которого выход в GitHub есть, а jsDelivr держит ссылку на ветку `@main` в кэше до 12 ч,
+что для каталога уже заметная задержка. Оба хоста менять синхронно не нужно.
 
 ---
 

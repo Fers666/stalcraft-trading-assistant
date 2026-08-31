@@ -131,7 +131,10 @@ export function formatLastUpdate(iso: string | null | undefined): string | null 
   return `${date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}, ${time}`
 }
 
-const ICON_BASE = 'https://raw.githubusercontent.com/EXBO-Studio/stalzone-database/main/ru'
+// jsDelivr — зеркало того же репозитория EXBO. raw.githubusercontent.com отдаёт те же
+// файлы, но заблокирован по SNI у российских провайдеров: TLS-хендшейк рвётся, запрос
+// висит ~5 с и иконки не приезжают вовсе (замер 2026-08-31).
+const ICON_BASE = 'https://cdn.jsdelivr.net/gh/EXBO-Studio/stalzone-database@main/ru'
 
 /** Возвращает полный URL иконки предмета */
 export function iconUrl(iconPath: string | null | undefined): string | null {

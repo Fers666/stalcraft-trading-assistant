@@ -4,6 +4,7 @@ import { QLT_NAMES } from '../store/feedStore'
 import { useFeedPolling } from '../hooks/useFeedPolling'
 import { iconUrl, qualityColor } from '../utils/i18n'
 import { tokens, fs } from '../theme'
+import SignalIcon from './ui/SignalIcon'
 
 // Лента сигналов — контракт .signals (base.css:104-136).
 // Панель bg1 в 12px от навбара, боковые поля 16px.
@@ -197,31 +198,12 @@ export default function GlobalFeed() {
               }}
             >
               {/* .sig-ico */}
-              <Box
-                sx={{
-                  width: 28,
-                  height: 28,
-                  flexShrink: 0,
-                  position: 'relative',
-                  display: 'grid',
-                  placeItems: 'center',
-                  background: tokens.bg2,
-                  border: `1px solid ${tokens.border}`,
-                }}
-              >
-                {iconUrl(entry.icon_path) ? (
-                  <Box
-                    component="img"
-                    src={iconUrl(entry.icon_path) ?? undefined}
-                    alt=""
-                    sx={{ width: 24, height: 24, objectFit: 'contain' }}
-                  />
-                ) : (
-                  <Box component="span" sx={{ fontSize: fs.f13, fontWeight: 700, color: qColor }}>
-                    {label[0] ?? '?'}
-                  </Box>
-                )}
-              </Box>
+              <SignalIcon
+                src={iconUrl(entry.icon_path) ?? undefined}
+                label={label}
+                color={qColor}
+                size={28}
+              />
 
               {/* .sig-main */}
               <Box sx={{ flex: 1, minWidth: 0, lineHeight: 1.25 }}>
