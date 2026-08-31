@@ -600,7 +600,8 @@ DIRECT-exchange `push.events` (fan-out по routing_key `push`): `push.notificat
 **`collect_artifact_lots`** (beat `crontab(minute="*")`) — обход набора ленты
 (`feed_scope_clause()`, 382 предмета) и перезапись `feed_lots`.
 
-Ключевые константы (значения **до калибровки на проде**, см. `docs/NOTES.md`):
+Ключевые константы (**сверены с `feed_collector.py` 2026-08-29**; калибровка на проде
+пройдена — замеры 2026-08-07 / 08-19 / 08-21, см. `docs/CHANGELOG.md`):
 
 ```python
 FEED_BUDGET_UNITS_PER_MIN = 200   # потолок расхода за прогон (50% лимита 400)
